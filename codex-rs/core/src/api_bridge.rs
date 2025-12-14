@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use chrono::Utc;
+use codex_api::AuthHeaderType;
 use codex_api::AuthProvider as ApiAuthProvider;
 use codex_api::TransportError;
 use codex_api::error::ApiError;
@@ -104,10 +105,16 @@ pub(crate) async fn auth_provider_from_auth(
     auth: Option<CodexAuth>,
     provider: &ModelProviderInfo,
 ) -> crate::error::Result<CoreAuthProvider> {
+    // Determine the effective auth header type for this provider
+    let auth_header_type = provider.effective_auth_header_type();
+    let is_azure = provider.is_azure_endpoint();
+
     if let Some(api_key) = provider.api_key()? {
         return Ok(CoreAuthProvider {
             token: Some(api_key),
             account_id: None,
+            auth_header_type,
+            is_azure,
         });
     }
 
@@ -115,6 +122,8 @@ pub(crate) async fn auth_provider_from_auth(
         return Ok(CoreAuthProvider {
             token: Some(token),
             account_id: None,
+            auth_header_type,
+            is_azure,
         });
     }
 
@@ -123,11 +132,15 @@ pub(crate) async fn auth_provider_from_auth(
         Ok(CoreAuthProvider {
             token: Some(token),
             account_id: auth.get_account_id(),
+            auth_header_type,
+            is_azure,
         })
     } else {
         Ok(CoreAuthProvider {
             token: None,
             account_id: None,
+            auth_header_type,
+            is_azure,
         })
     }
 }
@@ -145,10 +158,23 @@ struct UsageErrorBody {
     resets_at: Option<i64>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct CoreAuthProvider {
     token: Option<String>,
     account_id: Option<String>,
+    auth_header_type: AuthHeaderType,
+    is_azure: bool,
+}
+
+impl Default for CoreAuthProvider {
+    fn default() -> Self {
+        Self {
+            token: None,
+            account_id: None,
+            auth_header_type: AuthHeaderType::Bearer,
+            is_azure: false,
+        }
+    }
 }
 
 impl ApiAuthProvider for CoreAuthProvider {
@@ -156,7 +182,19 @@ impl ApiAuthProvider for CoreAuthProvider {
         self.token.clone()
     }
 
+    fn api_key(&self) -> Option<String> {
+        self.token.clone()
+    }
+
+    fn auth_header_type(&self) -> AuthHeaderType {
+        self.auth_header_type.clone()
+    }
+
     fn account_id(&self) -> Option<String> {
         self.account_id.clone()
+    }
+
+    fn is_azure(&self) -> bool {
+        self.is_azure
     }
 }

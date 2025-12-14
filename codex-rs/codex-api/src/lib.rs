@@ -12,6 +12,7 @@ pub use codex_client::RequestTelemetry;
 pub use codex_client::ReqwestTransport;
 pub use codex_client::TransportError;
 
+pub use crate::auth::AuthHeaderType;
 pub use crate::auth::AuthProvider;
 pub use crate::common::CompactionInput;
 pub use crate::common::Prompt;
