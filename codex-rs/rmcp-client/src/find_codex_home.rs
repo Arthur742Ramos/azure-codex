@@ -1,4 +1,4 @@
-use codex_common::branding::{CONFIG_DIR_NAME, ENV_VAR_HOME};
+use codex_branding::{CONFIG_DIR_NAME, ENV_VAR_HOME};
 use dirs::home_dir;
 use std::path::PathBuf;
 

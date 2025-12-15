@@ -1,0 +1,12 @@
+[package]
+name = "codex-branding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Azure Codex branding constants and configuration"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Minimal dependencies - this crate should be a leaf node

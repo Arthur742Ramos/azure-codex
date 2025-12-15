@@ -1,5 +1,5 @@
-// Azure Codex branding constants - always available
-pub mod branding;
+// Azure Codex branding constants - re-exported from codex-branding crate
+pub use codex_branding as branding;
 
 #[cfg(feature = "cli")]
 mod approval_mode_cli_arg;

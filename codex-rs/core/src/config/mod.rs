@@ -1283,7 +1283,7 @@ fn default_review_model() -> String {
 /// - If `AZURE_CODEX_HOME` is not set, this function does not verify that the
 ///   directory exists.
 pub fn find_codex_home() -> std::io::Result<PathBuf> {
-    use codex_common::branding::{CONFIG_DIR_NAME, ENV_VAR_HOME};
+    use codex_branding::{CONFIG_DIR_NAME, ENV_VAR_HOME};
 
     // Honor the `AZURE_CODEX_HOME` environment variable when it is set to allow users
     // (and tests) to override the default location.

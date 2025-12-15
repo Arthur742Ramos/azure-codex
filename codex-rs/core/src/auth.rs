@@ -1,4 +1,6 @@
 mod storage;
+pub mod azure;
+pub mod azure_config;
 
 use chrono::Utc;
 use reqwest::StatusCode;

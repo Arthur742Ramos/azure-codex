@@ -949,6 +949,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-branding"
+version = "0.0.0"
+
+[[package]]
 name = "codex-chatgpt"
 version = "0.0.0"
 dependencies = [
@@ -1076,6 +1080,7 @@ name = "codex-common"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "codex-branding",
  "codex-core",
  "codex-lmstudio",
  "codex-ollama",
@@ -1101,6 +1106,7 @@ dependencies = [
  "codex-apply-patch",
  "codex-arg0",
  "codex-async-utils",
+ "codex-branding",
  "codex-client",
  "codex-core",
  "codex-execpolicy",
@@ -1497,6 +1503,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "axum",
+ "codex-branding",
  "codex-keyring-store",
  "codex-protocol",
  "dirs",

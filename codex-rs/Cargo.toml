@@ -8,6 +8,7 @@ members = [
     "app-server-test-client",
     "apply-patch",
     "arg0",
+    "branding",
     "feedback",
     "codex-backend-openapi-models",
     "cloud-tasks",
@@ -68,6 +69,7 @@ codex-apply-patch = { path = "apply-patch" }
 codex-arg0 = { path = "arg0" }
 codex-async-utils = { path = "async-utils" }
 codex-backend-client = { path = "backend-client" }
+codex-branding = { path = "branding" }
 codex-chatgpt = { path = "chatgpt" }
 codex-client = { path = "codex-client" }
 codex-common = { path = "common" }

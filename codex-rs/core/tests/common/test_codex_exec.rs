@@ -1,5 +1,5 @@
 #![allow(clippy::expect_used)]
-use codex_core::auth::CODEX_API_KEY_ENV_VAR;
+use codex_core::auth::AZURE_CODEX_API_KEY_ENV_VAR;
 use std::path::Path;
 use tempfile::TempDir;
 use wiremock::MockServer;
@@ -14,8 +14,8 @@ impl TestCodexExecBuilder {
         let mut cmd = assert_cmd::Command::cargo_bin("codex-exec")
             .expect("should find binary for codex-exec");
         cmd.current_dir(self.cwd.path())
-            .env("CODEX_HOME", self.home.path())
-            .env(CODEX_API_KEY_ENV_VAR, "dummy");
+            .env("AZURE_CODEX_HOME", self.home.path())
+            .env(AZURE_CODEX_API_KEY_ENV_VAR, "dummy");
         cmd
     }
     pub fn cmd_with_server(&self, server: &MockServer) -> assert_cmd::Command {
