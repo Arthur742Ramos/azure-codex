@@ -3,11 +3,15 @@
 //! This module provides functionality to discover and list Azure OpenAI
 //! deployments using the Azure CLI.
 
-use codex_protocol::openai_models::{ModelPreset, ReasoningEffort, ReasoningEffortPreset};
+use codex_protocol::openai_models::ModelPreset;
+use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::openai_models::ReasoningEffortPreset;
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, warn};
+use tracing::debug;
+use tracing::error;
+use tracing::warn;
 
 /// Information about an Azure OpenAI deployment.
 #[derive(Debug, Clone, Deserialize)]

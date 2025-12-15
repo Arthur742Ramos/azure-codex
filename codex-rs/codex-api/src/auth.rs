@@ -1,5 +1,6 @@
 use codex_client::Request;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::fmt;
 
 /// Authentication header type for API requests.

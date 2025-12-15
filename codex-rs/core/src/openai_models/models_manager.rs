@@ -11,7 +11,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::sync::TryLockError;
-use tracing::{debug, error};
+use tracing::debug;
+use tracing::error;
 
 use super::cache;
 use super::cache::ModelsCache;
