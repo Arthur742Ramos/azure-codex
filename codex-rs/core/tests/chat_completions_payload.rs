@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use codex_api::AuthHeaderType;
 use codex_app_server_protocol::AuthMode;
 use codex_core::ContentItem;
 use codex_core::LocalShellAction;
@@ -12,7 +13,6 @@ use codex_core::ModelProviderInfo;
 use codex_core::Prompt;
 use codex_core::ResponseItem;
 use codex_core::WireApi;
-use codex_api::AuthHeaderType;
 use codex_core::openai_models::models_manager::ModelsManager;
 use codex_otel::otel_manager::OtelManager;
 use codex_protocol::ConversationId;

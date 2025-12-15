@@ -3,6 +3,7 @@ use codex_core::AuthManager;
 use std::sync::Arc;
 use tracing_test::traced_test;
 
+use codex_api::AuthHeaderType;
 use codex_core::CodexAuth;
 use codex_core::ContentItem;
 use codex_core::ModelClient;
@@ -11,7 +12,6 @@ use codex_core::Prompt;
 use codex_core::ResponseEvent;
 use codex_core::ResponseItem;
 use codex_core::WireApi;
-use codex_api::AuthHeaderType;
 use codex_core::openai_models::models_manager::ModelsManager;
 use codex_otel::otel_manager::OtelManager;
 use codex_protocol::ConversationId;
