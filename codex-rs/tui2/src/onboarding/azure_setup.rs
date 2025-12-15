@@ -259,10 +259,7 @@ impl AzureSetupWidget {
         let endpoint = self.endpoint_input.read().unwrap();
         let lines: Vec<Line> = vec![
             "".into(),
-            Line::from(vec![
-                "  ".into(),
-                "No GPT deployments found".bold().red(),
-            ]),
+            Line::from(vec!["  ".into(), "No GPT deployments found".bold().red()]),
             "".into(),
             Line::from(vec!["  Endpoint: ".dim(), endpoint.clone().cyan()]),
             "".into(),
