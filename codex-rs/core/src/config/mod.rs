@@ -2944,6 +2944,9 @@ model_verbosity = "high"
             stream_max_retries: Some(10),
             stream_idle_timeout_ms: Some(300_000),
             requires_openai_auth: false,
+            auth_header_type: Default::default(),
+            is_azure: false,
+            skip_azure_detection: false,
         };
         let model_provider_map = {
             let mut model_provider_map = built_in_model_providers();
@@ -3050,6 +3053,9 @@ model_verbosity = "high"
                 animations: true,
                 show_tooltips: true,
                 otel: OtelConfig::default(),
+                azure_endpoint: None,
+                azure_api_version: None,
+                azure_auth: None,
             },
             o3_profile_config
         );
@@ -3124,6 +3130,9 @@ model_verbosity = "high"
             animations: true,
             show_tooltips: true,
             otel: OtelConfig::default(),
+            azure_endpoint: None,
+            azure_api_version: None,
+            azure_auth: None,
         };
 
         assert_eq!(expected_gpt3_profile_config, gpt3_profile_config);
@@ -3213,6 +3222,9 @@ model_verbosity = "high"
             animations: true,
             show_tooltips: true,
             otel: OtelConfig::default(),
+            azure_endpoint: None,
+            azure_api_version: None,
+            azure_auth: None,
         };
 
         assert_eq!(expected_zdr_profile_config, zdr_profile_config);
@@ -3288,6 +3300,9 @@ model_verbosity = "high"
             animations: true,
             show_tooltips: true,
             otel: OtelConfig::default(),
+            azure_endpoint: None,
+            azure_api_version: None,
+            azure_auth: None,
         };
 
         assert_eq!(expected_gpt5_profile_config, gpt5_profile_config);

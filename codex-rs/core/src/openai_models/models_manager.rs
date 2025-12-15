@@ -365,6 +365,9 @@ mod tests {
             stream_max_retries: Some(0),
             stream_idle_timeout_ms: Some(5_000),
             requires_openai_auth: false,
+            auth_header_type: Default::default(),
+            is_azure: false,
+            skip_azure_detection: false,
         }
     }
 
