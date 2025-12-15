@@ -157,10 +157,9 @@ pub(crate) async fn auth_provider_from_auth(
             Err(e) => {
                 tracing::error!("Failed to get Azure Entra ID token: {}", e);
                 return Err(crate::error::CodexErr::Authentication(format!(
-                    "Azure authentication failed: {}. Please ensure you are logged in via Azure CLI, \
+                    "Azure authentication failed: {e}. Please ensure you are logged in via Azure CLI, \
                      have AZURE_CLIENT_ID/AZURE_CLIENT_SECRET/AZURE_TENANT_ID set, \
-                     or are running in Azure with managed identity.",
-                    e
+                     or are running in Azure with managed identity."
                 )));
             }
         }

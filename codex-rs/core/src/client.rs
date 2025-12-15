@@ -164,7 +164,7 @@ impl ModelClient {
                 .provider
                 .to_api_provider_with_model(auth.as_ref().map(|a| a.mode), Some(&model))?;
             let api_auth = auth_provider_from_auth(
-                self.azure_auth.as_ref().map(|a| a.as_ref()),
+                self.azure_auth.as_ref().map(AsRef::as_ref),
                 &self.provider,
             )
             .await?;
@@ -265,7 +265,7 @@ impl ModelClient {
                 .provider
                 .to_api_provider_with_model(auth.as_ref().map(|a| a.mode), Some(&model))?;
             let api_auth = auth_provider_from_auth(
-                self.azure_auth.as_ref().map(|a| a.as_ref()),
+                self.azure_auth.as_ref().map(AsRef::as_ref),
                 &self.provider,
             )
             .await?;
@@ -361,7 +361,7 @@ impl ModelClient {
             .provider
             .to_api_provider_with_model(auth.as_ref().map(|a| a.mode), Some(&model))?;
         let api_auth = auth_provider_from_auth(
-            self.azure_auth.as_ref().map(|a| a.as_ref()),
+            self.azure_auth.as_ref().map(AsRef::as_ref),
             &self.provider,
         )
         .await?;

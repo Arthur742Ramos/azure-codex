@@ -598,13 +598,9 @@ impl Session {
             config.mcp_oauth_credentials_store_mode,
         );
         let azure_auth_fut = async {
-            if let Some(azure_config) = config.azure_auth.clone() {
-                Some(std::sync::Arc::new(
-                    crate::auth::azure::AzureAuth::new(azure_config),
-                ))
-            } else {
-                None
-            }
+            config.azure_auth.clone().map(|azure_config| {
+                std::sync::Arc::new(crate::auth::azure::AzureAuth::new(azure_config))
+            })
         };
 
         // Join all independent futures.
