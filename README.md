@@ -43,9 +43,12 @@ Azure Codex supports multiple authentication methods through Azure Entra ID:
 |--------|----------|
 | **Azure CLI** | Development machines (`az login`) |
 | **Managed Identity** | Azure VMs, App Service, Functions |
-| **Service Principal** | CI/CD pipelines, automation |
+| **Service Principal (Secret)** | CI/CD pipelines, automation |
+| **Service Principal (Certificate)** | High-security environments |
 | **Device Code Flow** | Headless/SSH environments |
 | **Environment Credentials** | Container deployments |
+
+Supports Azure Public, US Government, and China clouds.
 
 ### Simplified Configuration
 
@@ -132,7 +135,7 @@ cargo build -p codex-cli --release
    az login
    ```
 
-2. **Create config file** at `~/.codex/config.toml`:
+2. **Create config file** at `~/.azure-codex/config.toml`:
    ```toml
    azure_endpoint = "https://your-resource.openai.azure.com"
    model = "gpt-4o"  # Your deployment name
@@ -152,7 +155,7 @@ That's it! Azure Codex will authenticate using your Azure CLI credentials and co
 ### Minimal Configuration
 
 ```toml
-# ~/.codex/config.toml
+# ~/.azure-codex/config.toml
 azure_endpoint = "https://your-resource.openai.azure.com"
 model = "gpt-4o"
 ```
@@ -171,13 +174,18 @@ azure_api_version = "2024-10-21"
 
 # Azure authentication configuration (optional)
 [azure_auth]
-# Auth mode: "default", "azure_cli", "managed_identity", "client_secret", "device_code"
+# Auth mode: "default", "azure_cli", "managed_identity", "client_secret",
+#            "client_certificate", "device_code", "environment"
 mode = "default"  # "default" tries all methods in order
+
+# Azure cloud: "public" (default), "us_government", "china"
+# cloud = "public"
 
 # For service principal authentication
 # tenant_id = "your-tenant-id"
 # client_id = "your-client-id"
 # client_secret = "your-client-secret"
+# certificate_path = "/path/to/cert.pem"  # For client_certificate mode
 
 # Approval policy: "on-failure", "unless-allow-listed", "never"
 approval_policy = "on-failure"
@@ -192,7 +200,7 @@ permissions = "read-only"
 
 | Variable | Description |
 |----------|-------------|
-| `AZURE_CODEX_HOME` | Override config directory (default: `~/.codex`) |
+| `AZURE_CODEX_HOME` | Override config directory (default: `~/.azure-codex`) |
 | `AZURE_OPENAI_API_KEY` | Use API key instead of Entra ID auth |
 | `AZURE_TENANT_ID` | Tenant ID for service principal auth |
 | `AZURE_CLIENT_ID` | Client ID for service principal auth |
@@ -258,6 +266,19 @@ export AZURE_CLIENT_ID="your-client-id"
 export AZURE_CLIENT_SECRET="your-client-secret"
 ```
 
+### Service Principal with Certificate
+
+For certificate-based authentication:
+
+```toml
+[azure_auth]
+mode = "client_certificate"
+tenant_id = "your-tenant-id"
+client_id = "your-client-id"
+certificate_path = "/path/to/certificate.pem"
+# certificate_password = "optional-password"  # If certificate is encrypted
+```
+
 ### API Key Authentication
 
 If you prefer API key authentication:
@@ -274,15 +295,21 @@ export AZURE_OPENAI_API_KEY="your-api-key"
 
 | Command | Description |
 |---------|-------------|
-| `/models` | Select from available Azure GPT deployments |
-| `/model` | Alias for `/models` |
-| `/approvals` | Configure approval policy |
-| `/new` | Start a new conversation |
-| `/resume` | Resume a saved conversation |
-| `/compact` | Summarize conversation to save context |
-| `/diff` | Show git diff |
-| `/status` | Show session configuration |
-| `/mcp` | List MCP tools |
+| `/model` | Choose what model and reasoning effort to use |
+| `/approvals` | Choose what Codex can do without approval |
+| `/skills` | Use skills to improve how Codex performs specific tasks |
+| `/review` | Review current changes and find issues |
+| `/new` | Start a new chat during a conversation |
+| `/resume` | Resume a saved chat |
+| `/init` | Create an AGENTS.md file with instructions for Codex |
+| `/compact` | Summarize conversation to prevent hitting the context limit |
+| `/undo` | Ask Codex to undo a turn |
+| `/diff` | Show git diff (including untracked files) |
+| `/mention` | Mention a file |
+| `/status` | Show current session configuration and token usage |
+| `/mcp` | List configured MCP tools |
+| `/logout` | Log out of Codex |
+| `/feedback` | Send logs to maintainers |
 | `/quit` | Exit Azure Codex |
 
 ### Non-Interactive Mode
@@ -306,9 +333,9 @@ codex exec --skip-git-repo-check "Explain this code"
 
 ### Dynamic Model Selection
 
-Change models on-the-fly using `/models`:
+Change models on-the-fly using `/model`:
 
-1. Type `/models` in the TUI
+1. Type `/model` in the TUI
 2. Select a different GPT deployment
 3. Your next message uses the new model immediately
 
