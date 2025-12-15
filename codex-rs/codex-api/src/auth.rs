@@ -26,7 +26,7 @@ impl fmt::Display for AuthHeaderType {
         match self {
             AuthHeaderType::Bearer => write!(f, "bearer"),
             AuthHeaderType::ApiKey => write!(f, "api_key"),
-            AuthHeaderType::Custom(name) => write!(f, "custom({})", name),
+            AuthHeaderType::Custom(name) => write!(f, "custom({name})"),
         }
     }
 }
