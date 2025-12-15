@@ -1075,7 +1075,10 @@ impl Config {
                 name: "Azure OpenAI".to_string(),
                 // We'll construct the full base_url with the model later, but for now
                 // store the endpoint. The model will be appended when making requests.
-                base_url: Some(format!("{}/openai/deployments", endpoint.trim_end_matches('/'))),
+                base_url: Some(format!(
+                    "{}/openai/deployments",
+                    endpoint.trim_end_matches('/')
+                )),
                 env_key: Some("AZURE_OPENAI_API_KEY".to_string()),
                 env_key_instructions: Some(
                     "Set AZURE_OPENAI_API_KEY or use Azure CLI login (az login)".to_string(),

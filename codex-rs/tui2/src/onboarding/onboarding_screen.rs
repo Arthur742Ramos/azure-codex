@@ -74,6 +74,7 @@ pub(crate) struct OnboardingResult {
     /// The Azure endpoint configured during setup (if any).
     pub azure_endpoint: Option<String>,
     /// The model configured during setup (if any).
+    #[allow(dead_code)]
     pub azure_model: Option<String>,
 }
 

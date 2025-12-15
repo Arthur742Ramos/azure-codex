@@ -604,8 +604,12 @@ impl Session {
         };
 
         // Join all independent futures.
-        let (rollout_recorder, (history_log_id, history_entry_count), auth_statuses, azure_auth) =
-            tokio::join!(rollout_fut, history_meta_fut, auth_statuses_fut, azure_auth_fut);
+        let (rollout_recorder, (history_log_id, history_entry_count), auth_statuses, azure_auth) = tokio::join!(
+            rollout_fut,
+            history_meta_fut,
+            auth_statuses_fut,
+            azure_auth_fut
+        );
 
         let rollout_recorder = rollout_recorder.map_err(|e| {
             error!("failed to initialize rollout recorder: {e:#}");

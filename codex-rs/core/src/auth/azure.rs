@@ -290,12 +290,7 @@ impl AzureAuth {
             ("grant_type", "client_credentials".to_string()),
         ];
 
-        let response = self
-            .client
-            .post(&token_url)
-            .form(&params)
-            .send()
-            .await?;
+        let response = self.client.post(&token_url).form(&params).send().await?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -323,9 +318,7 @@ impl AzureAuth {
         let resource = self.config.scope.replace("/.default", "");
         let encoded_resource = url_encode(&resource);
 
-        let mut url = format!(
-            "{imds_url}?api-version=2019-08-01&resource={encoded_resource}"
-        );
+        let mut url = format!("{imds_url}?api-version=2019-08-01&resource={encoded_resource}");
 
         // Add client_id for user-assigned managed identity
         if let Some(id) = client_id {
@@ -409,10 +402,9 @@ impl AzureAuth {
 
         // Parse expiration time and cache
         // Azure CLI returns expiration in format "2024-01-15 10:30:00.000000"
-        let expires_at = if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(
-            &cli_token.expires_on,
-            "%Y-%m-%d %H:%M:%S%.f",
-        ) {
+        let expires_at = if let Ok(dt) =
+            chrono::NaiveDateTime::parse_from_str(&cli_token.expires_on, "%Y-%m-%d %H:%M:%S%.f")
+        {
             let duration_until_expiry = (dt - chrono::Utc::now().naive_utc())
                 .to_std()
                 .unwrap_or(Duration::from_secs(3600));
@@ -452,7 +444,12 @@ impl AzureAuth {
 
         let params = [("client_id", client_id), ("scope", &self.config.scope)];
 
-        let response = self.client.post(&device_code_url).form(&params).send().await?;
+        let response = self
+            .client
+            .post(&device_code_url)
+            .form(&params)
+            .send()
+            .await?;
 
         if !response.status().is_success() {
             let status = response.status();
