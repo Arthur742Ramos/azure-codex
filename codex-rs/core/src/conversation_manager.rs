@@ -64,6 +64,24 @@ impl ConversationManager {
         }
     }
 
+    /// Create a ConversationManager configured for Azure OpenAI.
+    pub fn with_azure_endpoint(
+        auth_manager: Arc<AuthManager>,
+        session_source: SessionSource,
+        azure_endpoint: String,
+    ) -> Self {
+        let skills_manager = Arc::new(SkillsManager::new(auth_manager.codex_home().to_path_buf()));
+        Self {
+            conversations: Arc::new(RwLock::new(HashMap::new())),
+            auth_manager: auth_manager.clone(),
+            session_source,
+            models_manager: Arc::new(ModelsManager::with_azure_endpoint(auth_manager, azure_endpoint)),
+            skills_manager,
+            #[cfg(any(test, feature = "test-support"))]
+            _test_codex_home_guard: None,
+        }
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     /// Construct with a dummy AuthManager containing the provided CodexAuth.
     /// Used for integration tests: should not be used by ordinary business logic.

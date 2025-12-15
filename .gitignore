@@ -28,7 +28,7 @@ result
 *~
 
 # cli tools
-CLAUDE.md
+# CLAUDE.md is included for Azure Codex - provides AI assistant context
 .claude/
 AGENTS.override.md
 

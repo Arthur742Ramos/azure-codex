@@ -8,7 +8,7 @@ use codex_api::rate_limits::parse_rate_limit;
 use http::HeaderMap;
 use serde::Deserialize;
 
-use crate::auth::CodexAuth;
+use crate::auth::azure::AzureAuth;
 use crate::error::CodexErr;
 use crate::error::RetryLimitReachedError;
 use crate::error::UnexpectedResponseError;
@@ -101,48 +101,87 @@ fn extract_request_id(headers: Option<&HeaderMap>) -> Option<String> {
     })
 }
 
+/// Create an auth provider for Azure Codex API calls.
+///
+/// Azure Codex is designed exclusively for Azure OpenAI endpoints and uses
+/// Azure Entra ID authentication. The priority order is:
+///
+/// 1. Provider-specific API key (from config or AZURE_OPENAI_API_KEY env)
+/// 2. Experimental bearer token from provider config
+/// 3. Azure Entra ID authentication (DefaultAzureCredential, etc.)
 pub(crate) async fn auth_provider_from_auth(
-    auth: Option<CodexAuth>,
+    azure_auth: Option<&AzureAuth>,
     provider: &ModelProviderInfo,
 ) -> crate::error::Result<CoreAuthProvider> {
     // Determine the effective auth header type for this provider
     let auth_header_type = provider.effective_auth_header_type();
     let is_azure = provider.is_azure_endpoint();
 
-    if let Some(api_key) = provider.api_key()? {
+    // Priority 1: Provider-specific API key (from config or env var)
+    // This supports AZURE_OPENAI_API_KEY for users who prefer API key auth
+    // Note: We use ok().flatten() to treat missing env vars as None, allowing
+    // fallback to Azure Entra ID auth instead of failing immediately.
+    if let Some(api_key) = provider.api_key().ok().flatten() {
+        tracing::debug!("Using API key for Azure endpoint");
         return Ok(CoreAuthProvider {
             token: Some(api_key),
             account_id: None,
             auth_header_type,
-            is_azure,
+            is_azure: true,
         });
     }
 
+    // Priority 2: Experimental bearer token from provider config
     if let Some(token) = provider.experimental_bearer_token.clone() {
         return Ok(CoreAuthProvider {
             token: Some(token),
             account_id: None,
             auth_header_type,
-            is_azure,
+            is_azure: true,
         });
     }
 
-    if let Some(auth) = auth {
-        let token = auth.get_token().await?;
-        Ok(CoreAuthProvider {
-            token: Some(token),
-            account_id: auth.get_account_id(),
-            auth_header_type,
-            is_azure,
-        })
-    } else {
-        Ok(CoreAuthProvider {
-            token: None,
-            account_id: None,
-            auth_header_type,
-            is_azure,
-        })
+    // Priority 3: Use Azure Entra ID authentication
+    if let Some(azure) = azure_auth {
+        match azure.get_token().await {
+            Ok(token) => {
+                tracing::debug!("Using Azure Entra ID token");
+                return Ok(CoreAuthProvider {
+                    token: Some(token),
+                    account_id: None,
+                    // Azure OpenAI uses Bearer tokens for Entra ID auth
+                    auth_header_type: AuthHeaderType::Bearer,
+                    is_azure: true,
+                });
+            }
+            Err(e) => {
+                tracing::error!("Failed to get Azure Entra ID token: {}", e);
+                return Err(crate::error::CodexErr::Authentication(format!(
+                    "Azure authentication failed: {}. Please ensure you are logged in via Azure CLI, \
+                     have AZURE_CLIENT_ID/AZURE_CLIENT_SECRET/AZURE_TENANT_ID set, \
+                     or are running in Azure with managed identity.",
+                    e
+                )));
+            }
+        }
     }
+
+    // No authentication configured - return error for Azure endpoints
+    if is_azure {
+        return Err(crate::error::CodexErr::Authentication(
+            "Azure authentication required but not configured. \
+             Set AZURE_OPENAI_API_KEY or configure azure_auth in config.toml"
+                .to_string(),
+        ));
+    }
+
+    // For non-Azure endpoints (shouldn't happen in Azure Codex), allow unauthenticated
+    Ok(CoreAuthProvider {
+        token: None,
+        account_id: None,
+        auth_header_type,
+        is_azure: false,
+    })
 }
 
 #[derive(Debug, Deserialize)]

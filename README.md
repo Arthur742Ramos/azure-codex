@@ -1,112 +1,444 @@
-<p align="center"><code>npm i -g @openai/codex</code><br />or <code>brew install --cask codex</code></p>
+<p align="center">
+  <img src="./.github/codex-cli-splash.png" alt="Azure Codex CLI" width="80%" />
+</p>
 
-<p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
-</br>
-</br>If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="https://developers.openai.com/codex/ide">install in your IDE</a>
-</br>If you are looking for the <em>cloud-based agent</em> from OpenAI, <strong>Codex Web</strong>, go to <a href="https://chatgpt.com/codex">chatgpt.com/codex</a></p>
+<h1 align="center">Azure Codex</h1>
 
 <p align="center">
-  <img src="./.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
-  </p>
+  <strong>A fork of OpenAI's Codex CLI optimized for Azure OpenAI Service</strong>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#quickstart">Quickstart</a> •
+  <a href="#configuration">Configuration</a> •
+  <a href="#authentication">Authentication</a> •
+  <a href="#commands">Commands</a> •
+  <a href="#contributing">Contributing</a>
+</p>
+
+---
+
+## Overview
+
+**Azure Codex** is a dedicated fork of [OpenAI's Codex CLI](https://github.com/openai/codex) designed specifically for Azure OpenAI Service. It provides seamless integration with Azure's enterprise-grade AI infrastructure, supporting Azure Entra ID (formerly Azure AD) authentication and automatic discovery of your Azure OpenAI deployments.
+
+### Why Azure Codex?
+
+- **Enterprise Ready**: Built for Azure's enterprise security and compliance requirements
+- **Azure Entra ID**: Native support for Azure authentication (CLI, Managed Identity, Service Principal)
+- **Simple Configuration**: Just 2 lines of config to get started
+- **Dynamic Model Switching**: Change models on-the-fly without restarting
+- **Deployment Discovery**: Automatically discovers your Azure OpenAI deployments
+
+---
+
+## Features
+
+### Azure-Native Authentication
+
+Azure Codex supports multiple authentication methods through Azure Entra ID:
+
+| Method | Use Case |
+|--------|----------|
+| **Azure CLI** | Development machines (`az login`) |
+| **Managed Identity** | Azure VMs, App Service, Functions |
+| **Service Principal** | CI/CD pipelines, automation |
+| **Device Code Flow** | Headless/SSH environments |
+| **Environment Credentials** | Container deployments |
+
+### Simplified Configuration
+
+Get started with just 2 lines:
+
+```toml
+azure_endpoint = "https://your-resource.openai.azure.com"
+model = "gpt-4o"
+```
+
+### Dynamic Model Discovery
+
+The `/models` command automatically discovers and lists your Azure OpenAI GPT deployments:
+
+```
+/models
+┌─────────────────────────────────────────┐
+│ Select Model                            │
+├─────────────────────────────────────────┤
+│ ● GPT 4o          Azure deployment      │
+│   GPT 4.1         Azure deployment      │
+│   GPT 5           Azure deployment      │
+│   GPT 5.1 Codex   Azure deployment      │
+│   GPT 5.2         Azure deployment      │
+└─────────────────────────────────────────┘
+```
+
+### All Original Codex Features
+
+- Interactive TUI with syntax highlighting
+- Sandboxed command execution
+- MCP (Model Context Protocol) support
+- Git integration
+- File mentions with `@`
+- Skills system with `$`
+- Session persistence and resume
 
 ---
 
 ## Quickstart
 
-### Installing and running Codex CLI
+### Prerequisites
 
-Install globally with your preferred package manager. If you use npm:
+- **Azure CLI**: Install from [aka.ms/installazurecli](https://aka.ms/installazurecli)
+- **Azure OpenAI Resource**: With at least one model deployment
+- **Rust toolchain** (for building): Install from [rustup.rs](https://rustup.rs)
 
-```shell
-npm install -g @openai/codex
+### Installation
+
+#### Build from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/Arthur742Ramos/azure-codex.git
+cd azure-codex/codex-rs
+
+# Build release binary
+cargo build -p codex-cli --release
+
+# Binary is at target/release/codex (or codex.exe on Windows)
 ```
 
-Alternatively, if you use Homebrew:
+### First Run
 
-```shell
-brew install --cask codex
+1. **Login to Azure**:
+   ```bash
+   az login
+   ```
+
+2. **Create config file** at `~/.codex/config.toml`:
+   ```toml
+   azure_endpoint = "https://your-resource.openai.azure.com"
+   model = "gpt-4o"  # Your deployment name
+   ```
+
+3. **Run Azure Codex**:
+   ```bash
+   codex
+   ```
+
+That's it! Azure Codex will authenticate using your Azure CLI credentials and connect to your Azure OpenAI endpoint.
+
+---
+
+## Configuration
+
+### Minimal Configuration
+
+```toml
+# ~/.codex/config.toml
+azure_endpoint = "https://your-resource.openai.azure.com"
+model = "gpt-4o"
 ```
 
-Then simply run `codex` to get started:
+### Full Configuration Options
 
-```shell
-codex
+```toml
+# Azure OpenAI endpoint (required for Azure)
+azure_endpoint = "https://your-resource.openai.azure.com"
+
+# Model/deployment name (required)
+model = "gpt-4o"
+
+# API version (optional, defaults to 2024-10-21)
+azure_api_version = "2024-10-21"
+
+# Azure authentication configuration (optional)
+[azure_auth]
+# Auth mode: "default", "azure_cli", "managed_identity", "client_secret", "device_code"
+mode = "default"  # "default" tries all methods in order
+
+# For service principal authentication
+# tenant_id = "your-tenant-id"
+# client_id = "your-client-id"
+# client_secret = "your-client-secret"
+
+# Approval policy: "on-failure", "unless-allow-listed", "never"
+approval_policy = "on-failure"
+
+# Sandbox policy
+[sandbox]
+# "read-only", "workspace-write", "full-access"
+permissions = "read-only"
 ```
 
-If you're running into upgrade issues with Homebrew, see the [FAQ entry on brew upgrade codex](./docs/faq.md#brew-upgrade-codex-isnt-upgrading-me).
+### Environment Variables
 
-<details>
-<summary>You can also go to the <a href="https://github.com/openai/codex/releases/latest">latest GitHub Release</a> and download the appropriate binary for your platform.</summary>
+| Variable | Description |
+|----------|-------------|
+| `AZURE_CODEX_HOME` | Override config directory (default: `~/.codex`) |
+| `AZURE_OPENAI_API_KEY` | Use API key instead of Entra ID auth |
+| `AZURE_TENANT_ID` | Tenant ID for service principal auth |
+| `AZURE_CLIENT_ID` | Client ID for service principal auth |
+| `AZURE_CLIENT_SECRET` | Client secret for service principal auth |
 
-Each GitHub Release contains many executables, but in practice, you likely want one of these:
+---
 
-- macOS
-  - Apple Silicon/arm64: `codex-aarch64-apple-darwin.tar.gz`
-  - x86_64 (older Mac hardware): `codex-x86_64-apple-darwin.tar.gz`
-- Linux
-  - x86_64: `codex-x86_64-unknown-linux-musl.tar.gz`
-  - arm64: `codex-aarch64-unknown-linux-musl.tar.gz`
+## Authentication
 
-Each archive contains a single entry with the platform baked into the name (e.g., `codex-x86_64-unknown-linux-musl`), so you likely want to rename it to `codex` after extracting it.
+### Default Mode (Recommended)
 
-</details>
+The default authentication mode tries multiple methods in order:
 
-### Using Codex with your ChatGPT plan
+1. **Azure CLI** - Uses `az login` credentials
+2. **Managed Identity** - For Azure-hosted workloads
+3. **Environment Credentials** - From environment variables
+4. **Device Code Flow** - Interactive browser login
 
-<p align="center">
-  <img src="./.github/codex-cli-login.png" alt="Codex CLI login" width="80%" />
-  </p>
+```toml
+[azure_auth]
+mode = "default"
+```
 
-Run `codex` and select **Sign in with ChatGPT**. We recommend signing into your ChatGPT account to use Codex as part of your Plus, Pro, Team, Edu, or Enterprise plan. [Learn more about what's included in your ChatGPT plan](https://help.openai.com/en/articles/11369540-codex-in-chatgpt).
+### Azure CLI Authentication
 
-You can also use Codex with an API key, but this requires [additional setup](./docs/authentication.md#usage-based-billing-alternative-use-an-openai-api-key). If you previously used an API key for usage-based billing, see the [migration steps](./docs/authentication.md#migrating-from-usage-based-billing-api-key). If you're having trouble with login, please comment on [this issue](https://github.com/openai/codex/issues/1243).
+Best for local development:
 
-### Model Context Protocol (MCP)
+```bash
+# Login to Azure
+az login
 
-Codex can access MCP servers. To configure them, refer to the [config docs](./docs/config.md#mcp_servers).
+# Verify you're logged in
+az account show
+```
 
-### Configuration
+No additional config needed - Azure Codex will use your CLI credentials.
 
-Codex CLI supports a rich set of configuration options, with preferences stored in `~/.codex/config.toml`. For full configuration options, see [Configuration](./docs/config.md).
+### Managed Identity
 
-### Execpolicy
+For Azure VMs, App Service, Functions, or AKS:
 
-See the [Execpolicy quickstart](./docs/execpolicy.md) to set up rules that govern what commands Codex can execute.
+```toml
+[azure_auth]
+mode = "managed_identity"
+```
 
-### Docs & FAQ
+### Service Principal
 
-- [**Getting started**](./docs/getting-started.md)
-  - [CLI usage](./docs/getting-started.md#cli-usage)
-  - [Slash Commands](./docs/slash_commands.md)
-  - [Running with a prompt as input](./docs/getting-started.md#running-with-a-prompt-as-input)
-  - [Example prompts](./docs/getting-started.md#example-prompts)
-  - [Custom prompts](./docs/prompts.md)
-  - [Memory with AGENTS.md](./docs/getting-started.md#memory-with-agentsmd)
-- [**Configuration**](./docs/config.md)
-  - [Example config](./docs/example-config.md)
-- [**Sandbox & approvals**](./docs/sandbox.md)
-- [**Execpolicy quickstart**](./docs/execpolicy.md)
-- [**Authentication**](./docs/authentication.md)
-  - [Auth methods](./docs/authentication.md#forcing-a-specific-auth-method-advanced)
-  - [Login on a "Headless" machine](./docs/authentication.md#connecting-on-a-headless-machine)
-- **Automating Codex**
-  - [GitHub Action](https://github.com/openai/codex-action)
-  - [TypeScript SDK](./sdk/typescript/README.md)
-  - [Non-interactive mode (`codex exec`)](./docs/exec.md)
-- [**Advanced**](./docs/advanced.md)
-  - [Tracing / verbose logging](./docs/advanced.md#tracing--verbose-logging)
-  - [Model Context Protocol (MCP)](./docs/advanced.md#model-context-protocol-mcp)
-- [**Zero data retention (ZDR)**](./docs/zdr.md)
-- [**Contributing**](./docs/contributing.md)
-- [**Install & build**](./docs/install.md)
-  - [System Requirements](./docs/install.md#system-requirements)
-  - [DotSlash](./docs/install.md#dotslash)
-  - [Build from source](./docs/install.md#build-from-source)
-- [**FAQ**](./docs/faq.md)
-- [**Open source fund**](./docs/open-source-fund.md)
+For CI/CD and automation:
+
+```toml
+[azure_auth]
+mode = "client_secret"
+tenant_id = "your-tenant-id"
+client_id = "your-client-id"
+client_secret = "your-client-secret"
+```
+
+Or use environment variables:
+```bash
+export AZURE_TENANT_ID="your-tenant-id"
+export AZURE_CLIENT_ID="your-client-id"
+export AZURE_CLIENT_SECRET="your-client-secret"
+```
+
+### API Key Authentication
+
+If you prefer API key authentication:
+
+```bash
+export AZURE_OPENAI_API_KEY="your-api-key"
+```
+
+---
+
+## Commands
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/models` | Select from available Azure GPT deployments |
+| `/model` | Alias for `/models` |
+| `/approvals` | Configure approval policy |
+| `/new` | Start a new conversation |
+| `/resume` | Resume a saved conversation |
+| `/compact` | Summarize conversation to save context |
+| `/diff` | Show git diff |
+| `/status` | Show session configuration |
+| `/mcp` | List MCP tools |
+| `/quit` | Exit Azure Codex |
+
+### Non-Interactive Mode
+
+Run commands without the TUI:
+
+```bash
+# Simple prompt
+codex exec "Create a hello world script"
+
+# With specific model
+codex exec --model gpt-5.1-codex "Refactor this function"
+
+# Skip git repo check
+codex exec --skip-git-repo-check "Explain this code"
+```
+
+---
+
+## Model Switching
+
+### Dynamic Model Selection
+
+Change models on-the-fly using `/models`:
+
+1. Type `/models` in the TUI
+2. Select a different GPT deployment
+3. Your next message uses the new model immediately
+
+No restart required!
+
+### Supported Models
+
+Azure Codex filters to GPT models only. Your available models depend on your Azure OpenAI deployments:
+
+- GPT-4 series (gpt-4, gpt-4o, gpt-4-turbo)
+- GPT-5 series (gpt-5, gpt-5.1, gpt-5.2)
+- GPT Codex models (gpt-5-codex, gpt-5.1-codex-max)
+
+---
+
+## Architecture
+
+```
+azure-codex/
+├── codex-rs/                 # Rust implementation
+│   ├── core/                 # Core library
+│   │   ├── src/
+│   │   │   ├── azure/        # Azure-specific code
+│   │   │   │   ├── deployments.rs  # Deployment discovery
+│   │   │   │   └── mod.rs
+│   │   │   ├── auth/
+│   │   │   │   ├── azure.rs        # Azure Entra ID auth
+│   │   │   │   └── azure_config.rs # Auth configuration
+│   │   │   ├── config/       # Configuration loading
+│   │   │   └── ...
+│   ├── cli/                  # CLI entry point
+│   ├── tui/                  # Terminal UI (legacy)
+│   ├── tui2/                 # Terminal UI (current)
+│   └── exec/                 # Non-interactive mode
+├── test-config/              # Test configuration
+└── docs/                     # Documentation
+```
+
+---
+
+## Development
+
+### Building
+
+```bash
+# Debug build
+cargo build -p codex-cli
+
+# Release build
+cargo build -p codex-cli --release
+
+# Run tests
+cargo test
+```
+
+### Testing with Custom Config
+
+```bash
+# Set custom config directory
+export AZURE_CODEX_HOME=/path/to/test-config
+
+# Run with test config
+./target/release/codex
+```
+
+---
+
+## Troubleshooting
+
+### "Failed to run az CLI"
+
+**Windows**: Ensure Azure CLI is installed and `az.cmd` is in PATH.
+
+**Linux/macOS**: Ensure `az` command is available.
+
+```bash
+# Verify Azure CLI
+az --version
+
+# Login if needed
+az login
+```
+
+### "Resource not found" (404)
+
+Check your `model` config matches an actual deployment name in your Azure OpenAI resource.
+
+```bash
+# List your deployments
+az cognitiveservices account deployment list \
+  --name your-resource-name \
+  --resource-group your-rg \
+  -o table
+```
+
+### "Authentication failed"
+
+Ensure you're logged in and have access to the Azure OpenAI resource:
+
+```bash
+# Check current account
+az account show
+
+# Get access token (for debugging)
+az account get-access-token --scope https://cognitiveservices.azure.com/.default
+```
+
+---
+
+## Differences from OpenAI Codex
+
+| Feature | OpenAI Codex | Azure Codex |
+|---------|--------------|-------------|
+| Authentication | ChatGPT/API Key | Azure Entra ID |
+| Endpoint | api.openai.com | Your Azure endpoint |
+| Model Discovery | OpenAI models API | Azure deployments API |
+| Wire API | Responses API | Chat Completions API |
+| Default Config | OpenAI-focused | Azure-focused |
+
+---
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](./docs/contributing.md) for guidelines.
+
+### Key Areas for Contribution
+
+- Additional Azure authentication methods
+- Azure OpenAI feature parity
+- Documentation improvements
+- Bug fixes and performance improvements
 
 ---
 
 ## License
 
-This repository is licensed under the [Apache-2.0 License](LICENSE).
+This project is licensed under the [Apache-2.0 License](LICENSE).
+
+---
+
+## Acknowledgments
+
+- [OpenAI Codex CLI](https://github.com/openai/codex) - The original project this fork is based on
+- [Azure OpenAI Service](https://azure.microsoft.com/products/ai-services/openai-service) - Microsoft's enterprise AI platform
+
+---
+
+<p align="center">
+  <strong>Azure Codex</strong> - Enterprise-grade AI coding assistant powered by Azure OpenAI
+</p>

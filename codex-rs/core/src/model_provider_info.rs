@@ -152,15 +152,37 @@ impl ModelProviderInfo {
         &self,
         auth_mode: Option<AuthMode>,
     ) -> crate::error::Result<ApiProvider> {
+        self.to_api_provider_with_model(auth_mode, None)
+    }
+
+    /// Creates an API provider, optionally inserting the model name into the URL
+    /// for Azure OpenAI endpoints that use the deployment-based URL format.
+    pub(crate) fn to_api_provider_with_model(
+        &self,
+        auth_mode: Option<AuthMode>,
+        model: Option<&str>,
+    ) -> crate::error::Result<ApiProvider> {
         let default_base_url = if matches!(auth_mode, Some(AuthMode::ChatGPT)) {
             "https://chatgpt.com/backend-api/codex"
         } else {
             "https://api.openai.com/v1"
         };
-        let base_url = self
+
+        let mut base_url = self
             .base_url
             .clone()
             .unwrap_or_else(|| default_base_url.to_string());
+
+        // For Azure OpenAI with auto-configured endpoint, the base_url ends with
+        // "/openai/deployments" and we need to append the model/deployment name.
+        // This allows the simple config format:
+        //   azure_endpoint = "https://myresource.openai.azure.com"
+        //   model = "gpt-4"
+        if self.is_azure && base_url.ends_with("/openai/deployments") {
+            if let Some(model_name) = model {
+                base_url = format!("{}/{}", base_url, model_name);
+            }
+        }
 
         let headers = self.build_header_map()?;
         let retry = ApiRetryConfig {

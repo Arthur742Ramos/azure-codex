@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::api_bridge::auth_provider_from_auth;
 use crate::api_bridge::map_api_error;
+use crate::auth::azure::AzureAuth;
 use codex_api::AggregateStreamExt;
 use codex_api::ChatClient as ApiChatClient;
 use codex_api::CompactClient as ApiCompactClient;
@@ -56,6 +57,7 @@ use crate::tools::spec::create_tools_json_for_responses_api;
 pub struct ModelClient {
     config: Arc<Config>,
     auth_manager: Option<Arc<AuthManager>>,
+    azure_auth: Option<Arc<AzureAuth>>,
     model_family: ModelFamily,
     otel_manager: OtelManager,
     provider: ModelProviderInfo,
@@ -70,6 +72,7 @@ impl ModelClient {
     pub fn new(
         config: Arc<Config>,
         auth_manager: Option<Arc<AuthManager>>,
+        azure_auth: Option<Arc<AzureAuth>>,
         model_family: ModelFamily,
         otel_manager: OtelManager,
         provider: ModelProviderInfo,
@@ -81,6 +84,7 @@ impl ModelClient {
         Self {
             config,
             auth_manager,
+            azure_auth,
             model_family,
             otel_manager,
             provider,
@@ -153,12 +157,17 @@ impl ModelClient {
         let session_source = self.session_source.clone();
 
         let mut refreshed = false;
+        let model = self.get_model();
         loop {
             let auth = auth_manager.as_ref().and_then(|m| m.auth());
             let api_provider = self
                 .provider
-                .to_api_provider(auth.as_ref().map(|a| a.mode))?;
-            let api_auth = auth_provider_from_auth(auth.clone(), &self.provider).await?;
+                .to_api_provider_with_model(auth.as_ref().map(|a| a.mode), Some(&model))?;
+            let api_auth = auth_provider_from_auth(
+                self.azure_auth.as_ref().map(|a| a.as_ref()),
+                &self.provider,
+            )
+            .await?;
             let transport = ReqwestTransport::new(build_reqwest_client());
             let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();
             let client = ApiChatClient::new(transport, api_provider, api_auth)
@@ -166,7 +175,7 @@ impl ModelClient {
 
             let stream_result = client
                 .stream_prompt(
-                    &self.get_model(),
+                    &model,
                     &api_prompt,
                     Some(conversation_id.clone()),
                     Some(session_source.clone()),
@@ -178,7 +187,14 @@ impl ModelClient {
                 Err(ApiError::Transport(TransportError::Http { status, .. }))
                     if status == StatusCode::UNAUTHORIZED =>
                 {
-                    handle_unauthorized(status, &mut refreshed, &auth_manager, &auth).await?;
+                    handle_unauthorized(
+                        status,
+                        &mut refreshed,
+                        &auth_manager,
+                        &self.azure_auth,
+                        &auth,
+                    )
+                    .await?;
                     continue;
                 }
                 Err(err) => return Err(map_api_error(err)),
@@ -242,12 +258,17 @@ impl ModelClient {
         let session_source = self.session_source.clone();
 
         let mut refreshed = false;
+        let model = self.get_model();
         loop {
             let auth = auth_manager.as_ref().and_then(|m| m.auth());
             let api_provider = self
                 .provider
-                .to_api_provider(auth.as_ref().map(|a| a.mode))?;
-            let api_auth = auth_provider_from_auth(auth.clone(), &self.provider).await?;
+                .to_api_provider_with_model(auth.as_ref().map(|a| a.mode), Some(&model))?;
+            let api_auth = auth_provider_from_auth(
+                self.azure_auth.as_ref().map(|a| a.as_ref()),
+                &self.provider,
+            )
+            .await?;
             let transport = ReqwestTransport::new(build_reqwest_client());
             let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();
             let client = ApiResponsesClient::new(transport, api_provider, api_auth)
@@ -264,7 +285,7 @@ impl ModelClient {
             };
 
             let stream_result = client
-                .stream_prompt(&self.get_model(), &api_prompt, options)
+                .stream_prompt(&model, &api_prompt, options)
                 .await;
 
             match stream_result {
@@ -274,7 +295,14 @@ impl ModelClient {
                 Err(ApiError::Transport(TransportError::Http { status, .. }))
                     if status == StatusCode::UNAUTHORIZED =>
                 {
-                    handle_unauthorized(status, &mut refreshed, &auth_manager, &auth).await?;
+                    handle_unauthorized(
+                        status,
+                        &mut refreshed,
+                        &auth_manager,
+                        &self.azure_auth,
+                        &auth,
+                    )
+                    .await?;
                     continue;
                 }
                 Err(err) => return Err(map_api_error(err)),
@@ -328,10 +356,15 @@ impl ModelClient {
         }
         let auth_manager = self.auth_manager.clone();
         let auth = auth_manager.as_ref().and_then(|m| m.auth());
+        let model = self.get_model();
         let api_provider = self
             .provider
-            .to_api_provider(auth.as_ref().map(|a| a.mode))?;
-        let api_auth = auth_provider_from_auth(auth.clone(), &self.provider).await?;
+            .to_api_provider_with_model(auth.as_ref().map(|a| a.mode), Some(&model))?;
+        let api_auth = auth_provider_from_auth(
+            self.azure_auth.as_ref().map(|a| a.as_ref()),
+            &self.provider,
+        )
+        .await?;
         let transport = ReqwestTransport::new(build_reqwest_client());
         let request_telemetry = self.build_request_telemetry();
         let client = ApiCompactClient::new(transport, api_provider, api_auth)
@@ -341,7 +374,7 @@ impl ModelClient {
             .get_full_instructions(&self.get_model_family())
             .into_owned();
         let payload = ApiCompactionInput {
-            model: &self.get_model(),
+            model: &model,
             input: &prompt.input,
             instructions: &instructions,
         };
@@ -456,20 +489,32 @@ where
     ResponseStream { rx_event }
 }
 
-/// Handles a 401 response by optionally refreshing ChatGPT tokens once.
+/// Handles a 401 response by optionally refreshing tokens once.
 ///
-/// When refresh succeeds, the caller should retry the API call; otherwise
-/// the mapped `CodexErr` is returned to the caller.
+/// Supports both ChatGPT token refresh (via AuthManager) and Azure Entra ID
+/// token refresh (via AzureAuth). When refresh succeeds, the caller should
+/// retry the API call; otherwise the mapped `CodexErr` is returned.
 async fn handle_unauthorized(
     status: StatusCode,
     refreshed: &mut bool,
     auth_manager: &Option<Arc<AuthManager>>,
+    azure_auth: &Option<Arc<AzureAuth>>,
     auth: &Option<crate::auth::CodexAuth>,
 ) -> Result<()> {
     if *refreshed {
         return Err(map_unauthorized_status(status));
     }
 
+    // Try Azure token refresh first if Azure auth is configured
+    if let Some(azure) = azure_auth.as_ref() {
+        // Clear cached token and retry - AzureAuth will fetch a fresh token
+        azure.clear_cached_token().await;
+        *refreshed = true;
+        tracing::debug!("Cleared Azure token cache after 401, will retry with fresh token");
+        return Ok(());
+    }
+
+    // Fall back to ChatGPT token refresh if using OpenAI auth
     if let Some(manager) = auth_manager.as_ref()
         && let Some(auth) = auth.as_ref()
         && auth.mode == AuthMode::ChatGPT

@@ -91,6 +91,7 @@ async fn run_request(input: Vec<ResponseItem>) -> Value {
     let client = ModelClient::new(
         Arc::clone(&config),
         None,
+        None, // azure_auth
         model_family,
         otel_manager,
         provider,

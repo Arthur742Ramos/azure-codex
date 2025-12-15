@@ -167,12 +167,16 @@ impl AzureAuth {
     /// Forces a token refresh, ignoring any cached token.
     pub async fn refresh_token(&self) -> Result<String, AzureAuthError> {
         debug!("Forcing Azure token refresh");
-        // Clear the cached token
-        {
-            let mut cached = self.cached_token.write().unwrap();
-            *cached = None;
-        }
+        self.clear_cached_token().await;
         self.acquire_token().await
+    }
+
+    /// Clears the cached token without acquiring a new one.
+    /// Call this after receiving a 401 to force re-authentication on next request.
+    pub async fn clear_cached_token(&self) {
+        debug!("Clearing cached Azure token");
+        let mut cached = self.cached_token.write().unwrap();
+        *cached = None;
     }
 
     /// Acquires a new token based on the configured authentication mode.
@@ -350,6 +354,24 @@ impl AzureAuth {
         let scope = &self.config.scope;
 
         // Use az account get-access-token
+        // On Windows, we need to use cmd.exe to run az.cmd since it's a batch script
+        #[cfg(windows)]
+        let output = tokio::process::Command::new("cmd")
+            .args([
+                "/C",
+                "az",
+                "account",
+                "get-access-token",
+                "--scope",
+                scope,
+                "--output",
+                "json",
+            ])
+            .output()
+            .await
+            .map_err(|e| AzureAuthError::AzureCliError(format!("Failed to run az CLI: {}", e)))?;
+
+        #[cfg(not(windows))]
         let output = tokio::process::Command::new("az")
             .args([
                 "account",

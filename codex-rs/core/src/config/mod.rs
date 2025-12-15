@@ -21,6 +21,7 @@ use crate::git_info::resolve_root_git_project_for_trust;
 use crate::model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 use crate::model_provider_info::ModelProviderInfo;
 use crate::model_provider_info::OLLAMA_OSS_PROVIDER_ID;
+use crate::model_provider_info::WireApi;
 use crate::model_provider_info::built_in_model_providers;
 use crate::project_doc::DEFAULT_PROJECT_DOC_FILENAME;
 use crate::project_doc::LOCAL_PROJECT_DOC_FILENAME;
@@ -294,6 +295,17 @@ pub struct Config {
 
     /// OTEL configuration (exporter type, endpoint, headers, etc.).
     pub otel: crate::config::types::OtelConfig,
+
+    /// Azure Entra ID authentication configuration.
+    /// When set, enables Azure authentication for Azure OpenAI endpoints.
+    pub azure_auth: Option<crate::auth::azure_config::AzureAuthConfig>,
+
+    /// Azure OpenAI endpoint URL (e.g., "https://myresource.openai.azure.com").
+    /// When set, automatically configures Azure OpenAI as the provider.
+    pub azure_endpoint: Option<String>,
+
+    /// Azure OpenAI API version. Defaults to "2024-10-21".
+    pub azure_api_version: String,
 }
 
 impl Config {
@@ -671,6 +683,18 @@ pub struct ConfigToml {
     /// OTEL configuration.
     pub otel: Option<crate::config::types::OtelConfigToml>,
 
+    /// Azure Entra ID authentication configuration.
+    /// When set, enables Azure authentication for Azure OpenAI endpoints.
+    pub azure_auth: Option<crate::auth::azure_config::AzureAuthConfig>,
+
+    /// Azure OpenAI endpoint URL (e.g., "https://myresource.openai.azure.com").
+    /// When set, automatically configures Azure OpenAI as the provider.
+    /// This is the simplest way to configure Azure Codex - just set this and `model`.
+    pub azure_endpoint: Option<String>,
+
+    /// Azure OpenAI API version. Defaults to "2024-10-21".
+    pub azure_api_version: Option<String>,
+
     /// Tracks whether the Windows onboarding screen has been acknowledged.
     pub windows_wsl_setup_acknowledged: Option<bool>,
 
@@ -1025,14 +1049,69 @@ impl Config {
 
         let mut model_providers = built_in_model_providers();
         // Merge user-defined providers into the built-in list.
-        for (key, provider) in cfg.model_providers.into_iter() {
+        for (key, provider) in cfg.model_providers.clone().into_iter() {
             model_providers.entry(key).or_insert(provider);
         }
 
+        // Azure auto-configuration: if azure_endpoint is set, automatically create
+        // an Azure provider with sensible defaults. This allows users to configure
+        // Azure OpenAI with just two lines:
+        //   azure_endpoint = "https://myresource.openai.azure.com"
+        //   model = "gpt-4"
+        let azure_endpoint = cfg.azure_endpoint.clone();
+        let azure_api_version = cfg
+            .azure_api_version
+            .clone()
+            .unwrap_or_else(|| "2024-10-21".to_string());
+
+        // If azure_endpoint is set, create an auto-configured Azure provider
+        let has_azure_endpoint = azure_endpoint.is_some();
+        if let Some(endpoint) = &azure_endpoint {
+            // Construct the Azure provider with the endpoint
+            // The full URL will be: {endpoint}/openai/deployments/{model}/chat/completions
+            // We set base_url to {endpoint}/openai/deployments/{model} and the API
+            // will append /chat/completions
+            let azure_provider = ModelProviderInfo {
+                name: "Azure OpenAI".to_string(),
+                // We'll construct the full base_url with the model later, but for now
+                // store the endpoint. The model will be appended when making requests.
+                base_url: Some(format!("{}/openai/deployments", endpoint.trim_end_matches('/'))),
+                env_key: Some("AZURE_OPENAI_API_KEY".to_string()),
+                env_key_instructions: Some(
+                    "Set AZURE_OPENAI_API_KEY or use Azure CLI login (az login)".to_string(),
+                ),
+                experimental_bearer_token: None,
+                // Azure OpenAI only supports the Chat Completions API, not the Responses API
+                wire_api: WireApi::Chat,
+                query_params: Some({
+                    let mut params = std::collections::HashMap::new();
+                    params.insert("api-version".to_string(), azure_api_version.clone());
+                    params
+                }),
+                http_headers: None,
+                env_http_headers: None,
+                request_max_retries: None,
+                stream_max_retries: None,
+                stream_idle_timeout_ms: None,
+                requires_openai_auth: false,
+                auth_header_type: codex_api::AuthHeaderType::Bearer,
+                is_azure: true,
+                skip_azure_detection: false,
+            };
+            model_providers.insert("azure".to_string(), azure_provider);
+        }
+
+        // Default to "azure" provider if azure_endpoint is set
         let model_provider_id = model_provider
             .or(config_profile.model_provider)
             .or(cfg.model_provider)
-            .unwrap_or_else(|| "openai".to_string());
+            .unwrap_or_else(|| {
+                if has_azure_endpoint {
+                    "azure".to_string()
+                } else {
+                    "openai".to_string()
+                }
+            });
         let model_provider = model_providers
             .get(&model_provider_id)
             .ok_or_else(|| {
@@ -1208,6 +1287,17 @@ impl Config {
                     trace_exporter,
                 }
             },
+            // Default azure_auth to "default" mode (tries all auth methods) when
+            // azure_endpoint is set but azure_auth is not explicitly configured
+            azure_auth: cfg.azure_auth.or_else(|| {
+                if has_azure_endpoint {
+                    Some(crate::auth::azure_config::AzureAuthConfig::default())
+                } else {
+                    None
+                }
+            }),
+            azure_endpoint,
+            azure_api_version,
         };
         Ok(config)
     }

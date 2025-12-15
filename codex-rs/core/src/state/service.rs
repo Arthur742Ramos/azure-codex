@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::AuthManager;
 use crate::RolloutRecorder;
+use crate::auth::azure::AzureAuth;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::openai_models::models_manager::ModelsManager;
 use crate::skills::SkillsManager;
@@ -22,6 +23,7 @@ pub(crate) struct SessionServices {
     pub(crate) user_shell: Arc<crate::shell::Shell>,
     pub(crate) show_raw_agent_reasoning: bool,
     pub(crate) auth_manager: Arc<AuthManager>,
+    pub(crate) azure_auth: Option<Arc<AzureAuth>>,
     pub(crate) models_manager: Arc<ModelsManager>,
     pub(crate) otel_manager: OtelManager,
     pub(crate) tool_approvals: Mutex<ApprovalStore>,

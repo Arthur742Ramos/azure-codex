@@ -329,10 +329,19 @@ impl App {
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
 
-        let conversation_manager = Arc::new(ConversationManager::new(
-            auth_manager.clone(),
-            SessionSource::Cli,
-        ));
+        // Use Azure-aware ConversationManager when azure_endpoint is configured
+        let conversation_manager = if let Some(azure_endpoint) = config.azure_endpoint.clone() {
+            Arc::new(ConversationManager::with_azure_endpoint(
+                auth_manager.clone(),
+                SessionSource::Cli,
+                azure_endpoint,
+            ))
+        } else {
+            Arc::new(ConversationManager::new(
+                auth_manager.clone(),
+                SessionSource::Cli,
+            ))
+        };
         let mut model = conversation_manager
             .get_models_manager()
             .get_model(&config.model, &config)

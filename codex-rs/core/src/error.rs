@@ -148,6 +148,10 @@ pub enum CodexErr {
     #[error("{0}")]
     RefreshTokenFailed(RefreshTokenFailedError),
 
+    /// Authentication failed (Azure Entra ID, API key, etc.)
+    #[error("Authentication error: {0}")]
+    Authentication(String),
+
     #[error("Fatal error: {0}")]
     Fatal(String),
 

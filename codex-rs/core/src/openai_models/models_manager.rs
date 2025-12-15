@@ -11,13 +11,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::sync::TryLockError;
-use tracing::error;
+use tracing::{debug, error};
 
 use super::cache;
 use super::cache::ModelsCache;
 use crate::api_bridge::auth_provider_from_auth;
 use crate::api_bridge::map_api_error;
 use crate::auth::AuthManager;
+use crate::azure::deployments::AzureDeploymentsManager;
 use crate::config::Config;
 use crate::default_client::build_reqwest_client;
 use crate::error::Result as CoreResult;
@@ -42,6 +43,8 @@ pub struct ModelsManager {
     codex_home: PathBuf,
     cache_ttl: Duration,
     provider: ModelProviderInfo,
+    /// Azure deployments manager for Azure OpenAI endpoints.
+    azure_deployments: Option<Arc<AzureDeploymentsManager>>,
 }
 
 impl ModelsManager {
@@ -56,6 +59,23 @@ impl ModelsManager {
             codex_home,
             cache_ttl: DEFAULT_MODEL_CACHE_TTL,
             provider: ModelProviderInfo::create_openai_provider(),
+            azure_deployments: None,
+        }
+    }
+
+    /// Construct a manager for Azure OpenAI with the given endpoint.
+    pub fn with_azure_endpoint(auth_manager: Arc<AuthManager>, azure_endpoint: String) -> Self {
+        let codex_home = auth_manager.codex_home().to_path_buf();
+        let azure_deployments = Arc::new(AzureDeploymentsManager::new(Some(azure_endpoint)));
+        Self {
+            available_models: RwLock::new(Vec::new()), // Will be populated from Azure
+            remote_models: RwLock::new(Vec::new()),
+            auth_manager,
+            etag: RwLock::new(None),
+            codex_home,
+            cache_ttl: DEFAULT_MODEL_CACHE_TTL,
+            provider: ModelProviderInfo::create_openai_provider(),
+            azure_deployments: Some(azure_deployments),
         }
     }
 
@@ -71,7 +91,13 @@ impl ModelsManager {
             codex_home,
             cache_ttl: DEFAULT_MODEL_CACHE_TTL,
             provider,
+            azure_deployments: None,
         }
+    }
+
+    /// Check if this manager is configured for Azure.
+    pub fn is_azure(&self) -> bool {
+        self.azure_deployments.is_some()
     }
 
     /// Fetch the latest remote models, using the on-disk cache when still fresh.
@@ -83,9 +109,10 @@ impl ModelsManager {
             return Ok(());
         }
 
-        let auth = self.auth_manager.auth();
         let api_provider = self.provider.to_api_provider(Some(AuthMode::ChatGPT))?;
-        let api_auth = auth_provider_from_auth(auth.clone(), &self.provider).await?;
+        // Note: ModelsManager is primarily for OpenAI model discovery.
+        // For Azure endpoints, this won't be used. Passing None for azure_auth.
+        let api_auth = auth_provider_from_auth(None, &self.provider).await?;
         let transport = ReqwestTransport::new(build_reqwest_client());
         let client = ModelsClient::new(transport, api_provider, api_auth);
 
@@ -104,6 +131,22 @@ impl ModelsManager {
     }
 
     pub async fn list_models(&self, config: &Config) -> Vec<ModelPreset> {
+        // For Azure endpoints, fetch deployments from Azure
+        if let Some(azure_deployments) = &self.azure_deployments {
+            debug!("Fetching Azure GPT deployments for model picker");
+            let presets = azure_deployments.get_gpt_model_presets().await;
+            if !presets.is_empty() {
+                *self.available_models.write().await = presets.clone();
+                return presets;
+            }
+            // Fall back to cached if Azure fetch fails
+            let cached = self.available_models.read().await.clone();
+            if !cached.is_empty() {
+                return cached;
+            }
+        }
+
+        // For non-Azure, use the standard OpenAI model discovery
         if let Err(err) = self.refresh_available_models(config).await {
             error!("failed to refresh available models: {err}");
         }
@@ -114,6 +157,20 @@ impl ModelsManager {
         self.available_models
             .try_read()
             .map(|models| models.clone())
+    }
+
+    /// Async version of try_list_models that can fetch Azure deployments if needed.
+    pub async fn list_models_async(&self) -> Vec<ModelPreset> {
+        // For Azure endpoints, fetch deployments from Azure
+        if let Some(azure_deployments) = &self.azure_deployments {
+            debug!("Fetching Azure GPT deployments");
+            let presets = azure_deployments.get_gpt_model_presets().await;
+            if !presets.is_empty() {
+                *self.available_models.write().await = presets.clone();
+                return presets;
+            }
+        }
+        self.available_models.read().await.clone()
     }
 
     fn find_family_for_model(slug: &str) -> ModelFamily {
