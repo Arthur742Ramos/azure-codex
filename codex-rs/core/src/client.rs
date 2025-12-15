@@ -166,6 +166,7 @@ impl ModelClient {
             let api_auth = auth_provider_from_auth(
                 self.azure_auth.as_ref().map(AsRef::as_ref),
                 &self.provider,
+                auth.as_ref(),
             )
             .await?;
             let transport = ReqwestTransport::new(build_reqwest_client());
@@ -267,6 +268,7 @@ impl ModelClient {
             let api_auth = auth_provider_from_auth(
                 self.azure_auth.as_ref().map(AsRef::as_ref),
                 &self.provider,
+                auth.as_ref(),
             )
             .await?;
             let transport = ReqwestTransport::new(build_reqwest_client());
@@ -358,9 +360,12 @@ impl ModelClient {
         let api_provider = self
             .provider
             .to_api_provider_with_model(auth.as_ref().map(|a| a.mode), Some(&model))?;
-        let api_auth =
-            auth_provider_from_auth(self.azure_auth.as_ref().map(AsRef::as_ref), &self.provider)
-                .await?;
+        let api_auth = auth_provider_from_auth(
+            self.azure_auth.as_ref().map(AsRef::as_ref),
+            &self.provider,
+            auth.as_ref(),
+        )
+        .await?;
         let transport = ReqwestTransport::new(build_reqwest_client());
         let request_telemetry = self.build_request_telemetry();
         let client = ApiCompactClient::new(transport, api_provider, api_auth)
