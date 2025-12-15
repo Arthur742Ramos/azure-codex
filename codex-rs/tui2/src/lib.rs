@@ -393,6 +393,7 @@ async fn run_ratatui_app(
             OnboardingScreenArgs {
                 show_login_screen: should_show_login_screen(login_status, &initial_config),
                 show_trust_screen: should_show_trust_screen,
+                show_azure_setup: should_show_azure_setup(&initial_config),
                 login_status,
                 auth_manager: auth_manager.clone(),
                 config: initial_config.clone(),
@@ -410,12 +411,13 @@ async fn run_ratatui_app(
                 update_action: None,
             });
         }
-        // if the user acknowledged windows or made an explicit decision ato trust the directory, reload the config accordingly
-        if onboarding_result
+        // Reload config if Azure was configured or directory trust was granted
+        let azure_configured = onboarding_result.azure_endpoint.is_some();
+        let trust_granted = onboarding_result
             .directory_trust_decision
             .map(|d| d == TrustDirectorySelection::Trust)
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        if azure_configured || trust_granted {
             load_config_or_exit(cli_kv_overrides, overrides).await
         } else {
             initial_config
@@ -586,10 +588,20 @@ fn should_show_onboarding(
         return true;
     }
 
+    // Show onboarding if Azure setup is needed
+    if should_show_azure_setup(config) {
+        return true;
+    }
+
     should_show_login_screen(login_status, config)
 }
 
 fn should_show_login_screen(login_status: LoginStatus, config: &Config) -> bool {
+    // Skip login screen if Azure endpoint is configured (uses Azure Entra ID auth)
+    if config.azure_endpoint.is_some() {
+        return false;
+    }
+
     // Only show the login screen for providers that actually require OpenAI auth
     // (OpenAI or equivalents). For OSS/other providers, skip login entirely.
     if !config.model_provider.requires_openai_auth {
@@ -597,6 +609,12 @@ fn should_show_login_screen(login_status: LoginStatus, config: &Config) -> bool 
     }
 
     login_status == LoginStatus::NotAuthenticated
+}
+
+/// Check if Azure setup should be shown (when no azure_endpoint is configured).
+fn should_show_azure_setup(config: &Config) -> bool {
+    // Show Azure setup if azure_endpoint is not configured
+    config.azure_endpoint.is_none()
 }
 
 #[cfg(test)]

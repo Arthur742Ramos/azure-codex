@@ -17,6 +17,7 @@ use codex_protocol::config_types::ForcedLoginMethod;
 use crate::LoginStatus;
 use crate::onboarding::auth::AuthModeWidget;
 use crate::onboarding::auth::SignInState;
+use crate::onboarding::azure_setup::AzureSetupWidget;
 use crate::onboarding::trust_directory::TrustDirectorySelection;
 use crate::onboarding::trust_directory::TrustDirectoryWidget;
 use crate::onboarding::welcome::WelcomeWidget;
@@ -30,6 +31,7 @@ use std::sync::RwLock;
 #[allow(clippy::large_enum_variant)]
 enum Step {
     Welcome(WelcomeWidget),
+    AzureSetup(AzureSetupWidget),
     Auth(AuthModeWidget),
     TrustDirectory(TrustDirectoryWidget),
 }
@@ -60,6 +62,7 @@ pub(crate) struct OnboardingScreen {
 pub(crate) struct OnboardingScreenArgs {
     pub show_trust_screen: bool,
     pub show_login_screen: bool,
+    pub show_azure_setup: bool,
     pub login_status: LoginStatus,
     pub auth_manager: Arc<AuthManager>,
     pub config: Config,
@@ -68,6 +71,10 @@ pub(crate) struct OnboardingScreenArgs {
 pub(crate) struct OnboardingResult {
     pub directory_trust_decision: Option<TrustDirectorySelection>,
     pub should_exit: bool,
+    /// The Azure endpoint configured during setup (if any).
+    pub azure_endpoint: Option<String>,
+    /// The model configured during setup (if any).
+    pub azure_model: Option<String>,
 }
 
 impl OnboardingScreen {
@@ -75,6 +82,7 @@ impl OnboardingScreen {
         let OnboardingScreenArgs {
             show_trust_screen,
             show_login_screen,
+            show_azure_setup,
             login_status,
             auth_manager,
             config,
@@ -82,7 +90,7 @@ impl OnboardingScreen {
         let cwd = config.cwd.clone();
         let forced_chatgpt_workspace_id = config.forced_chatgpt_workspace_id.clone();
         let forced_login_method = config.forced_login_method;
-        let codex_home = config.codex_home;
+        let codex_home = config.codex_home.clone();
         let cli_auth_credentials_store_mode = config.cli_auth_credentials_store_mode;
         let mut steps: Vec<Step> = Vec::new();
         steps.push(Step::Welcome(WelcomeWidget::new(
@@ -90,6 +98,14 @@ impl OnboardingScreen {
             tui.frame_requester(),
             config.animations,
         )));
+        // Azure setup step - shown when azure_endpoint is not configured
+        if show_azure_setup {
+            steps.push(Step::AzureSetup(AzureSetupWidget::new(
+                codex_home.clone(),
+                tui.frame_requester(),
+                config.animations,
+            )));
+        }
         if show_login_screen {
             let highlighted_mode = match forced_login_method {
                 Some(ForcedLoginMethod::Api) => AuthMode::ApiKey,
@@ -190,6 +206,26 @@ impl OnboardingScreen {
                 }
             })
             .flatten()
+    }
+
+    pub fn azure_endpoint(&self) -> Option<String> {
+        self.steps.iter().find_map(|step| {
+            if let Step::AzureSetup(widget) = step {
+                widget.get_configured_endpoint()
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn azure_model(&self) -> Option<String> {
+        self.steps.iter().find_map(|step| {
+            if let Step::AzureSetup(widget) = step {
+                widget.get_configured_model()
+            } else {
+                None
+            }
+        })
     }
 
     pub fn should_exit(&self) -> bool {
@@ -333,6 +369,7 @@ impl KeyboardHandler for Step {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         match self {
             Step::Welcome(widget) => widget.handle_key_event(key_event),
+            Step::AzureSetup(widget) => widget.handle_key_event(key_event),
             Step::Auth(widget) => widget.handle_key_event(key_event),
             Step::TrustDirectory(widget) => widget.handle_key_event(key_event),
         }
@@ -341,6 +378,7 @@ impl KeyboardHandler for Step {
     fn handle_paste(&mut self, pasted: String) {
         match self {
             Step::Welcome(_) => {}
+            Step::AzureSetup(widget) => widget.handle_paste(pasted),
             Step::Auth(widget) => widget.handle_paste(pasted),
             Step::TrustDirectory(widget) => widget.handle_paste(pasted),
         }
@@ -351,6 +389,7 @@ impl StepStateProvider for Step {
     fn get_step_state(&self) -> StepState {
         match self {
             Step::Welcome(w) => w.get_step_state(),
+            Step::AzureSetup(w) => w.get_step_state(),
             Step::Auth(w) => w.get_step_state(),
             Step::TrustDirectory(w) => w.get_step_state(),
         }
@@ -361,6 +400,9 @@ impl WidgetRef for Step {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         match self {
             Step::Welcome(widget) => {
+                widget.render_ref(area, buf);
+            }
+            Step::AzureSetup(widget) => {
                 widget.render_ref(area, buf);
             }
             Step::Auth(widget) => {
@@ -440,5 +482,7 @@ pub(crate) async fn run_onboarding_app(
     Ok(OnboardingResult {
         directory_trust_decision: onboarding_screen.directory_trust_decision(),
         should_exit: onboarding_screen.should_exit(),
+        azure_endpoint: onboarding_screen.azure_endpoint(),
+        azure_model: onboarding_screen.azure_model(),
     })
 }
