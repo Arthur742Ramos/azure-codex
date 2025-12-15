@@ -11,6 +11,7 @@ use codex_core::Prompt;
 use codex_core::ResponseEvent;
 use codex_core::ResponseItem;
 use codex_core::WireApi;
+use codex_core::auth::AuthHeaderType;
 use codex_core::openai_models::models_manager::ModelsManager;
 use codex_otel::otel_manager::OtelManager;
 use codex_protocol::ConversationId;
@@ -58,6 +59,9 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
         stream_max_retries: Some(0),
         stream_idle_timeout_ms: Some(5_000),
         requires_openai_auth: false,
+        auth_header_type: AuthHeaderType::Bearer,
+        is_azure: false,
+        skip_azure_detection: true,
     };
 
     let codex_home = match TempDir::new() {
