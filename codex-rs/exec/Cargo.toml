@@ -26,7 +26,6 @@ codex-common = { workspace = true, features = [
 ] }
 codex-core = { workspace = true }
 codex-protocol = { workspace = true }
-codex-utils-absolute-path = { workspace = true }
 mcp-types = { workspace = true }
 owo-colors = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -51,6 +50,7 @@ ts-rs = { workspace = true, features = [
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
+codex-utils-absolute-path = { workspace = true }
 core_test_support = { workspace = true }
 libc = { workspace = true }
 mcp-types = { workspace = true }
