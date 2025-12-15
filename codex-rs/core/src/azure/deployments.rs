@@ -109,7 +109,7 @@ impl AzureDeploymentsManager {
                 "account",
                 "list",
                 "--query",
-                &format!("[?contains(name,'{}')].resourceGroup | [0]", account_name),
+                &format!("[?contains(name,'{account_name}')].resourceGroup | [0]"),
                 "-o",
                 "tsv",
             ])
@@ -123,7 +123,7 @@ impl AzureDeploymentsManager {
                 "account",
                 "list",
                 "--query",
-                &format!("[?contains(name,'{}')].resourceGroup | [0]", account_name),
+                &format!("[?contains(name,'{account_name}')].resourceGroup | [0]"),
                 "-o",
                 "tsv",
             ])
@@ -323,9 +323,9 @@ impl AzureDeployment {
                 let model_name = model.name.as_deref().unwrap_or("Unknown");
                 let version = model.version.as_deref().unwrap_or("");
                 if version.is_empty() {
-                    format!("Azure deployment ({})", model_name)
+                    format!("Azure deployment ({model_name})")
                 } else {
-                    format!("Azure deployment ({} v{})", model_name, version)
+                    format!("Azure deployment ({model_name} v{version})")
                 }
             }
             None => "Azure OpenAI deployment".to_string(),

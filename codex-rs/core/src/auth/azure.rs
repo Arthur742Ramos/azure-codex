@@ -123,6 +123,7 @@ pub struct DeviceCodeResponse {
 
 impl AzureAuth {
     /// Creates a new Azure authentication provider.
+    #[allow(clippy::expect_used)]
     pub fn new(config: AzureAuthConfig) -> Self {
         Self {
             config,
@@ -145,15 +146,16 @@ impl AzureAuth {
     }
 
     /// Gets an access token, using cached token if valid.
+    #[allow(clippy::unwrap_used)]
     pub async fn get_token(&self) -> Result<String, AzureAuthError> {
         // Check if we have a valid cached token
         {
             let cached = self.cached_token.read().unwrap();
-            if let Some(ref token) = *cached {
-                if !token.is_expired() {
-                    debug!("Using cached Azure token");
-                    return Ok(token.token.clone());
-                }
+            if let Some(ref token) = *cached
+                && !token.is_expired()
+            {
+                debug!("Using cached Azure token");
+                return Ok(token.token.clone());
             }
         }
 
@@ -173,6 +175,7 @@ impl AzureAuth {
 
     /// Clears the cached token without acquiring a new one.
     /// Call this after receiving a 401 to force re-authentication on next request.
+    #[allow(clippy::unwrap_used)]
     pub async fn clear_cached_token(&self) {
         debug!("Clearing cached Azure token");
         let mut cached = self.cached_token.write().unwrap();
@@ -273,7 +276,7 @@ impl AzureAuth {
         };
 
         let authority = self.config.effective_authority();
-        let token_url = format!("{}/{}/oauth2/v2.0/token", authority, tenant_id);
+        let token_url = format!("{authority}/{tenant_id}/oauth2/v2.0/token");
 
         let params = [
             ("client_id", client_id.to_string()),
@@ -293,8 +296,7 @@ impl AzureAuth {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(AzureAuthError::TokenAcquisitionFailed(format!(
-                "HTTP {}: {}",
-                status, body
+                "HTTP {status}: {body}"
             )));
         }
 
@@ -317,8 +319,7 @@ impl AzureAuth {
         let encoded_resource = url_encode(&resource);
 
         let mut url = format!(
-            "{}?api-version=2019-08-01&resource={}",
-            imds_url, encoded_resource
+            "{imds_url}?api-version=2019-08-01&resource={encoded_resource}"
         );
 
         // Add client_id for user-assigned managed identity
@@ -338,8 +339,7 @@ impl AzureAuth {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(AzureAuthError::TokenAcquisitionFailed(format!(
-                "Managed identity request failed - HTTP {}: {}",
-                status, body
+                "Managed identity request failed - HTTP {status}: {body}"
             )));
         }
 
@@ -369,7 +369,7 @@ impl AzureAuth {
             ])
             .output()
             .await
-            .map_err(|e| AzureAuthError::AzureCliError(format!("Failed to run az CLI: {}", e)))?;
+            .map_err(|e| AzureAuthError::AzureCliError(format!("Failed to run az CLI: {e}")))?;
 
         #[cfg(not(windows))]
         let output = tokio::process::Command::new("az")
@@ -383,13 +383,12 @@ impl AzureAuth {
             ])
             .output()
             .await
-            .map_err(|e| AzureAuthError::AzureCliError(format!("Failed to run az CLI: {}", e)))?;
+            .map_err(|e| AzureAuthError::AzureCliError(format!("Failed to run az CLI: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(AzureAuthError::AzureCliError(format!(
-                "Azure CLI returned error: {}",
-                stderr
+                "Azure CLI returned error: {stderr}"
             )));
         }
 
@@ -424,6 +423,7 @@ impl AzureAuth {
             scope: self.config.scope.clone(),
         };
 
+        #[allow(clippy::unwrap_used)]
         {
             let mut cache = self.cached_token.write().unwrap();
             *cache = Some(cached);
@@ -443,7 +443,7 @@ impl AzureAuth {
         client_id: &str,
     ) -> Result<DeviceCodeResponse, AzureAuthError> {
         let authority = self.config.effective_authority();
-        let device_code_url = format!("{}/{}/oauth2/v2.0/devicecode", authority, tenant_id);
+        let device_code_url = format!("{authority}/{tenant_id}/oauth2/v2.0/devicecode");
 
         let params = [("client_id", client_id), ("scope", &self.config.scope)];
 
@@ -453,8 +453,7 @@ impl AzureAuth {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(AzureAuthError::TokenAcquisitionFailed(format!(
-                "Device code request failed - HTTP {}: {}",
-                status, body
+                "Device code request failed - HTTP {status}: {body}"
             )));
         }
 
@@ -473,7 +472,7 @@ impl AzureAuth {
         device_code: &DeviceCodeResponse,
     ) -> Result<String, AzureAuthError> {
         let authority = self.config.effective_authority();
-        let token_url = format!("{}/{}/oauth2/v2.0/token", authority, tenant_id);
+        let token_url = format!("{authority}/{tenant_id}/oauth2/v2.0/token");
 
         let poll_interval = Duration::from_secs(device_code.interval.max(5));
         let deadline = Instant::now() + Duration::from_secs(device_code.expires_in);
@@ -541,6 +540,7 @@ impl AzureAuth {
     }
 
     /// Cache a token from a token response.
+    #[allow(clippy::unwrap_used)]
     fn cache_token(&self, response: &TokenResponse) {
         let expires_at = Instant::now() + Duration::from_secs(response.expires_in.max(300));
 
@@ -565,6 +565,7 @@ impl AzureAuth {
     }
 
     /// Clear any cached credentials.
+    #[allow(clippy::unwrap_used)]
     pub fn clear_cache(&self) {
         let mut cache = self.cached_token.write().unwrap();
         *cache = None;
@@ -583,7 +584,7 @@ fn url_encode(s: &str) -> String {
             _ => {
                 for byte in c.to_string().as_bytes() {
                     result.push('%');
-                    result.push_str(&format!("{:02X}", byte));
+                    result.push_str(&format!("{byte:02X}"));
                 }
             }
         }

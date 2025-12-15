@@ -178,10 +178,11 @@ impl ModelProviderInfo {
         // This allows the simple config format:
         //   azure_endpoint = "https://myresource.openai.azure.com"
         //   model = "gpt-4"
-        if self.is_azure && base_url.ends_with("/openai/deployments") {
-            if let Some(model_name) = model {
-                base_url = format!("{}/{}", base_url, model_name);
-            }
+        if self.is_azure
+            && base_url.ends_with("/openai/deployments")
+            && let Some(model_name) = model
+        {
+            base_url = format!("{base_url}/{model_name}");
         }
 
         let headers = self.build_header_map()?;
@@ -372,7 +373,7 @@ impl ModelProviderInfo {
         // Fall back to hostname detection
         self.base_url
             .as_ref()
-            .map_or(false, |url| is_azure_hostname(url))
+            .is_some_and(|url| is_azure_hostname(url))
     }
 
     /// Returns the auth header type for this provider, taking into account
