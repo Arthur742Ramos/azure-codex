@@ -879,7 +879,7 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
         .await?;
 
     let temp_home = tempdir()?;
-    let _guard = EnvVarGuard::set("CODEX_HOME", temp_home.path().as_os_str());
+    let _guard = EnvVarGuard::set("AZURE_CODEX_HOME", temp_home.path().as_os_str());
     write_fallback_oauth_tokens(
         temp_home.path(),
         server_name,

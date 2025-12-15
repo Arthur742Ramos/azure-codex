@@ -25,7 +25,7 @@ prefix_rule(
     )?;
 
     let output = Command::cargo_bin("codex")?
-        .env("CODEX_HOME", codex_home.path())
+        .env("AZURE_CODEX_HOME", codex_home.path())
         .args([
             "execpolicy",
             "check",
