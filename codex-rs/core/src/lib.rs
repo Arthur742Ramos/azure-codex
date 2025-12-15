@@ -68,6 +68,8 @@ pub use conversation_manager::NewConversation;
 // Re-export common auth types for workspace consumers
 pub use auth::AuthManager;
 pub use auth::CodexAuth;
+// Re-export Azure auth types
+pub use auth::{AzureAuth, AzureAuthConfig, AzureAuthError, AzureAuthMode, AzureCloud};
 pub mod default_client;
 pub mod project_doc;
 mod rollout;

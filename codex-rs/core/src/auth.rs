@@ -2,6 +2,10 @@ mod storage;
 pub mod azure;
 pub mod azure_config;
 
+// Re-export Azure auth types for convenience
+pub use azure::{AzureAuth, AzureAuthError, DeviceCodeResponse};
+pub use azure_config::{AzureAuthConfig, AzureAuthMode, AzureCloud};
+
 use chrono::Utc;
 use reqwest::StatusCode;
 use serde::Deserialize;
