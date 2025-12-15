@@ -235,7 +235,7 @@ impl AzureSetupWidget {
             if scroll_offset > 0 {
                 lines.push(Line::from(vec![
                     "  ".into(),
-                    format!("  ▲ {} more above", scroll_offset).dim(),
+                    format!("  ▲ {scroll_offset} more above").dim(),
                 ]));
             } else {
                 lines.push("  Available GPT deployments:".into());
@@ -272,7 +272,7 @@ impl AzureSetupWidget {
                 lines.push("".into());
                 lines.push(Line::from(vec![
                     "  ".into(),
-                    format!("  ▼ {} more below", remaining_below).dim(),
+                    format!("  ▼ {remaining_below} more below").dim(),
                 ]));
             }
         }

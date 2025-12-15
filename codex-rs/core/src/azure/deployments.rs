@@ -372,8 +372,8 @@ fn get_reasoning_efforts_for_model(
     deployment_name: &str,
     underlying_model: Option<&str>,
 ) -> Vec<ReasoningEffortPreset> {
-    let has_xhigh = supports_xhigh(deployment_name)
-        || underlying_model.is_some_and(supports_xhigh);
+    let has_xhigh =
+        supports_xhigh(deployment_name) || underlying_model.is_some_and(supports_xhigh);
 
     let mut efforts = vec![
         ReasoningEffortPreset {
