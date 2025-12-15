@@ -261,7 +261,9 @@ impl AzureSetupWidget {
             "".into(),
             Line::from(vec![
                 "  ".into(),
-                "No GPT deployments found".bold().fg(Color::Rgb(255, 165, 0)),
+                "No GPT deployments found"
+                    .bold()
+                    .fg(Color::Rgb(255, 165, 0)),
             ]),
             "".into(),
             Line::from(vec!["  Endpoint: ".dim(), endpoint.clone().cyan()]),
