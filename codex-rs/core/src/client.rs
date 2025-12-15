@@ -166,6 +166,7 @@ impl ModelClient {
             let api_auth = auth_provider_from_auth(
                 self.azure_auth.as_ref().map(AsRef::as_ref),
                 &self.provider,
+                auth.as_ref(),
             )
             .await?;
             let transport = ReqwestTransport::new(build_reqwest_client());
@@ -267,6 +268,7 @@ impl ModelClient {
             let api_auth = auth_provider_from_auth(
                 self.azure_auth.as_ref().map(AsRef::as_ref),
                 &self.provider,
+                auth.as_ref(),
             )
             .await?;
             let transport = ReqwestTransport::new(build_reqwest_client());
@@ -284,9 +286,7 @@ impl ModelClient {
                 session_source: Some(session_source.clone()),
             };
 
-            let stream_result = client
-                .stream_prompt(&model, &api_prompt, options)
-                .await;
+            let stream_result = client.stream_prompt(&model, &api_prompt, options).await;
 
             match stream_result {
                 Ok(stream) => {
@@ -363,6 +363,7 @@ impl ModelClient {
         let api_auth = auth_provider_from_auth(
             self.azure_auth.as_ref().map(AsRef::as_ref),
             &self.provider,
+            auth.as_ref(),
         )
         .await?;
         let transport = ReqwestTransport::new(build_reqwest_client());

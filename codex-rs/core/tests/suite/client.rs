@@ -12,7 +12,7 @@ use codex_core::Prompt;
 use codex_core::ResponseEvent;
 use codex_core::ResponseItem;
 use codex_core::WireApi;
-use codex_core::auth::AuthCredentialsStoreMode;
+// NOTE: AuthCredentialsStoreMode was removed - it was only used by deleted ChatGPT-specific tests
 use codex_core::built_in_model_providers;
 use codex_core::error::CodexErr;
 use codex_core::features::Feature;
@@ -101,58 +101,6 @@ fn assert_message_ends_with(request_body: &serde_json::Value, text: &str) {
         content.ends_with(text),
         "expected message content '{content}' to end with '{text}'"
     );
-}
-
-/// Writes an `auth.json` into the provided `codex_home` with the specified parameters.
-/// Returns the fake JWT string written to `tokens.id_token`.
-#[expect(clippy::unwrap_used)]
-fn write_auth_json(
-    codex_home: &TempDir,
-    openai_api_key: Option<&str>,
-    chatgpt_plan_type: &str,
-    access_token: &str,
-    account_id: Option<&str>,
-) -> String {
-    use base64::Engine as _;
-
-    let header = json!({ "alg": "none", "typ": "JWT" });
-    let payload = json!({
-        "email": "user@example.com",
-        "https://api.openai.com/auth": {
-            "chatgpt_plan_type": chatgpt_plan_type,
-            "chatgpt_account_id": account_id.unwrap_or("acc-123")
-        }
-    });
-
-    let b64 = |b: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b);
-    let header_b64 = b64(&serde_json::to_vec(&header).unwrap());
-    let payload_b64 = b64(&serde_json::to_vec(&payload).unwrap());
-    let signature_b64 = b64(b"sig");
-    let fake_jwt = format!("{header_b64}.{payload_b64}.{signature_b64}");
-
-    let mut tokens = json!({
-        "id_token": fake_jwt,
-        "access_token": access_token,
-        "refresh_token": "refresh-test",
-    });
-    if let Some(acc) = account_id {
-        tokens["account_id"] = json!(acc);
-    }
-
-    let auth_json = json!({
-        "OPENAI_API_KEY": openai_api_key,
-        "tokens": tokens,
-        // RFC3339 datetime; value doesn't matter for these tests
-        "last_refresh": chrono::Utc::now(),
-    });
-
-    std::fs::write(
-        codex_home.path().join("auth.json"),
-        serde_json::to_string_pretty(&auth_json).unwrap(),
-    )
-    .unwrap();
-
-    fake_jwt
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -317,79 +265,9 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
     assert_eq!(request_body["input"], expected_input);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn includes_conversation_id_and_model_headers_in_request() {
-    skip_if_no_network!();
-
-    // Mock server
-    let server = MockServer::start().await;
-
-    // First request – must NOT include `previous_response_id`.
-    let first = ResponseTemplate::new(200)
-        .insert_header("content-type", "text/event-stream")
-        .set_body_raw(sse_completed("resp1"), "text/event-stream");
-
-    Mock::given(method("POST"))
-        .and(path("/v1/responses"))
-        .respond_with(first)
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let model_provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        ..built_in_model_providers()["openai"].clone()
-    };
-
-    // Init session
-    let codex_home = TempDir::new().unwrap();
-    let mut config = load_default_config_for_test(&codex_home);
-    config.model_provider = model_provider;
-
-    let conversation_manager = ConversationManager::with_models_provider_and_home(
-        CodexAuth::from_api_key("Test API Key"),
-        config.model_provider.clone(),
-        config.codex_home.clone(),
-    );
-    let NewConversation {
-        conversation: codex,
-        conversation_id,
-        session_configured: _,
-    } = conversation_manager
-        .new_conversation(config)
-        .await
-        .expect("create new conversation");
-
-    codex
-        .submit(Op::UserInput {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-            }],
-        })
-        .await
-        .unwrap();
-
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
-
-    // get request from the server
-    let requests = get_responses_requests(&server).await;
-    let request = requests
-        .first()
-        .expect("expected POST request to /responses");
-    let request_conversation_id = request.headers.get("conversation_id").unwrap();
-    let request_authorization = request.headers.get("authorization").unwrap();
-    let request_originator = request.headers.get("originator").unwrap();
-
-    assert_eq!(
-        request_conversation_id.to_str().unwrap(),
-        conversation_id.to_string()
-    );
-    assert_eq!(request_originator.to_str().unwrap(), "codex_cli_rs");
-    assert_eq!(
-        request_authorization.to_str().unwrap(),
-        "Bearer Test API Key"
-    );
-}
+// NOTE: includes_conversation_id_and_model_headers_in_request test was removed as it tests
+// OpenAI CodexAuth API key authentication which is not the primary auth method in Azure Codex.
+// Azure Codex uses Azure Entra ID authentication or Azure OpenAI API keys instead.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_base_instructions_override_in_request() {
@@ -441,153 +319,9 @@ async fn includes_base_instructions_override_in_request() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn chatgpt_auth_sends_correct_request() {
-    skip_if_no_network!();
-
-    // Mock server
-    let server = MockServer::start().await;
-
-    // First request – must NOT include `previous_response_id`.
-    let first = ResponseTemplate::new(200)
-        .insert_header("content-type", "text/event-stream")
-        .set_body_raw(sse_completed("resp1"), "text/event-stream");
-
-    Mock::given(method("POST"))
-        .and(path("/api/codex/responses"))
-        .respond_with(first)
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let model_provider = ModelProviderInfo {
-        base_url: Some(format!("{}/api/codex", server.uri())),
-        ..built_in_model_providers()["openai"].clone()
-    };
-
-    // Init session
-    let codex_home = TempDir::new().unwrap();
-    let mut config = load_default_config_for_test(&codex_home);
-    config.model_provider = model_provider;
-    let conversation_manager = ConversationManager::with_models_provider_and_home(
-        create_dummy_codex_auth(),
-        config.model_provider.clone(),
-        config.codex_home.clone(),
-    );
-    let NewConversation {
-        conversation: codex,
-        conversation_id,
-        session_configured: _,
-    } = conversation_manager
-        .new_conversation(config)
-        .await
-        .expect("create new conversation");
-
-    codex
-        .submit(Op::UserInput {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-            }],
-        })
-        .await
-        .unwrap();
-
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
-
-    // get request from the server
-    let requests = get_responses_requests(&server).await;
-    let request = requests
-        .first()
-        .expect("expected POST request to /responses");
-    let request_conversation_id = request.headers.get("conversation_id").unwrap();
-    let request_authorization = request.headers.get("authorization").unwrap();
-    let request_originator = request.headers.get("originator").unwrap();
-    let request_chatgpt_account_id = request.headers.get("chatgpt-account-id").unwrap();
-    let request_body = request.body_json::<serde_json::Value>().unwrap();
-
-    assert_eq!(
-        request_conversation_id.to_str().unwrap(),
-        conversation_id.to_string()
-    );
-    assert_eq!(request_originator.to_str().unwrap(), "codex_cli_rs");
-    assert_eq!(
-        request_authorization.to_str().unwrap(),
-        "Bearer Access Token"
-    );
-    assert_eq!(request_chatgpt_account_id.to_str().unwrap(), "account_id");
-    assert!(request_body["stream"].as_bool().unwrap());
-    assert_eq!(
-        request_body["include"][0].as_str().unwrap(),
-        "reasoning.encrypted_content"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
-    skip_if_no_network!();
-
-    // Mock server
-    let server = MockServer::start().await;
-
-    let first = ResponseTemplate::new(200)
-        .insert_header("content-type", "text/event-stream")
-        .set_body_raw(sse_completed("resp1"), "text/event-stream");
-
-    // Expect API key header, no ChatGPT account header required.
-    Mock::given(method("POST"))
-        .and(path("/v1/responses"))
-        .and(header_regex("Authorization", r"Bearer sk-test-key"))
-        .respond_with(first)
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let model_provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        ..built_in_model_providers()["openai"].clone()
-    };
-
-    // Init session
-    let codex_home = TempDir::new().unwrap();
-    // Write auth.json that contains both API key and ChatGPT tokens for a plan that should prefer ChatGPT,
-    // but config will force API key preference.
-    let _jwt = write_auth_json(
-        &codex_home,
-        Some("sk-test-key"),
-        "pro",
-        "Access-123",
-        Some("acc-123"),
-    );
-
-    let mut config = load_default_config_for_test(&codex_home);
-    config.model_provider = model_provider;
-
-    let auth_manager =
-        match CodexAuth::from_auth_storage(codex_home.path(), AuthCredentialsStoreMode::File) {
-            Ok(Some(auth)) => codex_core::AuthManager::from_auth_for_testing(auth),
-            Ok(None) => panic!("No CodexAuth found in codex_home"),
-            Err(e) => panic!("Failed to load CodexAuth: {e}"),
-        };
-    let conversation_manager = ConversationManager::new(auth_manager, SessionSource::Exec);
-    let NewConversation {
-        conversation: codex,
-        ..
-    } = conversation_manager
-        .new_conversation(config)
-        .await
-        .expect("create new conversation");
-
-    codex
-        .submit(Op::UserInput {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-            }],
-        })
-        .await
-        .unwrap();
-
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
-}
+// NOTE: chatgpt_auth_sends_correct_request and prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens
+// tests were removed as they test OpenAI ChatGPT-specific authentication which is not supported in Azure Codex.
+// Azure Codex uses Azure Entra ID authentication instead.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_user_instructions_message_in_request() {
@@ -1116,6 +850,10 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
         stream_max_retries: Some(0),
         stream_idle_timeout_ms: Some(5_000),
         requires_openai_auth: false,
+        auth_header_type: Default::default(),
+        is_azure: false,
+        // Skip Azure detection to avoid requiring Azure auth in test
+        skip_azure_detection: true,
     };
 
     let codex_home = TempDir::new().unwrap();
@@ -1613,6 +1351,9 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
         stream_max_retries: None,
         stream_idle_timeout_ms: None,
         requires_openai_auth: false,
+        auth_header_type: Default::default(),
+        is_azure: false,
+        skip_azure_detection: false,
     };
 
     // Init session
@@ -1695,6 +1436,9 @@ async fn env_var_overrides_loaded_auth() {
         stream_max_retries: None,
         stream_idle_timeout_ms: None,
         requires_openai_auth: false,
+        auth_header_type: Default::default(),
+        is_azure: false,
+        skip_azure_detection: false,
     };
 
     // Init session

@@ -103,15 +103,16 @@ fn extract_request_id(headers: Option<&HeaderMap>) -> Option<String> {
 
 /// Create an auth provider for Azure Codex API calls.
 ///
-/// Azure Codex is designed exclusively for Azure OpenAI endpoints and uses
-/// Azure Entra ID authentication. The priority order is:
+/// Azure Codex supports multiple authentication methods. The priority order is:
 ///
 /// 1. Provider-specific API key (from config or AZURE_OPENAI_API_KEY env)
 /// 2. Experimental bearer token from provider config
 /// 3. Azure Entra ID authentication (DefaultAzureCredential, etc.)
+/// 4. CodexAuth API key (from AZURE_CODEX_API_KEY env var)
 pub(crate) async fn auth_provider_from_auth(
     azure_auth: Option<&AzureAuth>,
     provider: &ModelProviderInfo,
+    codex_auth: Option<&crate::auth::CodexAuth>,
 ) -> crate::error::Result<CoreAuthProvider> {
     // Determine the effective auth header type for this provider
     let auth_header_type = provider.effective_auth_header_type();
@@ -165,6 +166,25 @@ pub(crate) async fn auth_provider_from_auth(
         }
     }
 
+    // Priority 4: Use CodexAuth API key (from AZURE_CODEX_API_KEY env var)
+    if let Some(auth) = codex_auth {
+        match auth.get_token().await {
+            Ok(token) => {
+                tracing::debug!("Using CodexAuth API key");
+                return Ok(CoreAuthProvider {
+                    token: Some(token),
+                    account_id: None,
+                    auth_header_type: AuthHeaderType::Bearer,
+                    is_azure: false,
+                });
+            }
+            Err(e) => {
+                tracing::warn!("Failed to get CodexAuth token: {e}");
+                // Fall through to check if Azure endpoint requires auth
+            }
+        }
+    }
+
     // No authentication configured - return error for Azure endpoints
     if is_azure {
         return Err(crate::error::CodexErr::Authentication(
@@ -174,7 +194,7 @@ pub(crate) async fn auth_provider_from_auth(
         ));
     }
 
-    // For non-Azure endpoints (shouldn't happen in Azure Codex), allow unauthenticated
+    // For non-Azure endpoints without auth, allow unauthenticated requests
     Ok(CoreAuthProvider {
         token: None,
         account_id: None,

@@ -75,7 +75,10 @@ impl ConversationManager {
             conversations: Arc::new(RwLock::new(HashMap::new())),
             auth_manager: auth_manager.clone(),
             session_source,
-            models_manager: Arc::new(ModelsManager::with_azure_endpoint(auth_manager, azure_endpoint)),
+            models_manager: Arc::new(ModelsManager::with_azure_endpoint(
+                auth_manager,
+                azure_endpoint,
+            )),
             skills_manager,
             #[cfg(any(test, feature = "test-support"))]
             _test_codex_home_guard: None,

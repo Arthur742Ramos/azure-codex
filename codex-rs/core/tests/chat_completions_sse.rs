@@ -3,6 +3,7 @@ use codex_core::AuthManager;
 use std::sync::Arc;
 use tracing_test::traced_test;
 
+use codex_api::AuthHeaderType;
 use codex_core::CodexAuth;
 use codex_core::ContentItem;
 use codex_core::ModelClient;
@@ -58,6 +59,9 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
         stream_max_retries: Some(0),
         stream_idle_timeout_ms: Some(5_000),
         requires_openai_auth: false,
+        auth_header_type: AuthHeaderType::Bearer,
+        is_azure: false,
+        skip_azure_detection: true,
     };
 
     let codex_home = match TempDir::new() {

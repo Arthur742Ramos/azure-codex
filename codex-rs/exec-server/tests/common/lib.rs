@@ -54,7 +54,7 @@ where
         TokioChildProcess::new(Command::new(mcp_executable.get_program()).configure(|cmd| {
             cmd.arg("--bash").arg(bash);
             cmd.arg("--execve").arg(execve_wrapper.get_program());
-            cmd.env("CODEX_HOME", codex_home.as_ref());
+            cmd.env("AZURE_CODEX_HOME", codex_home.as_ref());
             cmd.env("DOTSLASH_CACHE", dotslash_cache.as_ref());
 
             // Important: pipe stdio so rmcp can speak JSON-RPC over stdin/stdout

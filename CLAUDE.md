@@ -101,6 +101,176 @@ cargo test
 - Handle errors with `Result` types, avoid `unwrap()` in production code
 - Document public APIs with doc comments
 
+### Rust Linting Rules (Clippy & Cargo Fmt)
+
+This project enforces strict Clippy lints and formatting. CI will fail if these rules are violated.
+
+#### Cargo Fmt Rules
+
+The project uses `imports_granularity = Item` (requires nightly, but CI enforces it). Key formatting rules:
+
+1. **Imports must be individual** - No grouped imports:
+   ```rust
+   // ❌ BAD
+   use std::sync::{Arc, RwLock};
+
+   // ✅ GOOD
+   use std::sync::Arc;
+   use std::sync::RwLock;
+   ```
+
+2. **Method chains** - Long chains should be multi-line:
+   ```rust
+   // ❌ BAD (if line is too long)
+   let result = self.client.post(&url).form(&params).send().await?;
+
+   // ✅ GOOD
+   let result = self
+       .client
+       .post(&url)
+       .form(&params)
+       .send()
+       .await?;
+   ```
+
+3. **Function calls with multiple args** - Break into multiple lines when long:
+   ```rust
+   // ❌ BAD
+   ConversationManager::with_azure_endpoint(auth_manager.clone(), SessionSource::Exec, azure_endpoint)
+
+   // ✅ GOOD
+   ConversationManager::with_azure_endpoint(
+       auth_manager.clone(),
+       SessionSource::Exec,
+       azure_endpoint,
+   )
+   ```
+
+4. **Macro calls like `tokio::join!`** - Multi-line for multiple args:
+   ```rust
+   // ✅ GOOD
+   let (a, b, c, d) = tokio::join!(
+       future_a,
+       future_b,
+       future_c,
+       future_d
+   );
+   ```
+
+#### Clippy Lints (Denied in This Project)
+
+The workspace denies these lints (see `Cargo.toml`):
+
+1. **`unwrap_used` / `expect_used`** - No `.unwrap()` or `.expect()` in production code:
+   ```rust
+   // ❌ BAD
+   let value = result.unwrap();
+
+   // ✅ GOOD - Use ? operator or handle the error
+   let value = result?;
+   let value = result.unwrap_or_default();
+
+   // ✅ OK in tests/UI code - Add allow attribute
+   #![allow(clippy::unwrap_used)]  // At module level for UI widgets
+   ```
+
+2. **`uninlined_format_args`** - Inline variables in format strings:
+   ```rust
+   // ❌ BAD
+   format!("Error: {}", e)
+   format!("Value: {} and {}", x, y)
+
+   // ✅ GOOD
+   format!("Error: {e}")
+   format!("Value: {x} and {y}")
+   ```
+
+3. **`collapsible_if`** - Combine nested if statements:
+   ```rust
+   // ❌ BAD
+   if let Ok(guard) = lock.read() {
+       if let Some(value) = guard.as_ref() {
+           // ...
+       }
+   }
+
+   // ✅ GOOD
+   if let Ok(guard) = lock.read()
+       && let Some(value) = guard.as_ref()
+   {
+       // ...
+   }
+   ```
+
+4. **`redundant_clone`** - Don't clone when moving:
+   ```rust
+   // ❌ BAD
+   if let Some(x) = option.clone() { ... }  // option is not used after
+
+   // ✅ GOOD
+   if let Some(x) = option { ... }
+   ```
+
+5. **`redundant_closure`** - Use method references:
+   ```rust
+   // ❌ BAD
+   .map(|a| a.as_ref())
+
+   // ✅ GOOD
+   .map(AsRef::as_ref)
+   ```
+
+6. **`manual_map`** - Use `.map()` instead of if-else:
+   ```rust
+   // ❌ BAD
+   let result = if let Some(x) = option { Some(f(x)) } else { None };
+
+   // ✅ GOOD
+   let result = option.map(f);
+   ```
+
+#### TUI-Specific Rules (tui2 crate)
+
+1. **No `.yellow()` color** - Yellow is disallowed; use ANSI colors:
+   ```rust
+   // ❌ BAD - disallowed_methods
+   "Warning".yellow()
+
+   // ✅ GOOD - Use ANSI colors
+   "Warning".red()
+   "Warning".cyan()
+   ```
+
+2. **No `Color::Rgb()`** - Use ANSI colors for better terminal compatibility:
+   ```rust
+   // ❌ BAD - disallowed_methods
+   "Text".fg(Color::Rgb(255, 165, 0))
+
+   // ✅ GOOD - Use ANSI colors
+   "Text".red()
+   "Text".cyan()
+   "Text".green()
+   ```
+
+#### Cargo.toml Rules (cargo-shear)
+
+1. **Dependencies vs dev-dependencies** - Test-only deps go in `[dev-dependencies]`:
+   ```toml
+   # ❌ BAD - test crates in [dependencies]
+   [dependencies]
+   tempfile = "3"
+   wiremock = "0.6"
+
+   # ✅ GOOD
+   [dev-dependencies]
+   tempfile = { workspace = true }
+   wiremock = { workspace = true }
+   ```
+
+2. **No duplicate dependencies** - Don't list the same dep in both sections
+
+3. **Keep cargo-shear ignores minimal** - Only add to `[package.metadata.cargo-shear].ignored` when truly needed
+
 ### Important Patterns
 
 #### Azure Endpoint Detection

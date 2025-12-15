@@ -102,7 +102,6 @@ pub struct ModelProviderInfo {
     pub requires_openai_auth: bool,
 
     // ===== Azure-specific configuration =====
-
     /// Authentication header type for this provider.
     /// - `bearer`: Uses `Authorization: Bearer <token>` (default, OpenAI style)
     /// - `api_key`: Uses `api-key: <key>` (Azure OpenAI style)
@@ -364,9 +363,7 @@ impl ModelProviderInfo {
         }
 
         // Check provider name
-        if self.name.eq_ignore_ascii_case("azure")
-            || self.name.to_lowercase().contains("azure")
-        {
+        if self.name.eq_ignore_ascii_case("azure") || self.name.to_lowercase().contains("azure") {
             return true;
         }
 
@@ -773,7 +770,10 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
             skip_azure_detection: false,
         };
         // Should auto-detect as Azure and use ApiKey
-        assert_eq!(provider.effective_auth_header_type(), AuthHeaderType::ApiKey);
+        assert_eq!(
+            provider.effective_auth_header_type(),
+            AuthHeaderType::ApiKey
+        );
     }
 
     #[test]
@@ -798,6 +798,9 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
             skip_azure_detection: false,
         };
         // No env_key, so should keep Bearer
-        assert_eq!(provider.effective_auth_header_type(), AuthHeaderType::Bearer);
+        assert_eq!(
+            provider.effective_auth_header_type(),
+            AuthHeaderType::Bearer
+        );
     }
 }

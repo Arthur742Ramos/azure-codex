@@ -73,6 +73,9 @@ async fn continue_after_stream_error() {
         stream_max_retries: Some(1),
         stream_idle_timeout_ms: Some(2_000),
         requires_openai_auth: false,
+        auth_header_type: Default::default(),
+        is_azure: false,
+        skip_azure_detection: false,
     };
 
     let TestCodex { codex, .. } = test_codex()

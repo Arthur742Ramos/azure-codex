@@ -3,6 +3,8 @@
 //! This widget guides users through configuring their Azure OpenAI endpoint
 //! and selecting a model deployment when running Azure Codex for the first time.
 
+#![allow(clippy::unwrap_used)]
+
 use codex_core::azure::deployments::AzureDeploymentsManager;
 use codex_protocol::openai_models::ModelPreset;
 use crossterm::event::KeyCode;
@@ -78,7 +80,11 @@ pub struct AzureSetupWidget {
 }
 
 impl AzureSetupWidget {
-    pub fn new(codex_home: PathBuf, request_frame: FrameRequester, animations_enabled: bool) -> Self {
+    pub fn new(
+        codex_home: PathBuf,
+        request_frame: FrameRequester,
+        animations_enabled: bool,
+    ) -> Self {
         Self {
             request_frame,
             state: Arc::new(RwLock::new(AzureSetupState::EndpointEntry)),
@@ -112,10 +118,7 @@ impl AzureSetupWidget {
         .areas(area);
 
         let intro_lines: Vec<Line> = vec![
-            Line::from(vec![
-                "  ".into(),
-                "Welcome to Azure Codex!".bold().cyan(),
-            ]),
+            Line::from(vec!["  ".into(), "Welcome to Azure Codex!".bold().cyan()]),
             "".into(),
             "  Enter your Azure OpenAI endpoint to get started.".into(),
             "".into(),
@@ -125,7 +128,9 @@ impl AzureSetupWidget {
                 "https://your-resource.openai.azure.com".cyan(),
             ]),
             "".into(),
-            "  You can find this in the Azure Portal under your".dim().into(),
+            "  You can find this in the Azure Portal under your"
+                .dim()
+                .into(),
             "  Azure OpenAI resource > Keys and Endpoint.".dim().into(),
             "".into(),
         ];
@@ -156,14 +161,16 @@ impl AzureSetupWidget {
         let mut footer_lines: Vec<Line> = vec![
             "".into(),
             "  Press Enter to continue".dim().into(),
-            "  Press Esc to skip and configure manually later".dim().into(),
+            "  Press Esc to skip and configure manually later"
+                .dim()
+                .into(),
         ];
 
-        if let Ok(error_guard) = self.error.read() {
-            if let Some(err) = error_guard.as_ref() {
-                footer_lines.push("".into());
-                footer_lines.push(err.clone().red().into());
-            }
+        if let Ok(error_guard) = self.error.read()
+            && let Some(err) = error_guard.as_ref()
+        {
+            footer_lines.push("".into());
+            footer_lines.push(err.clone().red().into());
         }
 
         Paragraph::new(footer_lines)
@@ -186,10 +193,7 @@ impl AzureSetupWidget {
             "".into(),
             spans.into(),
             "".into(),
-            Line::from(vec![
-                "  Endpoint: ".dim(),
-                endpoint.clone().cyan(),
-            ]),
+            Line::from(vec!["  Endpoint: ".dim(), endpoint.clone().cyan()]),
             "".into(),
             "  This may take a moment...".dim().into(),
         ];
@@ -227,8 +231,11 @@ impl AzureSetupWidget {
                 };
 
                 lines.push(Line::from(vec![
-                    Span::styled(format!("  {} ", marker), style),
-                    Span::styled(model.display_name.clone(), style.add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("  {marker} "), style),
+                    Span::styled(
+                        model.display_name.clone(),
+                        style.add_modifier(Modifier::BOLD),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     "      ".into(),
@@ -252,15 +259,9 @@ impl AzureSetupWidget {
         let endpoint = self.endpoint_input.read().unwrap();
         let lines: Vec<Line> = vec![
             "".into(),
-            Line::from(vec![
-                "  ".into(),
-                "No GPT deployments found".bold().yellow(),
-            ]),
+            Line::from(vec!["  ".into(), "No GPT deployments found".bold().red()]),
             "".into(),
-            Line::from(vec![
-                "  Endpoint: ".dim(),
-                endpoint.clone().cyan(),
-            ]),
+            Line::from(vec!["  Endpoint: ".dim(), endpoint.clone().cyan()]),
             "".into(),
             "  Make sure you have:".into(),
             "".into(),
@@ -282,21 +283,13 @@ impl AzureSetupWidget {
         let endpoint = self.configured_endpoint.read().unwrap();
         let model = self.configured_model.read().unwrap();
 
-        let mut lines: Vec<Line> = vec![
-            "✓ Azure OpenAI configured".fg(Color::Green).into(),
-        ];
+        let mut lines: Vec<Line> = vec!["✓ Azure OpenAI configured".fg(Color::Green).into()];
 
         if let Some(ep) = endpoint.as_ref() {
-            lines.push(Line::from(vec![
-                "  Endpoint: ".dim(),
-                ep.clone().into(),
-            ]));
+            lines.push(Line::from(vec!["  Endpoint: ".dim(), ep.clone().into()]));
         }
         if let Some(m) = model.as_ref() {
-            lines.push(Line::from(vec![
-                "  Model: ".dim(),
-                m.clone().into(),
-            ]));
+            lines.push(Line::from(vec!["  Model: ".dim(), m.clone().into()]));
         }
 
         drop(endpoint);
@@ -311,11 +304,10 @@ impl AzureSetupWidget {
         let lines: Vec<Line> = vec![
             "  Azure setup skipped".dim().into(),
             "".into(),
-            "  You can configure Azure OpenAI later by editing:".dim().into(),
-            Line::from(vec![
-                "  ".into(),
-                "~/.codex/config.toml".cyan(),
-            ]),
+            "  You can configure Azure OpenAI later by editing:"
+                .dim()
+                .into(),
+            Line::from(vec!["  ".into(), "~/.codex/config.toml".cyan()]),
         ];
 
         Paragraph::new(lines)
@@ -328,7 +320,8 @@ impl AzureSetupWidget {
 
         // Validate endpoint
         if endpoint.is_empty() {
-            *self.error.write().unwrap() = Some("Please enter an Azure OpenAI endpoint".to_string());
+            *self.error.write().unwrap() =
+                Some("Please enter an Azure OpenAI endpoint".to_string());
             self.request_frame.schedule_frame();
             return;
         }
@@ -371,10 +364,11 @@ impl AzureSetupWidget {
         let model = models.get(selected_idx).map(|m| m.model.clone());
         drop(models);
 
-        if let Some(model_name) = model.clone() {
+        if let Some(model_name) = model {
             // Create config directory if it doesn't exist
             if let Err(e) = std::fs::create_dir_all(&self.codex_home) {
-                *self.error.write().unwrap() = Some(format!("Failed to create config directory: {}", e));
+                *self.error.write().unwrap() =
+                    Some(format!("Failed to create config directory: {e}"));
                 self.request_frame.schedule_frame();
                 return;
             }
@@ -384,10 +378,9 @@ impl AzureSetupWidget {
                 r#"# Azure Codex configuration
 # Generated by first-run setup
 
-azure_endpoint = "{}"
-model = "{}"
-"#,
-                endpoint, model_name
+azure_endpoint = "{endpoint}"
+model = "{model_name}"
+"#
             );
 
             // Write config file
@@ -399,7 +392,7 @@ model = "{}"
                     *self.state.write().unwrap() = AzureSetupState::Complete;
                 }
                 Err(e) => {
-                    *self.error.write().unwrap() = Some(format!("Failed to save config: {}", e));
+                    *self.error.write().unwrap() = Some(format!("Failed to save config: {e}"));
                 }
             }
         }
@@ -413,84 +406,78 @@ impl KeyboardHandler for AzureSetupWidget {
         let state = self.state.read().unwrap().clone();
 
         match state {
-            AzureSetupState::EndpointEntry => {
-                match key_event.code {
-                    KeyCode::Esc => {
-                        *self.state.write().unwrap() = AzureSetupState::Skipped;
-                        self.request_frame.schedule_frame();
-                    }
-                    KeyCode::Enter => {
-                        self.start_fetching_models();
-                    }
-                    KeyCode::Backspace => {
-                        let mut input = self.endpoint_input.write().unwrap();
-                        input.pop();
-                        *self.error.write().unwrap() = None;
-                        drop(input);
-                        self.request_frame.schedule_frame();
-                    }
-                    KeyCode::Char(c)
-                        if key_event.kind == KeyEventKind::Press
-                            && !key_event.modifiers.contains(KeyModifiers::SUPER)
-                            && !key_event.modifiers.contains(KeyModifiers::CONTROL)
-                            && !key_event.modifiers.contains(KeyModifiers::ALT) =>
-                    {
-                        let mut input = self.endpoint_input.write().unwrap();
-                        input.push(c);
-                        *self.error.write().unwrap() = None;
-                        drop(input);
-                        self.request_frame.schedule_frame();
-                    }
-                    _ => {}
+            AzureSetupState::EndpointEntry => match key_event.code {
+                KeyCode::Esc => {
+                    *self.state.write().unwrap() = AzureSetupState::Skipped;
+                    self.request_frame.schedule_frame();
                 }
-            }
+                KeyCode::Enter => {
+                    self.start_fetching_models();
+                }
+                KeyCode::Backspace => {
+                    let mut input = self.endpoint_input.write().unwrap();
+                    input.pop();
+                    *self.error.write().unwrap() = None;
+                    drop(input);
+                    self.request_frame.schedule_frame();
+                }
+                KeyCode::Char(c)
+                    if key_event.kind == KeyEventKind::Press
+                        && !key_event.modifiers.contains(KeyModifiers::SUPER)
+                        && !key_event.modifiers.contains(KeyModifiers::CONTROL)
+                        && !key_event.modifiers.contains(KeyModifiers::ALT) =>
+                {
+                    let mut input = self.endpoint_input.write().unwrap();
+                    input.push(c);
+                    *self.error.write().unwrap() = None;
+                    drop(input);
+                    self.request_frame.schedule_frame();
+                }
+                _ => {}
+            },
             AzureSetupState::FetchingModels => {
                 // Can't interact while fetching
             }
-            AzureSetupState::ModelSelection => {
-                match key_event.code {
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        let mut idx = self.selected_model_idx.write().unwrap();
-                        if *idx > 0 {
-                            *idx -= 1;
-                        }
-                        drop(idx);
-                        self.request_frame.schedule_frame();
+            AzureSetupState::ModelSelection => match key_event.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    let mut idx = self.selected_model_idx.write().unwrap();
+                    if *idx > 0 {
+                        *idx -= 1;
                     }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        let models = self.models.read().unwrap();
-                        let len = models.len();
-                        drop(models);
+                    drop(idx);
+                    self.request_frame.schedule_frame();
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    let models = self.models.read().unwrap();
+                    let len = models.len();
+                    drop(models);
 
-                        let mut idx = self.selected_model_idx.write().unwrap();
-                        if *idx < len.saturating_sub(1) {
-                            *idx += 1;
-                        }
-                        drop(idx);
-                        self.request_frame.schedule_frame();
+                    let mut idx = self.selected_model_idx.write().unwrap();
+                    if *idx < len.saturating_sub(1) {
+                        *idx += 1;
                     }
-                    KeyCode::Enter => {
-                        self.save_config();
-                    }
-                    KeyCode::Esc => {
-                        *self.state.write().unwrap() = AzureSetupState::EndpointEntry;
-                        self.request_frame.schedule_frame();
-                    }
-                    _ => {}
+                    drop(idx);
+                    self.request_frame.schedule_frame();
                 }
-            }
-            AzureSetupState::NoModelsFound => {
-                match key_event.code {
-                    KeyCode::Enter => {
-                        self.start_fetching_models();
-                    }
-                    KeyCode::Esc => {
-                        *self.state.write().unwrap() = AzureSetupState::EndpointEntry;
-                        self.request_frame.schedule_frame();
-                    }
-                    _ => {}
+                KeyCode::Enter => {
+                    self.save_config();
                 }
-            }
+                KeyCode::Esc => {
+                    *self.state.write().unwrap() = AzureSetupState::EndpointEntry;
+                    self.request_frame.schedule_frame();
+                }
+                _ => {}
+            },
+            AzureSetupState::NoModelsFound => match key_event.code {
+                KeyCode::Enter => {
+                    self.start_fetching_models();
+                }
+                KeyCode::Esc => {
+                    *self.state.write().unwrap() = AzureSetupState::EndpointEntry;
+                    self.request_frame.schedule_frame();
+                }
+                _ => {}
+            },
             AzureSetupState::Complete | AzureSetupState::Skipped => {
                 // No interaction needed
             }

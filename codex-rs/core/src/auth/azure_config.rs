@@ -276,8 +276,7 @@ mod tests {
 
     #[test]
     fn test_custom_authority() {
-        let config =
-            AzureAuthConfig::default().with_authority("https://login.custom.example.com");
+        let config = AzureAuthConfig::default().with_authority("https://login.custom.example.com");
         assert_eq!(
             config.effective_authority(),
             "https://login.custom.example.com"

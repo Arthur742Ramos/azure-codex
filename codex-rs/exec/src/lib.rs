@@ -274,7 +274,11 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
     );
     // Use Azure-aware ConversationManager when azure_endpoint is configured
     let conversation_manager = if let Some(azure_endpoint) = config.azure_endpoint.clone() {
-        ConversationManager::with_azure_endpoint(auth_manager.clone(), SessionSource::Exec, azure_endpoint)
+        ConversationManager::with_azure_endpoint(
+            auth_manager.clone(),
+            SessionSource::Exec,
+            azure_endpoint,
+        )
     } else {
         ConversationManager::new(auth_manager.clone(), SessionSource::Exec)
     };

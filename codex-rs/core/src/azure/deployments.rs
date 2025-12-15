@@ -136,9 +136,7 @@ impl AzureDeploymentsManager {
 
         match output {
             Ok(output) if output.status.success() => {
-                let rg = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .to_string();
+                let rg = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !rg.is_empty() {
                     debug!("Found resource group: {}", rg);
                     *self.resource_group.write().await = Some(rg.clone());
@@ -409,9 +407,7 @@ mod tests {
     #[test]
     fn test_extract_account_name() {
         assert_eq!(
-            AzureDeploymentsManager::extract_account_name(
-                "https://myresource.openai.azure.com"
-            ),
+            AzureDeploymentsManager::extract_account_name("https://myresource.openai.azure.com"),
             Some("myresource".to_string())
         );
 
@@ -423,9 +419,7 @@ mod tests {
         );
 
         assert_eq!(
-            AzureDeploymentsManager::extract_account_name(
-                "http://localhost:8080"
-            ),
+            AzureDeploymentsManager::extract_account_name("http://localhost:8080"),
             Some("localhost:8080".to_string())
         );
     }

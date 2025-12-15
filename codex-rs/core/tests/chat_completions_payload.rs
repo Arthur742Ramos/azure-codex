@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use codex_api::AuthHeaderType;
 use codex_app_server_protocol::AuthMode;
 use codex_core::ContentItem;
 use codex_core::LocalShellAction;
@@ -59,6 +60,9 @@ async fn run_request(input: Vec<ResponseItem>) -> Value {
         stream_max_retries: Some(0),
         stream_idle_timeout_ms: Some(5_000),
         requires_openai_auth: false,
+        auth_header_type: AuthHeaderType::Bearer,
+        is_azure: false,
+        skip_azure_detection: true,
     };
 
     let codex_home = match TempDir::new() {
