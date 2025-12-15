@@ -1,0 +1,8 @@
+{"timestamp":"2025-12-15T03:07:11.233Z","type":"session_meta","payload":{"id":"019b1ff9-ebd7-7821-903a-5f0da817bad1","timestamp":"2025-12-15T03:07:11.191Z","cwd":"Q:\\src\\azure-codex","originator":"codex_exec","cli_version":"0.0.0","instructions":null,"source":"exec","model_provider":"azure"}}
+{"timestamp":"2025-12-15T03:07:11.233Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>Q:\\src\\azure-codex</cwd>\n  <approval_policy>never</approval_policy>\n  <sandbox_mode>read-only</sandbox_mode>\n  <network_access>restricted</network_access>\n  <shell>powershell</shell>\n</environment_context>"}]}}
+{"timestamp":"2025-12-15T03:07:11.234Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Say hello world"}]}}
+{"timestamp":"2025-12-15T03:07:11.234Z","type":"event_msg","payload":{"type":"user_message","message":"Say hello world","images":[]}}
+{"timestamp":"2025-12-15T03:07:11.238Z","type":"turn_context","payload":{"cwd":"Q:\\src\\azure-codex","approval_policy":"never","sandbox_policy":{"type":"read-only"},"model":"gpt-5.2","summary":"auto"}}
+{"timestamp":"2025-12-15T03:07:16.013Z","type":"event_msg","payload":{"type":"agent_message","message":"hello world"}}
+{"timestamp":"2025-12-15T03:07:16.013Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello world"}]}}
+{"timestamp":"2025-12-15T03:07:16.013Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":null}}

@@ -1,0 +1,5 @@
+# Azure Codex - Simplified Configuration
+# Just two lines needed for Azure OpenAI!
+
+azure_endpoint = "https://arfre-m9hi1awe-eastus2.openai.azure.com"
+model = "gpt-5.2"

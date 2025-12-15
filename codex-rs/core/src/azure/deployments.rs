@@ -320,6 +320,12 @@ impl AzureDeployment {
         let display_name = format_display_name(&self.name);
 
         // Get the underlying model name if available
+        let underlying_model = self
+            .properties
+            .model
+            .as_ref()
+            .and_then(|m| m.name.as_deref());
+
         let description = match &self.properties.model {
             Some(model) => {
                 let model_name = model.name.as_deref().unwrap_or("Unknown");
@@ -333,25 +339,9 @@ impl AzureDeployment {
             None => "Azure OpenAI deployment".to_string(),
         };
 
-        // Default reasoning effort presets (Azure models typically support these)
-        let supported_reasoning_efforts = vec![
-            ReasoningEffortPreset {
-                effort: ReasoningEffort::None,
-                description: "No additional reasoning".to_string(),
-            },
-            ReasoningEffortPreset {
-                effort: ReasoningEffort::Low,
-                description: "Quick responses".to_string(),
-            },
-            ReasoningEffortPreset {
-                effort: ReasoningEffort::Medium,
-                description: "Balanced reasoning".to_string(),
-            },
-            ReasoningEffortPreset {
-                effort: ReasoningEffort::High,
-                description: "Thorough reasoning".to_string(),
-            },
-        ];
+        // Determine supported reasoning efforts based on the model
+        let supported_reasoning_efforts =
+            get_reasoning_efforts_for_model(&self.name, underlying_model);
 
         ModelPreset {
             id: self.name.clone(),
@@ -365,6 +355,53 @@ impl AzureDeployment {
             show_in_picker: true,
         }
     }
+}
+
+/// Check if a model supports xHigh reasoning based on its name.
+/// Models that support xHigh: gpt-5.1-codex-max, gpt-5.2
+fn supports_xhigh(model_name: &str) -> bool {
+    let name_lower = model_name.to_lowercase();
+    name_lower.contains("gpt-5.1-codex-max")
+        || name_lower.contains("gpt-5.2")
+        || name_lower.starts_with("gpt-5.2")
+}
+
+/// Get the appropriate reasoning efforts for a model.
+/// Checks both deployment name and underlying model name.
+fn get_reasoning_efforts_for_model(
+    deployment_name: &str,
+    underlying_model: Option<&str>,
+) -> Vec<ReasoningEffortPreset> {
+    let has_xhigh = supports_xhigh(deployment_name)
+        || underlying_model.is_some_and(supports_xhigh);
+
+    let mut efforts = vec![
+        ReasoningEffortPreset {
+            effort: ReasoningEffort::None,
+            description: "No additional reasoning".to_string(),
+        },
+        ReasoningEffortPreset {
+            effort: ReasoningEffort::Low,
+            description: "Quick responses".to_string(),
+        },
+        ReasoningEffortPreset {
+            effort: ReasoningEffort::Medium,
+            description: "Balanced reasoning".to_string(),
+        },
+        ReasoningEffortPreset {
+            effort: ReasoningEffort::High,
+            description: "Thorough reasoning".to_string(),
+        },
+    ];
+
+    if has_xhigh {
+        efforts.push(ReasoningEffortPreset {
+            effort: ReasoningEffort::XHigh,
+            description: "Extra high reasoning for complex problems".to_string(),
+        });
+    }
+
+    efforts
 }
 
 /// Format a deployment name into a display name.
@@ -421,6 +458,71 @@ mod tests {
         assert_eq!(
             AzureDeploymentsManager::extract_account_name("http://localhost:8080"),
             Some("localhost:8080".to_string())
+        );
+    }
+
+    #[test]
+    fn test_supports_xhigh() {
+        // Models that should support xHigh
+        assert!(supports_xhigh("gpt-5.1-codex-max"));
+        assert!(supports_xhigh("GPT-5.1-CODEX-MAX"));
+        assert!(supports_xhigh("gpt-5.2"));
+        assert!(supports_xhigh("GPT-5.2"));
+        assert!(supports_xhigh("gpt-5.2-preview"));
+
+        // Models that should NOT support xHigh
+        assert!(!supports_xhigh("gpt-5.1-codex"));
+        assert!(!supports_xhigh("gpt-5.1-codex-mini"));
+        assert!(!supports_xhigh("gpt-5.1"));
+        assert!(!supports_xhigh("gpt-5"));
+        assert!(!supports_xhigh("gpt-4o"));
+        assert!(!supports_xhigh("gpt-4"));
+    }
+
+    #[test]
+    fn test_reasoning_efforts_with_xhigh() {
+        let efforts = get_reasoning_efforts_for_model("gpt-5.2", None);
+        assert!(
+            efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            "gpt-5.2 should have xHigh"
+        );
+
+        let efforts = get_reasoning_efforts_for_model("gpt-5.1-codex-max", None);
+        assert!(
+            efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            "gpt-5.1-codex-max should have xHigh"
+        );
+    }
+
+    #[test]
+    fn test_reasoning_efforts_without_xhigh() {
+        let efforts = get_reasoning_efforts_for_model("gpt-5.1", None);
+        assert!(
+            !efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            "gpt-5.1 should NOT have xHigh"
+        );
+
+        let efforts = get_reasoning_efforts_for_model("gpt-4o", None);
+        assert!(
+            !efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            "gpt-4o should NOT have xHigh"
+        );
+    }
+
+    #[test]
+    fn test_reasoning_efforts_from_underlying_model() {
+        // Deployment name doesn't indicate xHigh, but underlying model does
+        let efforts = get_reasoning_efforts_for_model("my-custom-deployment", Some("gpt-5.2"));
+        assert!(
+            efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            "Should have xHigh based on underlying model gpt-5.2"
+        );
+
+        // Neither deployment nor underlying model supports xHigh
+        let efforts = get_reasoning_efforts_for_model("my-custom-deployment", Some("gpt-4o"));
+        assert!(
+            !efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            "Should NOT have xHigh for gpt-4o"
         );
     }
 }
