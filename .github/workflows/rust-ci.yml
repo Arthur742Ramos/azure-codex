@@ -156,6 +156,9 @@ jobs:
           targets: ${{ matrix.target }}
           components: clippy
 
+      - name: Ensure target is installed
+        run: rustup target add ${{ matrix.target }}
+
       - name: Compute lockfile hash
         id: lockhash
         working-directory: codex-rs
@@ -420,6 +423,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90
         with:
           targets: ${{ matrix.target }}
+
+      - name: Ensure target is installed
+        run: rustup target add ${{ matrix.target }}
 
       - name: Compute lockfile hash
         id: lockhash
