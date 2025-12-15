@@ -280,7 +280,8 @@ impl CodexAuth {
 }
 
 pub const OPENAI_API_KEY_ENV_VAR: &str = "OPENAI_API_KEY";
-pub const CODEX_API_KEY_ENV_VAR: &str = "CODEX_API_KEY";
+/// Azure Codex API key environment variable (separate from OpenAI Codex's CODEX_API_KEY).
+pub const AZURE_CODEX_API_KEY_ENV_VAR: &str = "AZURE_CODEX_API_KEY";
 
 pub fn read_openai_api_key_from_env() -> Option<String> {
     env::var(OPENAI_API_KEY_ENV_VAR)
@@ -289,8 +290,9 @@ pub fn read_openai_api_key_from_env() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// Reads the Azure Codex API key from the AZURE_CODEX_API_KEY environment variable.
 pub fn read_codex_api_key_from_env() -> Option<String> {
-    env::var(CODEX_API_KEY_ENV_VAR)
+    env::var(AZURE_CODEX_API_KEY_ENV_VAR)
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -997,7 +999,7 @@ mod tests {
     #[tokio::test]
     #[serial(codex_api_key)]
     async fn enforce_login_restrictions_blocks_env_api_key_when_chatgpt_required() {
-        let _guard = EnvVarGuard::set(CODEX_API_KEY_ENV_VAR, "sk-env");
+        let _guard = EnvVarGuard::set(AZURE_CODEX_API_KEY_ENV_VAR, "sk-env");
         let codex_home = tempdir().unwrap();
 
         let config = build_config(codex_home.path(), Some(ForcedLoginMethod::Chatgpt), None);

@@ -417,23 +417,23 @@ pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
 }
 
 pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> ModelProviderInfo {
-    // These CODEX_OSS_ environment variables are experimental: we may
+    // These AZURE_CODEX_OSS_ environment variables are experimental: we may
     // switch to reading values from config.toml instead.
-    let codex_oss_base_url = match std::env::var("CODEX_OSS_BASE_URL")
+    let oss_base_url = match std::env::var("AZURE_CODEX_OSS_BASE_URL")
         .ok()
         .filter(|v| !v.trim().is_empty())
     {
         Some(url) => url,
         None => format!(
             "http://localhost:{port}/v1",
-            port = std::env::var("CODEX_OSS_PORT")
+            port = std::env::var("AZURE_CODEX_OSS_PORT")
                 .ok()
                 .filter(|v| !v.trim().is_empty())
                 .and_then(|v| v.parse::<u16>().ok())
                 .unwrap_or(default_provider_port)
         ),
     };
-    create_oss_provider_with_base_url(&codex_oss_base_url, wire_api)
+    create_oss_provider_with_base_url(&oss_base_url, wire_api)
 }
 
 pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> ModelProviderInfo {

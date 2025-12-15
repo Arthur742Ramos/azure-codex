@@ -1271,18 +1271,23 @@ fn default_review_model() -> String {
     OPENAI_DEFAULT_REVIEW_MODEL.to_string()
 }
 
-/// Returns the path to the Codex configuration directory, which can be
-/// specified by the `CODEX_HOME` environment variable. If not set, defaults to
-/// `~/.codex`.
+/// Returns the path to the Azure Codex configuration directory, which can be
+/// specified by the `AZURE_CODEX_HOME` environment variable. If not set, defaults to
+/// `~/.azure-codex`.
 ///
-/// - If `CODEX_HOME` is set, the value will be canonicalized and this
+/// This is separate from OpenAI Codex's `~/.codex` directory to allow both
+/// tools to coexist on the same machine.
+///
+/// - If `AZURE_CODEX_HOME` is set, the value will be canonicalized and this
 ///   function will Err if the path does not exist.
-/// - If `CODEX_HOME` is not set, this function does not verify that the
+/// - If `AZURE_CODEX_HOME` is not set, this function does not verify that the
 ///   directory exists.
 pub fn find_codex_home() -> std::io::Result<PathBuf> {
-    // Honor the `CODEX_HOME` environment variable when it is set to allow users
+    use codex_common::branding::{CONFIG_DIR_NAME, ENV_VAR_HOME};
+
+    // Honor the `AZURE_CODEX_HOME` environment variable when it is set to allow users
     // (and tests) to override the default location.
-    if let Ok(val) = std::env::var("CODEX_HOME")
+    if let Ok(val) = std::env::var(ENV_VAR_HOME)
         && !val.is_empty()
     {
         return PathBuf::from(val).canonicalize();
@@ -1294,7 +1299,7 @@ pub fn find_codex_home() -> std::io::Result<PathBuf> {
             "Could not find home directory",
         )
     })?;
-    p.push(".codex");
+    p.push(CONFIG_DIR_NAME);
     Ok(p)
 }
 
