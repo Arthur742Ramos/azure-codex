@@ -91,9 +91,26 @@ The `/models` command automatically discovers and lists your Azure OpenAI GPT de
 
 - **Azure CLI**: Install from [aka.ms/installazurecli](https://aka.ms/installazurecli)
 - **Azure OpenAI Resource**: With at least one model deployment
-- **Rust toolchain** (for building): Install from [rustup.rs](https://rustup.rs)
+- **Node.js** (for NPM install): v16 or higher
+- **Rust toolchain** (only for building from source): Install from [rustup.rs](https://rustup.rs)
 
 ### Installation
+
+#### NPM (Recommended)
+
+```bash
+# Install globally
+npm install -g azure-codex
+
+# Run
+azure-codex
+```
+
+Or use without installing:
+
+```bash
+npx azure-codex
+```
 
 #### Build from Source
 

@@ -1,0 +1,38 @@
+{
+  "name": "azure-codex",
+  "version": "0.1.0",
+  "description": "Azure Codex CLI - AI coding assistant powered by Azure OpenAI Service",
+  "license": "Apache-2.0",
+  "bin": {
+    "azure-codex": "bin/azure-codex.js"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "bin",
+    "vendor"
+  ],
+  "keywords": [
+    "azure",
+    "openai",
+    "codex",
+    "ai",
+    "cli",
+    "coding",
+    "assistant",
+    "gpt",
+    "azure-openai"
+  ],
+  "author": "Arthur Ramos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arthur742Ramos/azure-codex.git",
+    "directory": "npm"
+  },
+  "bugs": {
+    "url": "https://github.com/Arthur742Ramos/azure-codex/issues"
+  },
+  "homepage": "https://github.com/Arthur742Ramos/azure-codex#readme"
+}
