@@ -8,12 +8,17 @@
 //! - Service Principal (client secret or certificate)
 //! - Azure CLI credentials
 
-use crate::auth::azure_config::{AzureAuthConfig, AzureAuthMode};
-use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use crate::auth::azure_config::AzureAuthConfig;
+use crate::auth::azure_config::AzureAuthMode;
+use serde::Deserialize;
+use serde::Serialize;
+use std::sync::Arc;
+use std::sync::RwLock;
+use std::time::Duration;
+use std::time::Instant;
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::debug;
+use tracing::info;
 
 /// Errors that can occur during Azure authentication.
 #[derive(Debug, Error)]

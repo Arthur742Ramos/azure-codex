@@ -7,11 +7,14 @@
 //! - Managed Identity (for Azure-hosted resources)
 //! - Service Principal with client secret or certificate
 
-use codex_branding::{
-    AZURE_CHINA_AUTHORITY, AZURE_CHINA_SCOPE, AZURE_DEFAULT_SCOPE, AZURE_PUBLIC_AUTHORITY,
-    AZURE_US_GOV_AUTHORITY, AZURE_US_GOV_SCOPE,
-};
-use serde::{Deserialize, Serialize};
+use codex_branding::AZURE_CHINA_AUTHORITY;
+use codex_branding::AZURE_CHINA_SCOPE;
+use codex_branding::AZURE_DEFAULT_SCOPE;
+use codex_branding::AZURE_PUBLIC_AUTHORITY;
+use codex_branding::AZURE_US_GOV_AUTHORITY;
+use codex_branding::AZURE_US_GOV_SCOPE;
+use serde::Deserialize;
+use serde::Serialize;
 
 /// Azure authentication modes supported by Azure Codex.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
