@@ -596,19 +596,10 @@ fn should_show_onboarding(
     should_show_login_screen(login_status, config)
 }
 
-fn should_show_login_screen(login_status: LoginStatus, config: &Config) -> bool {
-    // Skip login screen if Azure endpoint is configured (uses Azure Entra ID auth)
-    if config.azure_endpoint.is_some() {
-        return false;
-    }
-
-    // Only show the login screen for providers that actually require OpenAI auth
-    // (OpenAI or equivalents). For OSS/other providers, skip login entirely.
-    if !config.model_provider.requires_openai_auth {
-        return false;
-    }
-
-    login_status == LoginStatus::NotAuthenticated
+fn should_show_login_screen(_login_status: LoginStatus, _config: &Config) -> bool {
+    // Azure Codex uses Azure Entra ID authentication, not ChatGPT/OpenAI login.
+    // Never show the ChatGPT login screen - users configure Azure endpoint instead.
+    false
 }
 
 /// Check if Azure setup should be shown (when no azure_endpoint is configured).
