@@ -307,7 +307,7 @@ impl AzureSetupWidget {
             "  You can configure Azure OpenAI later by editing:"
                 .dim()
                 .into(),
-            Line::from(vec!["  ".into(), "~/.codex/config.toml".cyan()]),
+            Line::from(vec!["  ".into(), "~/.azure-codex/config.toml".cyan()]),
         ];
 
         Paragraph::new(lines)
