@@ -183,7 +183,9 @@ impl AzureSetupWidget {
                 Line::from(vec![
                     "  ".into(),
                     "Ex: ".dim(),
-                    "https://your-resource.openai.azure.com".cyan(),
+                    "my-resource".cyan(),
+                    " or ".dim(),
+                    "https://my-resource.openai.azure.com".cyan(),
                 ]),
             ];
 
@@ -195,7 +197,7 @@ impl AzureSetupWidget {
                 .wrap(Wrap { trim: false })
                 .block(
                     Block::default()
-                        .title("Azure OpenAI Endpoint")
+                        .title("Resource Name or Endpoint")
                         .borders(Borders::ALL)
                         .border_type(BorderType::Rounded)
                         .border_style(Style::default().fg(Color::Cyan)),
@@ -225,18 +227,18 @@ impl AzureSetupWidget {
             let intro_lines: Vec<Line> = vec![
                 Line::from(vec!["  ".into(), "Welcome to Azure Codex!".bold().cyan()]),
                 "".into(),
-                "  Enter your Azure OpenAI endpoint to get started.".into(),
+                "  Enter your Azure OpenAI resource name or endpoint.".into(),
                 "".into(),
+                Line::from(vec!["  ".into(), "Examples: ".dim(), "my-resource".cyan()]),
                 Line::from(vec![
-                    "  ".into(),
-                    "Example: ".dim(),
-                    "https://your-resource.openai.azure.com".cyan(),
+                    "            ".into(),
+                    "https://my-resource.openai.azure.com".cyan(),
                 ]),
                 "".into(),
-                "  You can find this in the Azure Portal under your"
+                "  You can find your resource name in the Azure Portal"
                     .dim()
                     .into(),
-                "  Azure OpenAI resource > Keys and Endpoint.".dim().into(),
+                "  under your Azure OpenAI resource.".dim().into(),
                 "".into(),
             ];
 
@@ -248,7 +250,7 @@ impl AzureSetupWidget {
                 .wrap(Wrap { trim: false })
                 .block(
                     Block::default()
-                        .title("Azure OpenAI Endpoint")
+                        .title("Azure OpenAI Resource Name or Endpoint")
                         .borders(Borders::ALL)
                         .border_type(BorderType::Rounded)
                         .border_style(Style::default().fg(Color::Cyan)),
@@ -439,22 +441,43 @@ impl AzureSetupWidget {
             .render(area, buf);
     }
 
+    /// Normalize endpoint input to a full URL.
+    /// Accepts either:
+    /// - A full URL (e.g., "https://my-resource.openai.azure.com")
+    /// - Just the resource name (e.g., "my-resource")
+    fn normalize_endpoint(input: &str) -> String {
+        let trimmed = input.trim();
+
+        // If it already looks like a URL, return as-is
+        if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+            return trimmed.to_string();
+        }
+
+        // If it contains a dot, assume it's a domain without the scheme
+        if trimmed.contains('.') {
+            return format!("https://{trimmed}");
+        }
+
+        // Otherwise, assume it's just the resource name
+        format!("https://{trimmed}.openai.azure.com")
+    }
+
     fn start_fetching_models(&self) {
-        let endpoint = self.endpoint_input.read().unwrap().clone();
+        let raw_input = self.endpoint_input.read().unwrap().clone();
 
         // Validate endpoint
-        if endpoint.is_empty() {
+        if raw_input.trim().is_empty() {
             *self.error.write().unwrap() =
-                Some("Please enter an Azure OpenAI endpoint".to_string());
+                Some("Please enter an Azure OpenAI endpoint or resource name".to_string());
             self.request_frame.schedule_frame();
             return;
         }
 
-        if !endpoint.starts_with("https://") && !endpoint.starts_with("http://") {
-            *self.error.write().unwrap() = Some("Endpoint must start with https://".to_string());
-            self.request_frame.schedule_frame();
-            return;
-        }
+        // Normalize the input to a full URL
+        let endpoint = Self::normalize_endpoint(&raw_input);
+
+        // Update the input field to show the normalized endpoint
+        *self.endpoint_input.write().unwrap() = endpoint.clone();
 
         *self.state.write().unwrap() = AzureSetupState::FetchingModels;
         *self.error.write().unwrap() = None;
