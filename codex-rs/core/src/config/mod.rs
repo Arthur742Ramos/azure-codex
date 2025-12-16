@@ -3087,7 +3087,7 @@ model_verbosity = "high"
                 show_tooltips: true,
                 otel: OtelConfig::default(),
                 azure_endpoint: None,
-                azure_api_version: "2024-10-21".to_string(),
+                azure_api_version: "2025-04-01-preview".to_string(),
                 azure_auth: None,
             },
             o3_profile_config
@@ -3164,7 +3164,7 @@ model_verbosity = "high"
             show_tooltips: true,
             otel: OtelConfig::default(),
             azure_endpoint: None,
-            azure_api_version: "2024-10-21".to_string(),
+            azure_api_version: "2025-04-01-preview".to_string(),
             azure_auth: None,
         };
 
@@ -3256,7 +3256,7 @@ model_verbosity = "high"
             show_tooltips: true,
             otel: OtelConfig::default(),
             azure_endpoint: None,
-            azure_api_version: "2024-10-21".to_string(),
+            azure_api_version: "2025-04-01-preview".to_string(),
             azure_auth: None,
         };
 
@@ -3334,7 +3334,7 @@ model_verbosity = "high"
             show_tooltips: true,
             otel: OtelConfig::default(),
             azure_endpoint: None,
-            azure_api_version: "2024-10-21".to_string(),
+            azure_api_version: "2025-04-01-preview".to_string(),
             azure_auth: None,
         };
 
