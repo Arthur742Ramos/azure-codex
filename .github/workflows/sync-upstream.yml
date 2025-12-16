@@ -1,0 +1,140 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    # Run every night at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/openai/codex.git || true
+          git fetch upstream
+
+      - name: Check for new commits
+        id: check
+        run: |
+          UPSTREAM_COMMITS=$(git rev-list HEAD..upstream/main --count)
+          echo "upstream_commits=$UPSTREAM_COMMITS" >> $GITHUB_OUTPUT
+          if [ "$UPSTREAM_COMMITS" -gt 0 ]; then
+            echo "has_updates=true" >> $GITHUB_OUTPUT
+            echo "Found $UPSTREAM_COMMITS new commits from upstream"
+          else
+            echo "has_updates=false" >> $GITHUB_OUTPUT
+            echo "No new commits from upstream"
+          fi
+
+      - name: Create sync branch
+        if: steps.check.outputs.has_updates == 'true'
+        run: |
+          BRANCH_NAME="sync-upstream-$(date +%Y%m%d)"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+          git checkout -b $BRANCH_NAME
+
+      - name: Attempt merge
+        if: steps.check.outputs.has_updates == 'true'
+        id: merge
+        run: |
+          # Try to merge upstream
+          if git merge upstream/main --no-edit; then
+            echo "merge_status=success" >> $GITHUB_OUTPUT
+            echo "Merge successful"
+          else
+            echo "merge_status=conflict" >> $GITHUB_OUTPUT
+            echo "Merge has conflicts"
+            # Abort the merge so we can still create a PR with info
+            git merge --abort
+          fi
+
+      - name: Handle workflow file conflicts
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_status == 'conflict'
+        run: |
+          # Try merge again, resolving workflow conflicts by keeping ours (deleted)
+          git merge upstream/main --no-edit -X ours || true
+
+          # If still conflicting, check if it's just workflow files
+          CONFLICTS=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "")
+          if [ -n "$CONFLICTS" ]; then
+            echo "Remaining conflicts in:"
+            echo "$CONFLICTS"
+
+            # Remove workflow files we don't need
+            for file in .github/workflows/ci.yml .github/workflows/sdk.yml .github/workflows/shell-tool-mcp-ci.yml .github/workflows/shell-tool-mcp.yml; do
+              if echo "$CONFLICTS" | grep -q "$file"; then
+                git rm "$file" 2>/dev/null || true
+              fi
+            done
+
+            # Check if all conflicts are resolved
+            REMAINING=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "")
+            if [ -z "$REMAINING" ]; then
+              git commit -m "Merge upstream/main (auto-resolved workflow conflicts)"
+              echo "MERGE_RESOLVED=true" >> $GITHUB_ENV
+            else
+              echo "MERGE_RESOLVED=false" >> $GITHUB_ENV
+              echo "Manual intervention required for:"
+              echo "$REMAINING"
+            fi
+          fi
+
+      - name: Push branch
+        if: steps.check.outputs.has_updates == 'true'
+        run: |
+          git push origin $BRANCH_NAME --force
+
+      - name: Create Pull Request
+        if: steps.check.outputs.has_updates == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ env.BRANCH_NAME }}
+          base: main
+          title: "chore: Sync with upstream OpenAI Codex"
+          body: |
+            ## Automated Upstream Sync
+
+            This PR syncs Azure Codex with the latest changes from [openai/codex](https://github.com/openai/codex).
+
+            **New commits from upstream:** ${{ steps.check.outputs.upstream_commits }}
+
+            ### Merge Status
+            ${{ steps.merge.outputs.merge_status == 'success' && '✅ Merged cleanly' || '⚠️ Had conflicts (auto-resolved or needs manual review)' }}
+
+            ### Review Checklist
+            - [ ] Build passes (`cargo build`)
+            - [ ] Tests pass (`cargo test`)
+            - [ ] Azure-specific functionality still works
+            - [ ] No unintended changes to Azure authentication or deployment discovery
+
+            ### Files to watch
+            - `codex-rs/core/src/openai_models/models_manager.rs` - Azure model discovery
+            - `codex-rs/core/src/auth/` - Azure authentication
+            - `codex-rs/core/src/azure/` - Azure deployments
+            - `codex-rs/tui*/src/onboarding/azure_setup.rs` - Azure setup UI
+
+            ---
+            🤖 This PR was automatically created by the sync-upstream workflow.
+          labels: |
+            upstream-sync
+            automated
+          draft: ${{ steps.merge.outputs.merge_status != 'success' }}
