@@ -116,22 +116,6 @@ impl AzureSetupWidget {
     }
 
     fn render_endpoint_entry(&self, area: Rect, buf: &mut Buffer) {
-        // Minimum height required to display the full endpoint entry UI
-        const MIN_HEIGHT: u16 = 15;
-
-        // If the terminal is too small, show a resize message instead
-        if area.height < MIN_HEIGHT {
-            let lines: Vec<Line> = vec![
-                "".into(),
-                "  Terminal too small".dim().into(),
-                "  Please resize to continue".dim().into(),
-            ];
-            Paragraph::new(lines)
-                .wrap(Wrap { trim: false })
-                .render(area, buf);
-            return;
-        }
-
         // Constrain the overall width to avoid rendering issues on narrow terminals
         // or when the terminal reports incorrect buffer size instead of viewport size.
         const MAX_CONTENT_WIDTH: u16 = 80;
@@ -143,73 +127,153 @@ impl AzureSetupWidget {
             height: area.height,
         };
 
-        let [intro_area, input_area, footer_area] = Layout::vertical([
-            Constraint::Min(8),
-            Constraint::Length(3),
-            Constraint::Min(4),
-        ])
-        .areas(content_area);
-
-        let intro_lines: Vec<Line> = vec![
-            Line::from(vec!["  ".into(), "Welcome to Azure Codex!".bold().cyan()]),
-            "".into(),
-            "  Enter your Azure OpenAI endpoint to get started.".into(),
-            "".into(),
-            Line::from(vec![
-                "  ".into(),
-                "Example: ".dim(),
-                "https://your-resource.openai.azure.com".cyan(),
-            ]),
-            "".into(),
-            "  You can find this in the Azure Portal under your"
-                .dim()
-                .into(),
-            "  Azure OpenAI resource > Keys and Endpoint.".dim().into(),
-            "".into(),
-        ];
-
-        Paragraph::new(intro_lines)
-            .wrap(Wrap { trim: false })
-            .render(intro_area, buf);
+        // Adapt layout based on available height
+        // Compact mode: just input + minimal hints (height < 8)
+        // Medium mode: input + short intro (height 8-14)
+        // Full mode: complete UI (height >= 15)
+        let is_compact = area.height < 8;
+        let is_medium = area.height >= 8 && area.height < 15;
 
         let endpoint = self.endpoint_input.read().unwrap();
         let content_line: Line = if endpoint.is_empty() {
             vec!["https://".dim()].into()
         } else {
-            // Use cyan styling to ensure visibility on all terminal backgrounds
             Line::from(endpoint.clone()).fg(Color::Cyan)
         };
         drop(endpoint);
 
-        Paragraph::new(content_line)
-            .wrap(Wrap { trim: false })
-            .block(
-                Block::default()
-                    .title("Azure OpenAI Endpoint")
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::Cyan)),
-            )
-            .render(input_area, buf);
+        if is_compact {
+            // Ultra-compact: just input box and one line of hints
+            let [input_area, footer_area] =
+                Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).areas(content_area);
 
-        let mut footer_lines: Vec<Line> = vec![
-            "".into(),
-            "  Press Enter to continue".dim().into(),
-            "  Press Esc to skip and configure manually later"
-                .dim()
-                .into(),
-        ];
+            Paragraph::new(content_line)
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title("Azure Endpoint")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Cyan)),
+                )
+                .render(input_area, buf);
 
-        if let Ok(error_guard) = self.error.read()
-            && let Some(err) = error_guard.as_ref()
-        {
-            footer_lines.push("".into());
-            footer_lines.push(err.clone().red().into());
+            let mut footer_lines: Vec<Line> = vec!["Enter=continue, Esc=skip".dim().into()];
+
+            if let Ok(error_guard) = self.error.read()
+                && let Some(err) = error_guard.as_ref()
+            {
+                footer_lines.push(err.clone().red().into());
+            }
+
+            Paragraph::new(footer_lines)
+                .wrap(Wrap { trim: false })
+                .render(footer_area, buf);
+        } else if is_medium {
+            // Medium: short intro + input + compact footer
+            let [intro_area, input_area, footer_area] = Layout::vertical([
+                Constraint::Min(2),
+                Constraint::Length(3),
+                Constraint::Min(2),
+            ])
+            .areas(content_area);
+
+            let intro_lines: Vec<Line> = vec![
+                Line::from(vec!["  ".into(), "Azure Codex Setup".bold().cyan()]),
+                Line::from(vec![
+                    "  ".into(),
+                    "Ex: ".dim(),
+                    "https://your-resource.openai.azure.com".cyan(),
+                ]),
+            ];
+
+            Paragraph::new(intro_lines)
+                .wrap(Wrap { trim: false })
+                .render(intro_area, buf);
+
+            Paragraph::new(content_line)
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title("Azure OpenAI Endpoint")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Cyan)),
+                )
+                .render(input_area, buf);
+
+            let mut footer_lines: Vec<Line> = vec!["  Enter=continue, Esc=skip".dim().into()];
+
+            if let Ok(error_guard) = self.error.read()
+                && let Some(err) = error_guard.as_ref()
+            {
+                footer_lines.push(err.clone().red().into());
+            }
+
+            Paragraph::new(footer_lines)
+                .wrap(Wrap { trim: false })
+                .render(footer_area, buf);
+        } else {
+            // Full mode: complete UI
+            let [intro_area, input_area, footer_area] = Layout::vertical([
+                Constraint::Min(8),
+                Constraint::Length(3),
+                Constraint::Min(4),
+            ])
+            .areas(content_area);
+
+            let intro_lines: Vec<Line> = vec![
+                Line::from(vec!["  ".into(), "Welcome to Azure Codex!".bold().cyan()]),
+                "".into(),
+                "  Enter your Azure OpenAI endpoint to get started.".into(),
+                "".into(),
+                Line::from(vec![
+                    "  ".into(),
+                    "Example: ".dim(),
+                    "https://your-resource.openai.azure.com".cyan(),
+                ]),
+                "".into(),
+                "  You can find this in the Azure Portal under your"
+                    .dim()
+                    .into(),
+                "  Azure OpenAI resource > Keys and Endpoint.".dim().into(),
+                "".into(),
+            ];
+
+            Paragraph::new(intro_lines)
+                .wrap(Wrap { trim: false })
+                .render(intro_area, buf);
+
+            Paragraph::new(content_line)
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title("Azure OpenAI Endpoint")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Cyan)),
+                )
+                .render(input_area, buf);
+
+            let mut footer_lines: Vec<Line> = vec![
+                "".into(),
+                "  Press Enter to continue".dim().into(),
+                "  Press Esc to skip and configure manually later"
+                    .dim()
+                    .into(),
+            ];
+
+            if let Ok(error_guard) = self.error.read()
+                && let Some(err) = error_guard.as_ref()
+            {
+                footer_lines.push("".into());
+                footer_lines.push(err.clone().red().into());
+            }
+
+            Paragraph::new(footer_lines)
+                .wrap(Wrap { trim: false })
+                .render(footer_area, buf);
         }
-
-        Paragraph::new(footer_lines)
-            .wrap(Wrap { trim: false })
-            .render(footer_area, buf);
     }
 
     fn render_fetching_models(&self, area: Rect, buf: &mut Buffer) {

@@ -105,6 +105,7 @@ use crate::history_cell::AgentMessageCell;
 use crate::history_cell::HistoryCell;
 use crate::history_cell::McpToolCallCell;
 use crate::history_cell::PlainHistoryCell;
+use crate::history_cell::SharedModelState;
 use crate::markdown::append_markdown;
 use crate::render::Insets;
 use crate::render::renderable::ColumnRenderable;
@@ -287,6 +288,8 @@ pub(crate) struct ChatWidget {
     auth_manager: Arc<AuthManager>,
     models_manager: Arc<ModelsManager>,
     session_header: SessionHeader,
+    /// Shared state for the session header model display - updated when model changes
+    model_state: SharedModelState,
     initial_user_message: Option<UserMessage>,
     token_info: Option<TokenUsageInfo>,
     rate_limit_snapshot: Option<RateLimitSnapshotDisplay>,
@@ -398,12 +401,17 @@ impl ChatWidget {
         self.current_rollout_path = Some(event.rollout_path.clone());
         let initial_messages = event.initial_messages.clone();
         let model_for_header = event.model.clone();
+        let reasoning_effort = event.reasoning_effort;
         self.session_header.set_model(&model_for_header);
+        // Update the shared model state so the session header displays current model
+        self.model_state
+            .update(model_for_header.clone(), reasoning_effort);
         self.add_to_history(history_cell::new_session_info(
             &self.config,
             &model_for_header,
             event,
             self.show_welcome_banner,
+            self.model_state.clone(),
         ));
         if let Some(messages) = initial_messages {
             self.replay_initial_messages(messages);
@@ -1278,6 +1286,7 @@ impl ChatWidget {
             model_family,
         } = common;
         let model_slug = model_family.get_model_slug().to_string();
+        let reasoning_effort = config.model_reasoning_effort;
         let mut config = config;
         config.model = Some(model_slug.clone());
         let mut rng = rand::rng();
@@ -1303,7 +1312,8 @@ impl ChatWidget {
             model_family,
             auth_manager,
             models_manager,
-            session_header: SessionHeader::new(model_slug),
+            session_header: SessionHeader::new(model_slug.clone()),
+            model_state: SharedModelState::new(model_slug, reasoning_effort),
             initial_user_message: create_initial_user_message(
                 initial_prompt.unwrap_or_default(),
                 initial_images,
@@ -1363,6 +1373,7 @@ impl ChatWidget {
             ..
         } = common;
         let model_slug = model_family.get_model_slug().to_string();
+        let reasoning_effort = config.model_reasoning_effort;
         let mut rng = rand::rng();
         let placeholder = EXAMPLE_PROMPTS[rng.random_range(0..EXAMPLE_PROMPTS.len())].to_string();
 
@@ -1388,7 +1399,8 @@ impl ChatWidget {
             model_family,
             auth_manager,
             models_manager,
-            session_header: SessionHeader::new(model_slug),
+            session_header: SessionHeader::new(model_slug.clone()),
+            model_state: SharedModelState::new(model_slug, reasoning_effort),
             initial_user_message: create_initial_user_message(
                 initial_prompt.unwrap_or_default(),
                 initial_images,
@@ -2992,15 +3004,38 @@ impl ChatWidget {
             .unwrap_or(false)
     }
 
-    /// Set the reasoning effort in the widget's config copy.
+    /// Set the reasoning effort in the widget's config copy and update the shared model state.
     pub(crate) fn set_reasoning_effort(&mut self, effort: Option<ReasoningEffortConfig>) {
         self.config.model_reasoning_effort = effort;
+        // Update the shared model state so the session header reflects the change
+        let current_model = self.config.model.clone().unwrap_or_default();
+        self.model_state.update(current_model, effort);
+        self.request_redraw();
     }
 
-    /// Set the model in the widget's config copy.
+    /// Set the model in the widget's config copy and update the shared model state.
     pub(crate) fn set_model(&mut self, model: &str, model_family: ModelFamily) {
         self.session_header.set_model(model);
         self.model_family = model_family;
+        self.config.model = Some(model.to_string());
+        // Update the shared model state so the session header reflects the change
+        self.model_state
+            .update(model.to_string(), self.config.model_reasoning_effort);
+        self.request_redraw();
+    }
+
+    /// Display a visual card showing the current model configuration.
+    /// Called after model selection is successfully persisted.
+    pub(crate) fn add_model_changed_card(
+        &mut self,
+        model: &str,
+        effort: Option<ReasoningEffortConfig>,
+    ) {
+        self.add_to_history(history_cell::new_model_changed_card(
+            model.to_string(),
+            effort,
+        ));
+        self.request_redraw();
     }
 
     pub(crate) fn add_info_message(&mut self, message: String, hint: Option<String>) {

@@ -61,9 +61,6 @@ use std::time::Duration;
 use tokio::select;
 use tokio::sync::mpsc::unbounded_channel;
 
-#[cfg(not(debug_assertions))]
-use crate::history_cell::UpdateAvailableHistoryCell;
-
 #[derive(Debug, Clone)]
 pub struct AppExitInfo {
     pub token_usage: TokenUsage,
@@ -477,17 +474,11 @@ impl App {
             }
         }
 
+        // Azure-codex fork: Update available card disabled since the fork
+        // uses version 0.0.0 and checking against upstream releases doesn't
+        // make sense.
         #[cfg(not(debug_assertions))]
-        if let Some(latest_version) = upgrade_version {
-            app.handle_event(
-                tui,
-                AppEvent::InsertHistoryCell(Box::new(UpdateAvailableHistoryCell::new(
-                    latest_version,
-                    crate::update_action::get_update_action(),
-                ))),
-            )
-            .await?;
-        }
+        let _ = upgrade_version;
 
         let tui_events = tui.event_stream();
         tokio::pin!(tui_events);
@@ -886,17 +877,20 @@ impl App {
                     .await
                 {
                     Ok(()) => {
-                        let mut message = format!("Model changed to {model}");
-                        if let Some(label) = Self::reasoning_label_for(&model, effort) {
-                            message.push(' ');
-                            message.push_str(label);
-                        }
+                        // Display a visual card showing the updated model configuration
+                        self.chat_widget.add_model_changed_card(&model, effort);
+                        // Add profile info as a separate message if applicable
                         if let Some(profile) = profile {
+                            let mut message = format!("Model changed to {model}");
+                            if let Some(label) = Self::reasoning_label_for(&model, effort) {
+                                message.push(' ');
+                                message.push_str(label);
+                            }
                             message.push_str(" for ");
                             message.push_str(profile);
                             message.push_str(" profile");
+                            self.chat_widget.add_info_message(message, None);
                         }
-                        self.chat_widget.add_info_message(message, None);
                     }
                     Err(err) => {
                         tracing::error!(
@@ -1216,6 +1210,7 @@ mod tests {
     use crate::file_search::FileSearchManager;
     use crate::history_cell::AgentMessageCell;
     use crate::history_cell::HistoryCell;
+    use crate::history_cell::SharedModelState;
     use crate::history_cell::UserHistoryCell;
     use crate::history_cell::new_session_info;
     use codex_core::AuthManager;
@@ -1421,6 +1416,10 @@ mod tests {
                 app.current_model.as_str(),
                 event,
                 is_first,
+                SharedModelState::new(
+                    app.current_model.clone(),
+                    app.chat_widget.config_ref().model_reasoning_effort,
+                ),
             )) as Arc<dyn HistoryCell>
         };
 

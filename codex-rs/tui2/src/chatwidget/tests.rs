@@ -414,6 +414,10 @@ fn make_chatwidget_manual(
         auth_manager: auth_manager.clone(),
         models_manager: Arc::new(ModelsManager::new(auth_manager)),
         session_header: SessionHeader::new(resolved_model.clone()),
+        model_state: crate::history_cell::SharedModelState::new(
+            resolved_model.clone(),
+            cfg.model_reasoning_effort,
+        ),
         initial_user_message: None,
         token_info: None,
         rate_limit_snapshot: None,

@@ -327,6 +327,7 @@ pub(super) fn find_family_for_model(slug: &str) -> ModelFamily {
         model_family!(
             slug, slug,
             supports_reasoning_summaries: true,
+            reasoning_summary_format: ReasoningSummaryFormat::Experimental,
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
             support_verbosity: true,
             default_verbosity: Some(Verbosity::Low),

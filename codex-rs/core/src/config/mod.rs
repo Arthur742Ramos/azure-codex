@@ -304,7 +304,7 @@ pub struct Config {
     /// When set, automatically configures Azure OpenAI as the provider.
     pub azure_endpoint: Option<String>,
 
-    /// Azure OpenAI API version. Defaults to "2024-10-21".
+    /// Azure OpenAI API version. Defaults to "2025-04-01-preview".
     pub azure_api_version: String,
 }
 
@@ -692,7 +692,7 @@ pub struct ConfigToml {
     /// This is the simplest way to configure Azure Codex - just set this and `model`.
     pub azure_endpoint: Option<String>,
 
-    /// Azure OpenAI API version. Defaults to "2024-10-21".
+    /// Azure OpenAI API version. Defaults to "2025-04-01-preview".
     pub azure_api_version: Option<String>,
 
     /// Tracks whether the Windows onboarding screen has been acknowledged.
@@ -1062,29 +1062,60 @@ impl Config {
         let azure_api_version = cfg
             .azure_api_version
             .clone()
-            .unwrap_or_else(|| "2024-10-21".to_string());
+            .unwrap_or_else(|| "2025-04-01-preview".to_string());
 
         // If azure_endpoint is set, create an auto-configured Azure provider
         let has_azure_endpoint = azure_endpoint.is_some();
         if let Some(endpoint) = &azure_endpoint {
-            // Construct the Azure provider with the endpoint
-            // The full URL will be: {endpoint}/openai/deployments/{model}/chat/completions
-            // We set base_url to {endpoint}/openai/deployments/{model} and the API
-            // will append /chat/completions
-            let azure_provider = ModelProviderInfo {
+            // Azure OpenAI supports two API formats:
+            // - Responses API: {endpoint}/openai/responses (model in body)
+            // - Chat Completions API: {endpoint}/openai/deployments/{model}/chat/completions
+            //
+            // We create TWO providers:
+            // 1. "azure" - uses Responses API (default, enables reasoning features)
+            // 2. "azure-chat" - uses Chat Completions API (for models that don't support Responses)
+            //
+            // The ModelClient dynamically selects which API to use based on model capabilities.
+
+            let endpoint_trimmed = endpoint.trim_end_matches('/');
+
+            // Azure provider using Responses API (default)
+            // URL: {endpoint}/openai/responses with model in body
+            let azure_responses_provider = ModelProviderInfo {
                 name: "Azure OpenAI".to_string(),
-                // We'll construct the full base_url with the model later, but for now
-                // store the endpoint. The model will be appended when making requests.
-                base_url: Some(format!(
-                    "{}/openai/deployments",
-                    endpoint.trim_end_matches('/')
-                )),
+                base_url: Some(format!("{endpoint_trimmed}/openai")),
                 env_key: Some("AZURE_OPENAI_API_KEY".to_string()),
                 env_key_instructions: Some(
                     "Set AZURE_OPENAI_API_KEY or use Azure CLI login (az login)".to_string(),
                 ),
                 experimental_bearer_token: None,
-                // Azure OpenAI only supports the Chat Completions API, not the Responses API
+                wire_api: WireApi::Responses,
+                query_params: Some({
+                    let mut params = std::collections::HashMap::new();
+                    params.insert("api-version".to_string(), azure_api_version.clone());
+                    params
+                }),
+                http_headers: None,
+                env_http_headers: None,
+                request_max_retries: None,
+                stream_max_retries: None,
+                stream_idle_timeout_ms: None,
+                requires_openai_auth: false,
+                auth_header_type: codex_api::AuthHeaderType::Bearer,
+                is_azure: true,
+                skip_azure_detection: false,
+            };
+
+            // Azure provider using Chat Completions API (for Claude, Grok, etc.)
+            // URL: {endpoint}/openai/deployments/{model}/chat/completions
+            let azure_chat_provider = ModelProviderInfo {
+                name: "Azure OpenAI (Chat)".to_string(),
+                base_url: Some(format!("{endpoint_trimmed}/openai/deployments")),
+                env_key: Some("AZURE_OPENAI_API_KEY".to_string()),
+                env_key_instructions: Some(
+                    "Set AZURE_OPENAI_API_KEY or use Azure CLI login (az login)".to_string(),
+                ),
+                experimental_bearer_token: None,
                 wire_api: WireApi::Chat,
                 query_params: Some({
                     let mut params = std::collections::HashMap::new();
@@ -1101,7 +1132,9 @@ impl Config {
                 is_azure: true,
                 skip_azure_detection: false,
             };
-            model_providers.insert("azure".to_string(), azure_provider);
+
+            model_providers.insert("azure".to_string(), azure_responses_provider);
+            model_providers.insert("azure-chat".to_string(), azure_chat_provider);
         }
 
         // Default to "azure" provider if azure_endpoint is set

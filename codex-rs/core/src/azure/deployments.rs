@@ -38,6 +38,31 @@ pub struct AzureDeploymentProperties {
     /// Provisioning state of the deployment.
     #[serde(rename = "provisioningState")]
     pub provisioning_state: Option<String>,
+
+    /// Capabilities of the deployment (chatCompletion, responses, etc.)
+    #[serde(default)]
+    pub capabilities: Option<AzureDeploymentCapabilities>,
+}
+
+/// Capabilities of an Azure deployment that determine which APIs it supports.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AzureDeploymentCapabilities {
+    /// Whether the deployment supports Chat Completions API.
+    #[serde(rename = "chatCompletion")]
+    pub chat_completion: Option<String>,
+
+    /// Whether the deployment supports the Responses API.
+    pub responses: Option<String>,
+
+    /// Whether the deployment supports embeddings.
+    pub embeddings: Option<String>,
+
+    /// Whether the deployment supports assistants.
+    pub assistants: Option<String>,
+
+    /// Whether the deployment supports agents.
+    #[serde(rename = "agentsV2")]
+    pub agents_v2: Option<String>,
 }
 
 /// Information about the model backing an Azure deployment.
@@ -293,6 +318,25 @@ impl AzureDeploymentsManager {
         self.endpoint.is_some()
     }
 
+    /// Find a specific deployment by name.
+    pub async fn find_deployment(&self, name: &str) -> Option<AzureDeployment> {
+        self.get_deployments()
+            .await
+            .into_iter()
+            .find(|d| d.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Get the preferred wire API for a specific model/deployment.
+    /// Returns None if deployment not found, in which case caller should use default.
+    pub async fn get_wire_api_for_model(
+        &self,
+        model_name: &str,
+    ) -> Option<crate::model_provider_info::WireApi> {
+        self.find_deployment(model_name)
+            .await
+            .map(|d| d.preferred_wire_api())
+    }
+
     /// Get GPT deployments as ModelPresets for the picker.
     pub async fn get_gpt_model_presets(&self) -> Vec<ModelPreset> {
         let deployments = self.get_gpt_deployments().await;
@@ -314,6 +358,74 @@ impl AzureDeploymentsManager {
 }
 
 impl AzureDeployment {
+    /// Returns true if this deployment supports the Responses API.
+    pub fn supports_responses_api(&self) -> bool {
+        self.properties
+            .capabilities
+            .as_ref()
+            .and_then(|c| c.responses.as_ref())
+            .is_some_and(|v| v == "true")
+    }
+
+    /// Returns true if this deployment supports Chat Completions API.
+    pub fn supports_chat_completions(&self) -> bool {
+        self.properties
+            .capabilities
+            .as_ref()
+            .and_then(|c| c.chat_completion.as_ref())
+            .is_some_and(|v| v == "true")
+    }
+
+    /// Returns true if Chat Completions is explicitly disabled (false, not just missing).
+    pub fn chat_completions_disabled(&self) -> bool {
+        self.properties
+            .capabilities
+            .as_ref()
+            .and_then(|c| c.chat_completion.as_ref())
+            .is_some_and(|v| v == "false")
+    }
+
+    /// Determines the preferred wire API for this deployment.
+    /// Priority:
+    /// 1. If only responses API is available (chatCompletion explicitly false), use Responses
+    /// 2. If responses API is available and chatCompletion is not explicitly false, use Responses
+    /// 3. If only chatCompletion is available, use Chat
+    /// 4. Default to Responses for unknown/missing capabilities (for backwards compatibility)
+    pub fn preferred_wire_api(&self) -> crate::model_provider_info::WireApi {
+        use crate::model_provider_info::WireApi;
+
+        let supports_responses = self.supports_responses_api();
+        let supports_chat = self.supports_chat_completions();
+        let chat_disabled = self.chat_completions_disabled();
+
+        debug!(
+            deployment = %self.name,
+            supports_responses = %supports_responses,
+            supports_chat = %supports_chat,
+            chat_disabled = %chat_disabled,
+            "Determining preferred wire API for deployment"
+        );
+
+        // If chatCompletion is explicitly disabled, must use Responses
+        if chat_disabled {
+            return WireApi::Responses;
+        }
+
+        // If responses is supported, prefer it (enables reasoning features)
+        if supports_responses {
+            return WireApi::Responses;
+        }
+
+        // If only chat is supported (e.g., Claude, Grok), use Chat
+        if supports_chat {
+            return WireApi::Chat;
+        }
+
+        // Default to Responses for backwards compatibility with models
+        // that don't report capabilities (older deployments)
+        WireApi::Responses
+    }
+
     /// Convert this Azure deployment to a ModelPreset for the model picker.
     pub fn to_model_preset(&self) -> ModelPreset {
         // Create a display name from the deployment name

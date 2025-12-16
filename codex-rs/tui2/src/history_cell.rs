@@ -17,7 +17,6 @@ use crate::text_formatting::format_and_truncate_tool_result;
 use crate::text_formatting::truncate_text;
 use crate::tooltips;
 use crate::ui_consts::LIVE_PREFIX_COLS;
-use crate::update_action::UpdateAction;
 use crate::version::CODEX_CLI_VERSION;
 use crate::wrapping::RtOptions;
 use crate::wrapping::word_wrap_line;
@@ -53,6 +52,8 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 use tracing::error;
@@ -278,60 +279,6 @@ impl PlainHistoryCell {
 impl HistoryCell for PlainHistoryCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
         self.lines.clone()
-    }
-}
-
-#[cfg_attr(debug_assertions, allow(dead_code))]
-#[derive(Debug)]
-pub(crate) struct UpdateAvailableHistoryCell {
-    latest_version: String,
-    update_action: Option<UpdateAction>,
-}
-
-#[cfg_attr(debug_assertions, allow(dead_code))]
-impl UpdateAvailableHistoryCell {
-    pub(crate) fn new(latest_version: String, update_action: Option<UpdateAction>) -> Self {
-        Self {
-            latest_version,
-            update_action,
-        }
-    }
-}
-
-impl HistoryCell for UpdateAvailableHistoryCell {
-    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        use ratatui_macros::line;
-        use ratatui_macros::text;
-        let update_instruction = if let Some(update_action) = self.update_action {
-            line!["Run ", update_action.command_str().cyan(), " to update."]
-        } else {
-            line![
-                "See ",
-                "https://github.com/openai/codex".cyan().underlined(),
-                " for installation options."
-            ]
-        };
-
-        let content = text![
-            line![
-                padded_emoji("✨").bold().cyan(),
-                "Update available!".bold().cyan(),
-                " ",
-                format!("{CODEX_CLI_VERSION} -> {}", self.latest_version).bold(),
-            ],
-            update_instruction,
-            "",
-            "See full release notes:",
-            "https://github.com/openai/codex/releases/latest"
-                .cyan()
-                .underlined(),
-        ];
-
-        let inner_width = content
-            .width()
-            .min(usize::from(width.saturating_sub(4)))
-            .max(1);
-        with_border_with_inner_width(content.lines, inner_width)
     }
 }
 
@@ -624,19 +571,11 @@ pub(crate) fn new_session_info(
     requested_model: &str,
     event: SessionConfiguredEvent,
     is_first_event: bool,
+    model_state: SharedModelState,
 ) -> SessionInfoCell {
-    let SessionConfiguredEvent {
-        model,
-        reasoning_effort,
-        ..
-    } = event;
+    let SessionConfiguredEvent { model, .. } = event;
     // Header box rendered as history (so it appears at the very top)
-    let header = SessionHeaderHistoryCell::new(
-        model.clone(),
-        reasoning_effort,
-        config.cwd.clone(),
-        CODEX_CLI_VERSION,
-    );
+    let header = SessionHeaderHistoryCell::new(model_state, config.cwd.clone(), CODEX_CLI_VERSION);
     let mut parts: Vec<Box<dyn HistoryCell>> = vec![Box::new(header)];
 
     if is_first_event {
@@ -697,25 +636,59 @@ pub(crate) fn new_user_prompt(message: String) -> UserHistoryCell {
     UserHistoryCell { message }
 }
 
+/// Shared state for the session header that can be updated when the model changes.
+/// This allows the session header displayed in history to always show the current model.
+#[derive(Debug, Clone)]
+pub(crate) struct SharedModelState {
+    inner: Arc<RwLock<ModelStateInner>>,
+}
+
+#[derive(Debug, Clone)]
+struct ModelStateInner {
+    model: String,
+    reasoning_effort: Option<ReasoningEffortConfig>,
+}
+
+impl SharedModelState {
+    pub(crate) fn new(model: String, reasoning_effort: Option<ReasoningEffortConfig>) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(ModelStateInner {
+                model,
+                reasoning_effort,
+            })),
+        }
+    }
+
+    /// Update the model and reasoning effort. Called when the model changes via /model.
+    pub(crate) fn update(&self, model: String, reasoning_effort: Option<ReasoningEffortConfig>) {
+        if let Ok(mut guard) = self.inner.write() {
+            guard.model = model;
+            guard.reasoning_effort = reasoning_effort;
+        }
+    }
+
+    fn get(&self) -> (String, Option<ReasoningEffortConfig>) {
+        if let Ok(guard) = self.inner.read() {
+            (guard.model.clone(), guard.reasoning_effort)
+        } else {
+            // Fallback if lock is poisoned
+            ("unknown".to_string(), None)
+        }
+    }
+}
+
 #[derive(Debug)]
 struct SessionHeaderHistoryCell {
     version: &'static str,
-    model: String,
-    reasoning_effort: Option<ReasoningEffortConfig>,
+    model_state: SharedModelState,
     directory: PathBuf,
 }
 
 impl SessionHeaderHistoryCell {
-    fn new(
-        model: String,
-        reasoning_effort: Option<ReasoningEffortConfig>,
-        directory: PathBuf,
-        version: &'static str,
-    ) -> Self {
+    fn new(model_state: SharedModelState, directory: PathBuf, version: &'static str) -> Self {
         Self {
             version,
-            model,
-            reasoning_effort,
+            model_state,
             directory,
         }
     }
@@ -747,8 +720,8 @@ impl SessionHeaderHistoryCell {
         formatted
     }
 
-    fn reasoning_label(&self) -> Option<&'static str> {
-        self.reasoning_effort.map(|effort| match effort {
+    fn reasoning_label(effort: Option<ReasoningEffortConfig>) -> Option<&'static str> {
+        effort.map(|effort| match effort {
             ReasoningEffortConfig::Minimal => "minimal",
             ReasoningEffortConfig::Low => "low",
             ReasoningEffortConfig::Medium => "medium",
@@ -767,13 +740,17 @@ impl HistoryCell for SessionHeaderHistoryCell {
 
         let make_row = |spans: Vec<Span<'static>>| Line::from(spans);
 
-        // Title line rendered inside the box: ">_ OpenAI Codex (vX)"
+        // Title line rendered inside the box: ">_ Azure Codex (vX)"
         let title_spans: Vec<Span<'static>> = vec![
             Span::from(">_ ").dim(),
-            Span::from("OpenAI Codex").bold(),
+            Span::from(codex_branding::APP_NAME).bold(),
             Span::from(" ").dim(),
             Span::from(format!("(v{})", self.version)).dim(),
         ];
+
+        // Read current model from shared state (updated when model changes)
+        let (model, reasoning_effort) = self.model_state.get();
+        let reasoning_label = Self::reasoning_label(reasoning_effort);
 
         const CHANGE_MODEL_HINT_COMMAND: &str = "/model";
         const CHANGE_MODEL_HINT_EXPLANATION: &str = " to change";
@@ -784,18 +761,37 @@ impl HistoryCell for SessionHeaderHistoryCell {
             model_label = "model:",
             label_width = label_width
         );
-        let reasoning_label = self.reasoning_label();
         let mut model_spans: Vec<Span<'static>> = vec![
             Span::from(format!("{model_label} ")).dim(),
-            Span::from(self.model.clone()),
+            Span::from(model),
         ];
         if let Some(reasoning) = reasoning_label {
             model_spans.push(Span::from(" "));
             model_spans.push(Span::from(reasoning));
         }
-        model_spans.push("   ".dim());
-        model_spans.push(CHANGE_MODEL_HINT_COMMAND.cyan());
-        model_spans.push(CHANGE_MODEL_HINT_EXPLANATION.dim());
+
+        // Calculate current width of model spans
+        let model_base_width: usize = model_spans
+            .iter()
+            .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+            .sum();
+
+        // Only add the "/model to change" hint if there's enough room
+        let hint_full_width =
+            3 + CHANGE_MODEL_HINT_COMMAND.len() + CHANGE_MODEL_HINT_EXPLANATION.len(); // "   /model to change"
+        let hint_short_width = 3 + CHANGE_MODEL_HINT_COMMAND.len(); // "   /model"
+
+        if model_base_width + hint_full_width <= inner_width {
+            // Full hint fits
+            model_spans.push("   ".dim());
+            model_spans.push(CHANGE_MODEL_HINT_COMMAND.cyan());
+            model_spans.push(CHANGE_MODEL_HINT_EXPLANATION.dim());
+        } else if model_base_width + hint_short_width <= inner_width {
+            // Only short hint fits
+            model_spans.push("   ".dim());
+            model_spans.push(CHANGE_MODEL_HINT_COMMAND.cyan());
+        }
+        // Otherwise, omit the hint entirely for very narrow terminals
 
         let dir_label = format!("{DIR_LABEL:<label_width$}");
         let dir_prefix = format!("{dir_label} ");
@@ -1113,7 +1109,7 @@ pub(crate) fn empty_mcp_output() -> PlainHistoryCell {
         "  • No MCP servers configured.".italic().into(),
         Line::from(vec![
             "    See the ".into(),
-            "\u{1b}]8;;https://github.com/openai/codex/blob/main/docs/config.md#mcp_servers\u{7}MCP docs\u{1b}]8;;\u{7}".underlined(),
+            "\u{1b}]8;;https://github.com/Arthur742Ramos/azure-codex/blob/main/docs/config.md#mcp_servers\u{7}MCP docs\u{1b}]8;;\u{7}".underlined(),
             " to configure them.".into(),
         ])
         .style(Style::default().add_modifier(Modifier::DIM)),
@@ -1293,6 +1289,64 @@ pub(crate) fn new_info_event(message: String, hint: Option<String>) -> PlainHist
     }
     let lines: Vec<Line<'static>> = vec![line.into()];
     PlainHistoryCell { lines }
+}
+
+/// Creates a compact bordered card showing the updated model configuration.
+/// This is displayed when the user changes the model via /model command,
+/// providing visual feedback that mirrors the session header format.
+#[derive(Debug)]
+pub(crate) struct ModelChangedCell {
+    model: String,
+    reasoning_effort: Option<ReasoningEffortConfig>,
+}
+
+impl ModelChangedCell {
+    pub(crate) fn new(model: String, reasoning_effort: Option<ReasoningEffortConfig>) -> Self {
+        Self {
+            model,
+            reasoning_effort,
+        }
+    }
+
+    fn reasoning_label(effort: Option<ReasoningEffortConfig>) -> Option<&'static str> {
+        effort.map(|effort| match effort {
+            ReasoningEffortConfig::Minimal => "minimal",
+            ReasoningEffortConfig::Low => "low",
+            ReasoningEffortConfig::Medium => "medium",
+            ReasoningEffortConfig::High => "high",
+            ReasoningEffortConfig::XHigh => "xhigh",
+            ReasoningEffortConfig::None => "none",
+        })
+    }
+}
+
+impl HistoryCell for ModelChangedCell {
+    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
+        let Some(inner_width) = card_inner_width(width, SESSION_HEADER_MAX_INNER_WIDTH) else {
+            return Vec::new();
+        };
+
+        let mut model_spans: Vec<Span<'static>> = vec![
+            Span::from("model:     ").dim(),
+            Span::from(self.model.clone()),
+        ];
+        if let Some(reasoning) = Self::reasoning_label(self.reasoning_effort) {
+            model_spans.push(Span::from(" "));
+            model_spans.push(Span::from(reasoning));
+        }
+
+        let lines = vec![Line::from(model_spans)];
+
+        with_border_with_inner_width(lines, inner_width)
+    }
+}
+
+/// Creates a model changed card to display when the model is updated via /model.
+pub(crate) fn new_model_changed_card(
+    model: String,
+    reasoning_effort: Option<ReasoningEffortConfig>,
+) -> ModelChangedCell {
+    ModelChangedCell::new(model, reasoning_effort)
 }
 
 pub(crate) fn new_error_event(message: String) -> PlainHistoryCell {
@@ -1860,22 +1914,51 @@ mod tests {
     }
 
     #[test]
-    fn session_header_includes_reasoning_level_when_present() {
-        let cell = SessionHeaderHistoryCell::new(
-            "gpt-4o".to_string(),
-            Some(ReasoningEffortConfig::High),
-            std::env::temp_dir(),
-            "test",
-        );
+    fn session_header_shows_model_and_reasoning() {
+        let model_state =
+            SharedModelState::new("gpt-4o".to_string(), Some(ReasoningEffortConfig::High));
+        let cell = SessionHeaderHistoryCell::new(model_state, std::env::temp_dir(), "test");
 
         let lines = render_lines(&cell.display_lines(80));
         let model_line = lines
-            .into_iter()
+            .iter()
             .find(|line| line.contains("model:"))
             .expect("model line");
 
-        assert!(model_line.contains("gpt-4o high"));
-        assert!(model_line.contains("/model to change"));
+        assert!(model_line.contains("gpt-4o"));
+        assert!(model_line.contains("high"));
+        assert!(model_line.contains("/model"));
+    }
+
+    #[test]
+    fn session_header_updates_when_model_changes() {
+        let model_state =
+            SharedModelState::new("gpt-4o".to_string(), Some(ReasoningEffortConfig::High));
+        let cell = SessionHeaderHistoryCell::new(model_state.clone(), std::env::temp_dir(), "test");
+
+        // Initial state
+        let lines = render_lines(&cell.display_lines(80));
+        let model_line = lines
+            .iter()
+            .find(|line| line.contains("model:"))
+            .expect("model line");
+        assert!(model_line.contains("gpt-4o"));
+        assert!(model_line.contains("high"));
+
+        // Update the model
+        model_state.update(
+            "gpt-5.1-codex-max".to_string(),
+            Some(ReasoningEffortConfig::XHigh),
+        );
+
+        // Verify the header now shows the new model
+        let lines = render_lines(&cell.display_lines(80));
+        let model_line = lines
+            .iter()
+            .find(|line| line.contains("model:"))
+            .expect("model line");
+        assert!(model_line.contains("gpt-5.1-codex-max"));
+        assert!(model_line.contains("xhigh"));
     }
 
     #[test]

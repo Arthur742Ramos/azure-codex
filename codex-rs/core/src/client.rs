@@ -65,6 +65,9 @@ pub struct ModelClient {
     effort: Option<ReasoningEffortConfig>,
     summary: ReasoningSummaryConfig,
     session_source: SessionSource,
+    /// Optional override for wire API based on model capabilities.
+    /// When set, this takes precedence over provider.wire_api.
+    wire_api_override: Option<WireApi>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -81,18 +84,43 @@ impl ModelClient {
         conversation_id: ConversationId,
         session_source: SessionSource,
     ) -> Self {
+        // Determine wire API and effective provider based on model capabilities
+        let (wire_api_override, effective_provider) = if provider.is_azure_endpoint() {
+            let model_slug = model_family.get_model_slug();
+            let effective_wire_api = determine_wire_api_for_azure_model(model_slug);
+
+            // If the effective wire API differs from the provider's default,
+            // we need to adjust the provider's base_url for Azure
+            let adjusted_provider = if effective_wire_api != provider.wire_api {
+                adjust_azure_provider_for_wire_api(&provider, effective_wire_api, model_slug)
+            } else {
+                provider
+            };
+
+            (Some(effective_wire_api), adjusted_provider)
+        } else {
+            (None, provider)
+        };
+
         Self {
             config,
             auth_manager,
             azure_auth,
             model_family,
             otel_manager,
-            provider,
+            provider: effective_provider,
             conversation_id,
             effort,
             summary,
             session_source,
+            wire_api_override,
         }
+    }
+
+    /// Returns the effective wire API for this client.
+    /// Uses the override if set, otherwise falls back to provider default.
+    fn effective_wire_api(&self) -> WireApi {
+        self.wire_api_override.unwrap_or(self.provider.wire_api)
     }
 
     pub fn get_model_context_window(&self) -> Option<i64> {
@@ -112,12 +140,23 @@ impl ModelClient {
     }
 
     /// Streams a single model turn using either the Responses or Chat
-    /// Completions wire API, depending on the configured provider.
+    /// Completions wire API, depending on the model capabilities and provider.
+    ///
+    /// For Azure endpoints, the wire API is determined dynamically based on
+    /// the model's capabilities (some models only support Chat Completions,
+    /// others only support Responses API).
     ///
     /// For Chat providers, the underlying stream is optionally aggregated
     /// based on the `show_raw_agent_reasoning` flag in the config.
     pub async fn stream(&self, prompt: &Prompt) -> Result<ResponseStream> {
-        match self.provider.wire_api {
+        let wire_api = self.effective_wire_api();
+        tracing::debug!(
+            model = %self.model_family.slug,
+            wire_api = ?wire_api,
+            "Streaming with wire API"
+        );
+
+        match wire_api {
             WireApi::Responses => self.stream_responses_api(prompt).await,
             WireApi::Chat => {
                 let api_stream = self.stream_chat_completions(prompt).await?;
@@ -580,4 +619,107 @@ impl SseTelemetry for ApiTelemetry {
     ) {
         self.otel_manager.log_sse_event(result, duration);
     }
+}
+
+/// Adjusts an Azure provider's configuration to use a different wire API.
+///
+/// Azure uses different URL formats for different APIs:
+/// - Responses API: {endpoint}/openai/responses (model in body)
+/// - Chat Completions API: {endpoint}/openai/deployments/{model}/chat/completions
+///
+/// This function creates a new provider with the correct base_url and wire_api
+/// for the target wire API.
+fn adjust_azure_provider_for_wire_api(
+    provider: &ModelProviderInfo,
+    target_wire_api: WireApi,
+    model_name: &str,
+) -> ModelProviderInfo {
+    let mut adjusted = provider.clone();
+    adjusted.wire_api = target_wire_api;
+
+    // Adjust base_url based on target wire API
+    if let Some(base_url) = &provider.base_url {
+        adjusted.base_url = Some(match target_wire_api {
+            WireApi::Responses => {
+                // For Responses API: {endpoint}/openai
+                // Strip /deployments if present
+                if base_url.ends_with("/openai/deployments") {
+                    base_url.trim_end_matches("/deployments").to_string()
+                } else {
+                    base_url.clone()
+                }
+            }
+            WireApi::Chat => {
+                // For Chat API: {endpoint}/openai/deployments/{model}
+                // Add /deployments/{model} if not present
+                if base_url.ends_with("/openai") {
+                    format!("{base_url}/deployments/{model_name}")
+                } else if base_url.ends_with("/openai/deployments") {
+                    format!("{base_url}/{model_name}")
+                } else {
+                    base_url.clone()
+                }
+            }
+        });
+    }
+
+    tracing::debug!(
+        model = %model_name,
+        original_wire_api = ?provider.wire_api,
+        target_wire_api = ?target_wire_api,
+        original_base_url = ?provider.base_url,
+        adjusted_base_url = ?adjusted.base_url,
+        "Adjusted Azure provider for wire API"
+    );
+
+    adjusted
+}
+
+/// Determines the appropriate wire API for an Azure deployment based on model name.
+///
+/// Azure OpenAI deployments have varying capabilities:
+/// - Some models (like claude-*, grok-*) only support Chat Completions API
+/// - Some models (like gpt-5.1-codex, gpt-5-codex) only support Responses API
+/// - Most GPT models support both, and we prefer Responses for reasoning features
+///
+/// This function uses pattern matching on model names to determine the correct API.
+fn determine_wire_api_for_azure_model(model_name: &str) -> WireApi {
+    let name_lower = model_name.to_lowercase();
+
+    // Models that ONLY support Chat Completions (no Responses API)
+    // Claude and Grok models on Azure only support chatCompletion
+    if name_lower.starts_with("claude-") || name_lower.starts_with("grok-") {
+        tracing::debug!(
+            model = %model_name,
+            "Model only supports Chat Completions API"
+        );
+        return WireApi::Chat;
+    }
+
+    // All GPT models on Azure now support Responses API
+    // This includes: gpt-5.2, gpt-5.1, gpt-5, gpt-5.1-codex, gpt-5.1-codex-max,
+    // gpt-5-codex, gpt-5-pro, gpt-4o, gpt-4.1, o3-mini, o4-mini, etc.
+    //
+    // For codex models (gpt-5.1-codex, gpt-5-codex, gpt-5.1-codex-max),
+    // chatCompletion is explicitly disabled, so Responses is the only option.
+    //
+    // For other models with both APIs, we prefer Responses because it enables
+    // advanced features like reasoning_effort and verbosity.
+    if name_lower.starts_with("gpt-")
+        || name_lower.starts_with("o3-")
+        || name_lower.starts_with("o4-")
+    {
+        tracing::debug!(
+            model = %model_name,
+            "Using Responses API for GPT/reasoning model"
+        );
+        return WireApi::Responses;
+    }
+
+    // Default to Responses for unknown models (backwards compatibility)
+    tracing::debug!(
+        model = %model_name,
+        "Unknown model, defaulting to Responses API"
+    );
+    WireApi::Responses
 }

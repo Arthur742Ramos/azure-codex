@@ -169,8 +169,9 @@ azure_endpoint = "https://your-resource.openai.azure.com"
 # Model/deployment name (required)
 model = "gpt-4o"
 
-# API version (optional, defaults to 2024-10-21)
-azure_api_version = "2024-10-21"
+# API version (optional, defaults to 2025-04-01-preview)
+# For GPT-5/reasoning models, use 2025-04-01-preview or newer
+azure_api_version = "2025-04-01-preview"
 
 # Azure authentication configuration (optional)
 [azure_auth]
