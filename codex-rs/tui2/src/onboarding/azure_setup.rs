@@ -116,6 +116,22 @@ impl AzureSetupWidget {
     }
 
     fn render_endpoint_entry(&self, area: Rect, buf: &mut Buffer) {
+        // Minimum height required to display the full endpoint entry UI
+        const MIN_HEIGHT: u16 = 15;
+
+        // If the terminal is too small, show a resize message instead
+        if area.height < MIN_HEIGHT {
+            let lines: Vec<Line> = vec![
+                "".into(),
+                "  Terminal too small".dim().into(),
+                "  Please resize to continue".dim().into(),
+            ];
+            Paragraph::new(lines)
+                .wrap(Wrap { trim: false })
+                .render(area, buf);
+            return;
+        }
+
         // Constrain the overall width to avoid rendering issues on narrow terminals
         // or when the terminal reports incorrect buffer size instead of viewport size.
         const MAX_CONTENT_WIDTH: u16 = 80;
