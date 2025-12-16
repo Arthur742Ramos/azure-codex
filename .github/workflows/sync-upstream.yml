@@ -5,7 +5,22 @@ on:
     # Run every night at 2 AM UTC
     - cron: '0 2 * * *'
   workflow_dispatch:
-    # Allow manual trigger from GitHub UI
+    inputs:
+      use_ai_resolution:
+        description: 'Use AI to resolve conflicts'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  # Azure-specific files that need special handling during merges
+  AZURE_PROTECTED_FILES: |
+    codex-rs/core/src/azure/
+    codex-rs/core/src/auth/azure.rs
+    codex-rs/core/src/auth/azure_config.rs
+    codex-rs/core/src/openai_models/models_manager.rs
+    codex-rs/tui/src/onboarding/azure_setup.rs
+    codex-rs/tui2/src/onboarding/azure_setup.rs
 
 jobs:
   sync:
@@ -47,7 +62,7 @@ jobs:
       - name: Create sync branch
         if: steps.check.outputs.has_updates == 'true'
         run: |
-          BRANCH_NAME="sync-upstream-$(date +%Y%m%d)"
+          BRANCH_NAME="sync-upstream-$(date +%Y%m%d-%H%M)"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
           git checkout -b $BRANCH_NAME
 
@@ -55,46 +70,309 @@ jobs:
         if: steps.check.outputs.has_updates == 'true'
         id: merge
         run: |
-          # Try to merge upstream
-          if git merge upstream/main --no-edit; then
+          if git merge upstream/main --no-edit 2>&1; then
             echo "merge_status=success" >> $GITHUB_OUTPUT
             echo "Merge successful"
           else
             echo "merge_status=conflict" >> $GITHUB_OUTPUT
             echo "Merge has conflicts"
-            # Abort the merge so we can still create a PR with info
-            git merge --abort
+
+            # List conflicted files
+            CONFLICTS=$(git diff --name-only --diff-filter=U)
+            echo "Conflicted files:"
+            echo "$CONFLICTS"
+            echo "conflicts<<EOF" >> $GITHUB_OUTPUT
+            echo "$CONFLICTS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           fi
 
-      - name: Handle workflow file conflicts
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merge_status == 'conflict'
+      - name: Setup Python for AI resolution
+        if: steps.merge.outputs.merge_status == 'conflict' && inputs.use_ai_resolution != 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install AI dependencies
+        if: steps.merge.outputs.merge_status == 'conflict' && inputs.use_ai_resolution != 'false'
         run: |
-          # Try merge again, resolving workflow conflicts by keeping ours (deleted)
-          git merge upstream/main --no-edit -X ours || true
+          pip install openai anthropic
 
-          # If still conflicting, check if it's just workflow files
+      - name: Resolve conflicts with AI
+        if: steps.merge.outputs.merge_status == 'conflict' && inputs.use_ai_resolution != 'false'
+        id: ai_resolve
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cat > resolve_conflicts.py << 'PYTHON_SCRIPT'
+          import os
+          import sys
+          import subprocess
+          import json
+
+          def get_llm_client():
+              """Get the best available LLM client."""
+              # Try Azure OpenAI first
+              if os.environ.get('AZURE_OPENAI_API_KEY') and os.environ.get('AZURE_OPENAI_ENDPOINT'):
+                  from openai import AzureOpenAI
+                  return AzureOpenAI(
+                      api_key=os.environ['AZURE_OPENAI_API_KEY'],
+                      api_version="2024-10-21",
+                      azure_endpoint=os.environ['AZURE_OPENAI_ENDPOINT']
+                  ), "azure", os.environ.get('AZURE_OPENAI_MODEL', 'gpt-4o')
+
+              # Try OpenAI
+              if os.environ.get('OPENAI_API_KEY'):
+                  from openai import OpenAI
+                  return OpenAI(), "openai", "gpt-4o"
+
+              # Try Anthropic
+              if os.environ.get('ANTHROPIC_API_KEY'):
+                  import anthropic
+                  return anthropic.Anthropic(), "anthropic", "claude-sonnet-4-20250514"
+
+              return None, None, None
+
+          def resolve_conflict_with_ai(client, provider, model, file_path, ours_content, theirs_content, base_content=None):
+              """Use AI to resolve a merge conflict."""
+
+              system_prompt = """You are an expert at resolving Git merge conflicts for the Azure Codex project.
+          Azure Codex is a fork of OpenAI's Codex CLI that adds Azure OpenAI support.
+
+          Key Azure-specific features to PRESERVE:
+          1. Azure authentication (Azure CLI, Managed Identity, Service Principal)
+          2. Azure deployment discovery (AzureDeploymentsManager)
+          3. Azure endpoint handling (with_azure_endpoint, is_azure methods)
+          4. Azure API version configuration
+          5. The azure_deployments field in ModelsManager
+          6. Azure setup UI that accepts resource name or full endpoint
+
+          When resolving conflicts:
+          - Keep ALL Azure-specific code and functionality
+          - Integrate upstream changes that don't conflict with Azure features
+          - If upstream restructured code, adapt Azure features to work with new structure
+          - Maintain backward compatibility with existing Azure configurations
+          - Preserve Azure-specific imports (azure_identity, AzureDeploymentsManager, etc.)
+
+          Return ONLY the resolved file content, no explanations or markdown code blocks."""
+
+              user_prompt = f"""Please resolve this merge conflict in {file_path}:
+
+          === OUR VERSION (Azure Codex - contains Azure-specific code to preserve) ===
+          {ours_content}
+
+          === THEIR VERSION (Upstream OpenAI Codex - new changes to integrate) ===
+          {theirs_content}
+
+          {f"=== BASE VERSION (common ancestor) ==={chr(10)}{base_content}" if base_content else ""}
+
+          Resolve this conflict by:
+          1. Preserving ALL Azure-specific functionality from our version
+          2. Integrating improvements from their version
+          3. Adapting Azure code to work with any structural changes from upstream
+          4. Ensuring the result compiles and maintains Azure support
+
+          Return the complete resolved file content:"""
+
+              try:
+                  if provider == "anthropic":
+                      response = client.messages.create(
+                          model=model,
+                          max_tokens=8192,
+                          system=system_prompt,
+                          messages=[{"role": "user", "content": user_prompt}]
+                      )
+                      return response.content[0].text
+                  else:
+                      response = client.chat.completions.create(
+                          model=model,
+                          messages=[
+                              {"role": "system", "content": system_prompt},
+                              {"role": "user", "content": user_prompt}
+                          ],
+                          max_tokens=8192,
+                          temperature=0.1
+                      )
+                      return response.choices[0].message.content
+              except Exception as e:
+                  print(f"AI resolution failed for {file_path}: {e}")
+                  return None
+
+          def get_conflict_versions(file_path):
+              """Extract our, their, and base versions of a conflicted file."""
+              try:
+                  ours = subprocess.run(['git', 'show', f':2:{file_path}'], capture_output=True, text=True)
+                  theirs = subprocess.run(['git', 'show', f':3:{file_path}'], capture_output=True, text=True)
+                  base = subprocess.run(['git', 'show', f':1:{file_path}'], capture_output=True, text=True)
+
+                  return (
+                      ours.stdout if ours.returncode == 0 else None,
+                      theirs.stdout if theirs.returncode == 0 else None,
+                      base.stdout if base.returncode == 0 else None
+                  )
+              except Exception as e:
+                  print(f"Error getting versions for {file_path}: {e}")
+                  return None, None, None
+
+          def main():
+              # Get conflicted files
+              result = subprocess.run(['git', 'diff', '--name-only', '--diff-filter=U'],
+                                     capture_output=True, text=True)
+              conflicts = [f.strip() for f in result.stdout.strip().split('\n') if f.strip()]
+
+              if not conflicts:
+                  print("No conflicts to resolve")
+                  return 0
+
+              print(f"Found {len(conflicts)} conflicted files")
+
+              # Get LLM client
+              client, provider, model = get_llm_client()
+              if not client:
+                  print("No AI API keys configured. Set OPENAI_API_KEY, AZURE_OPENAI_API_KEY+AZURE_OPENAI_ENDPOINT, or ANTHROPIC_API_KEY")
+                  return 1
+
+              print(f"Using {provider} with model {model}")
+
+              resolved = []
+              failed = []
+
+              # Files to auto-resolve by deletion (workflow files we don't need)
+              delete_patterns = ['ci.yml', 'sdk.yml', 'shell-tool-mcp']
+
+              for file_path in conflicts:
+                  print(f"\nProcessing: {file_path}")
+
+                  # Auto-delete workflow files we don't need
+                  if any(p in file_path for p in delete_patterns):
+                      print(f"  Auto-removing (not needed for Azure Codex)")
+                      subprocess.run(['git', 'rm', file_path], capture_output=True)
+                      resolved.append(file_path)
+                      continue
+
+                  # Get conflict versions
+                  ours, theirs, base = get_conflict_versions(file_path)
+
+                  if not ours or not theirs:
+                      print(f"  Could not get file versions, skipping")
+                      failed.append(file_path)
+                      continue
+
+                  # Resolve with AI
+                  print(f"  Resolving with AI...")
+                  resolution = resolve_conflict_with_ai(client, provider, model, file_path, ours, theirs, base)
+
+                  if resolution:
+                      # Clean up any markdown code blocks the AI might have added
+                      if resolution.startswith('```'):
+                          lines = resolution.split('\n')
+                          resolution = '\n'.join(lines[1:-1] if lines[-1].startswith('```') else lines[1:])
+
+                      # Write resolved content
+                      with open(file_path, 'w') as f:
+                          f.write(resolution)
+
+                      # Stage the resolved file
+                      subprocess.run(['git', 'add', file_path])
+                      print(f"  ✓ Resolved")
+                      resolved.append(file_path)
+                  else:
+                      print(f"  ✗ AI resolution failed")
+                      failed.append(file_path)
+
+              print(f"\n=== Summary ===")
+              print(f"Resolved: {len(resolved)}")
+              print(f"Failed: {len(failed)}")
+
+              if failed:
+                  print(f"\nFiles needing manual resolution:")
+                  for f in failed:
+                      print(f"  - {f}")
+
+              # Write summary for GitHub Actions
+              with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as f:
+                  f.write(f"resolved_count={len(resolved)}\n")
+                  f.write(f"failed_count={len(failed)}\n")
+                  f.write(f"all_resolved={'true' if not failed else 'false'}\n")
+
+              return 0 if not failed else 1
+
+          if __name__ == '__main__':
+              sys.exit(main())
+          PYTHON_SCRIPT
+
+          python resolve_conflicts.py
+
+      - name: Commit AI-resolved changes
+        if: steps.merge.outputs.merge_status == 'conflict' && inputs.use_ai_resolution != 'false'
+        run: |
+          # Check if there are staged changes
+          if git diff --cached --quiet; then
+            echo "No changes staged after AI resolution"
+          else
+            # Check for remaining conflicts
+            REMAINING=$(git diff --name-only --diff-filter=U || echo "")
+            if [ -z "$REMAINING" ]; then
+              git commit -m "Merge upstream/main with AI-assisted conflict resolution
+
+          Conflicts were automatically resolved using AI while preserving
+          Azure-specific functionality:
+          - Azure authentication support
+          - Azure deployment discovery
+          - Azure endpoint handling
+          - Azure setup UI
+
+          Please review the changes carefully."
+              echo "AI_RESOLVED=true" >> $GITHUB_ENV
+            else
+              echo "Some conflicts remain unresolved:"
+              echo "$REMAINING"
+              echo "AI_RESOLVED=partial" >> $GITHUB_ENV
+            fi
+          fi
+
+      - name: Manual conflict resolution fallback
+        if: steps.merge.outputs.merge_status == 'conflict' && (inputs.use_ai_resolution == 'false' || env.AI_RESOLVED != 'true')
+        run: |
+          # Handle remaining conflicts manually
           CONFLICTS=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "")
-          if [ -n "$CONFLICTS" ]; then
-            echo "Remaining conflicts in:"
-            echo "$CONFLICTS"
 
-            # Remove workflow files we don't need
-            for file in .github/workflows/ci.yml .github/workflows/sdk.yml .github/workflows/shell-tool-mcp-ci.yml .github/workflows/shell-tool-mcp.yml; do
-              if echo "$CONFLICTS" | grep -q "$file"; then
+          if [ -n "$CONFLICTS" ]; then
+            echo "Attempting manual resolution for remaining conflicts..."
+
+            for file in $CONFLICTS; do
+              # For workflow files, just remove them
+              if [[ "$file" == *"ci.yml"* ]] || [[ "$file" == *"sdk.yml"* ]] || [[ "$file" == *"shell-tool-mcp"* ]]; then
                 git rm "$file" 2>/dev/null || true
+                continue
               fi
+
+              # For other files, keep our version (preserve Azure code)
+              git checkout --ours "$file" 2>/dev/null || true
+              git add "$file"
             done
 
-            # Check if all conflicts are resolved
+            # Check if all resolved
             REMAINING=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "")
             if [ -z "$REMAINING" ]; then
-              git commit -m "Merge upstream/main (auto-resolved workflow conflicts)"
-              echo "MERGE_RESOLVED=true" >> $GITHUB_ENV
-            else
-              echo "MERGE_RESOLVED=false" >> $GITHUB_ENV
-              echo "Manual intervention required for:"
-              echo "$REMAINING"
+              git commit -m "Merge upstream/main (kept Azure version for conflicts)
+
+          Some conflicts were resolved by keeping the Azure Codex version.
+          Manual review recommended to integrate upstream improvements."
             fi
+          fi
+
+      - name: Run build check
+        if: steps.check.outputs.has_updates == 'true'
+        id: build
+        run: |
+          cd codex-rs
+          if cargo check --workspace 2>&1; then
+            echo "build_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "build_status=failed" >> $GITHUB_OUTPUT
           fi
 
       - name: Push branch
@@ -118,15 +396,24 @@ jobs:
             **New commits from upstream:** ${{ steps.check.outputs.upstream_commits }}
 
             ### Merge Status
-            ${{ steps.merge.outputs.merge_status == 'success' && '✅ Merged cleanly' || '⚠️ Had conflicts (auto-resolved or needs manual review)' }}
+            | Check | Status |
+            |-------|--------|
+            | Initial Merge | ${{ steps.merge.outputs.merge_status == 'success' && '✅ Clean' || '⚠️ Had conflicts' }} |
+            | AI Resolution | ${{ env.AI_RESOLVED == 'true' && '✅ All resolved' || (env.AI_RESOLVED == 'partial' && '⚠️ Partial' || '⏭️ Skipped') }} |
+            | Build Check | ${{ steps.build.outputs.build_status == 'success' && '✅ Passing' || '❌ Failing' }} |
+
+            ### Conflict Resolution
+            ${{ steps.merge.outputs.merge_status == 'success' && 'No conflicts detected.' || 'Conflicts were detected and resolved using AI assistance. The AI was instructed to preserve all Azure-specific functionality while integrating upstream changes.' }}
 
             ### Review Checklist
-            - [ ] Build passes (`cargo build`)
+            - [ ] Azure authentication still works (`az login` flow)
+            - [ ] Azure deployment discovery works (model picker shows Azure deployments)
+            - [ ] Resource name shorthand works in setup (e.g., `my-resource` → `https://my-resource.openai.azure.com`)
+            - [ ] Build passes locally (`cargo build`)
             - [ ] Tests pass (`cargo test`)
-            - [ ] Azure-specific functionality still works
-            - [ ] No unintended changes to Azure authentication or deployment discovery
 
-            ### Files to watch
+            ### Key Files to Review
+            If conflicts were resolved, pay special attention to:
             - `codex-rs/core/src/openai_models/models_manager.rs` - Azure model discovery
             - `codex-rs/core/src/auth/` - Azure authentication
             - `codex-rs/core/src/azure/` - Azure deployments
@@ -134,7 +421,9 @@ jobs:
 
             ---
             🤖 This PR was automatically created by the sync-upstream workflow.
+            ${{ env.AI_RESOLVED == 'true' && '🧠 Conflicts were resolved with AI assistance.' || '' }}
           labels: |
             upstream-sync
             automated
-          draft: ${{ steps.merge.outputs.merge_status != 'success' }}
+            ${{ steps.merge.outputs.merge_status != 'success' && 'had-conflicts' || '' }}
+          draft: ${{ steps.build.outputs.build_status != 'success' }}
