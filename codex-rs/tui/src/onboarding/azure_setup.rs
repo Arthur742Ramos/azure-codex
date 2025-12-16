@@ -116,12 +116,23 @@ impl AzureSetupWidget {
     }
 
     fn render_endpoint_entry(&self, area: Rect, buf: &mut Buffer) {
+        // Constrain the overall width to avoid rendering issues on narrow terminals
+        // or when the terminal reports incorrect buffer size instead of viewport size.
+        const MAX_CONTENT_WIDTH: u16 = 80;
+        let content_width = area.width.min(MAX_CONTENT_WIDTH);
+        let content_area = Rect {
+            x: area.x,
+            y: area.y,
+            width: content_width,
+            height: area.height,
+        };
+
         let [intro_area, input_area, footer_area] = Layout::vertical([
             Constraint::Min(8),
             Constraint::Length(3),
             Constraint::Min(4),
         ])
-        .areas(area);
+        .areas(content_area);
 
         let intro_lines: Vec<Line> = vec![
             Line::from(vec!["  ".into(), "Welcome to Azure Codex!".bold().cyan()]),
