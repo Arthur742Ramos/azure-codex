@@ -40,6 +40,7 @@ mod ascii_animation;
 mod bottom_pane;
 mod chatwidget;
 mod cli;
+mod clipboard_copy;
 mod clipboard_paste;
 mod color;
 pub mod custom_terminal;
@@ -369,6 +370,7 @@ async fn run_ratatui_app(
                         token_usage: codex_core::protocol::TokenUsage::default(),
                         conversation_id: None,
                         update_action: Some(action),
+                        session_lines: Vec::new(),
                     });
                 }
             }
@@ -409,6 +411,7 @@ async fn run_ratatui_app(
                 token_usage: codex_core::protocol::TokenUsage::default(),
                 conversation_id: None,
                 update_action: None,
+                session_lines: Vec::new(),
             });
         }
         // Reload config if Azure was configured or directory trust was granted
@@ -445,6 +448,7 @@ async fn run_ratatui_app(
                     token_usage: codex_core::protocol::TokenUsage::default(),
                     conversation_id: None,
                     update_action: None,
+                    session_lines: Vec::new(),
                 });
             }
         }
@@ -483,6 +487,7 @@ async fn run_ratatui_app(
                     token_usage: codex_core::protocol::TokenUsage::default(),
                     conversation_id: None,
                     update_action: None,
+                    session_lines: Vec::new(),
                 });
             }
             other => other,
@@ -492,6 +497,12 @@ async fn run_ratatui_app(
     };
 
     let Cli { prompt, images, .. } = cli;
+
+    // Run the main chat + transcript UI on the terminal's alternate screen so
+    // the entire viewport can be used without polluting normal scrollback. This
+    // mirrors the behavior of the legacy TUI but keeps inline mode available
+    // for smaller prompts like onboarding and model migration.
+    let _ = tui.enter_alt_screen();
 
     let app_result = App::run(
         &mut tui,
@@ -506,7 +517,17 @@ async fn run_ratatui_app(
     )
     .await;
 
+    let _ = tui.leave_alt_screen();
     restore();
+    if let Ok(exit_info) = &app_result {
+        let mut stdout = std::io::stdout();
+        for line in exit_info.session_lines.iter() {
+            let _ = writeln!(stdout, "{line}");
+        }
+        if !exit_info.session_lines.is_empty() {
+            let _ = writeln!(stdout);
+        }
+    }
     // Mark the end of the recorded session.
     session_log::log_session_end();
     // ignore error when collecting usage – report underlying error instead
