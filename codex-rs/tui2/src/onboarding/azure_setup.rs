@@ -49,6 +49,8 @@ pub enum AzureSetupState {
     ModelSelection,
     /// No models were found - show error.
     NoModelsFound,
+    /// Saving configuration after model selection.
+    Configuring,
     /// Setup is complete.
     Complete,
     /// User skipped setup.
@@ -305,9 +307,22 @@ impl AzureSetupWidget {
     }
 
     fn render_model_selection(&self, area: Rect, buf: &mut Buffer) {
+        // Constrain the overall width to avoid rendering issues on narrow terminals
+        const MAX_CONTENT_WIDTH: u16 = 80;
+        let content_width = area.width.min(MAX_CONTENT_WIDTH);
+        let content_area = Rect {
+            x: area.x,
+            y: area.y,
+            width: content_width,
+            height: area.height,
+        };
+
         let models = self.models.read().unwrap();
         let selected_idx = *self.selected_model_idx.read().unwrap();
         let scroll_offset = *self.scroll_offset.read().unwrap();
+
+        // Adapt layout based on available height
+        let is_compact = area.height < 10;
 
         let mut lines: Vec<Line> = vec![
             Line::from(vec![
@@ -371,14 +386,18 @@ impl AzureSetupWidget {
         }
 
         lines.push("".into());
-        lines.push("  Use ↑↓ to select, Enter to confirm".dim().into());
-        lines.push("  Press Esc to go back".dim().into());
+        if is_compact {
+            lines.push("  ↑↓=select, Enter=confirm, Esc=back".dim().into());
+        } else {
+            lines.push("  Use ↑↓ to select, Enter to confirm".dim().into());
+            lines.push("  Press Esc to go back".dim().into());
+        }
 
         drop(models);
 
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            .render(area, buf);
+            .render(content_area, buf);
     }
 
     fn render_no_models_found(&self, area: Rect, buf: &mut Buffer) {
@@ -398,6 +417,38 @@ impl AzureSetupWidget {
             "  Press Enter to try again".dim().into(),
             "  Press Esc to enter a different endpoint".dim().into(),
         ];
+        drop(endpoint);
+
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .render(area, buf);
+    }
+
+    fn render_configuring(&self, area: Rect, buf: &mut Buffer) {
+        let mut spans: Vec<Span> = vec!["  ".into()];
+        if self.animations_enabled {
+            self.request_frame
+                .schedule_frame_in(std::time::Duration::from_millis(100));
+            spans.extend(shimmer_spans("Saving configuration..."));
+        } else {
+            spans.push("Saving configuration...".into());
+        }
+
+        let endpoint = self.endpoint_input.read().unwrap();
+        let models = self.models.read().unwrap();
+        let selected_idx = *self.selected_model_idx.read().unwrap();
+        let model_name = models.get(selected_idx).map(|m| m.display_name.clone());
+        drop(models);
+
+        let mut lines: Vec<Line> = vec![
+            "".into(),
+            spans.into(),
+            "".into(),
+            Line::from(vec!["  Endpoint: ".dim(), endpoint.clone().cyan()]),
+        ];
+        if let Some(name) = model_name {
+            lines.push(Line::from(vec!["  Model: ".dim(), name.cyan()]));
+        }
         drop(endpoint);
 
         Paragraph::new(lines)
@@ -504,47 +555,65 @@ impl AzureSetupWidget {
     }
 
     fn save_config(&self) {
+        // First, transition to Configuring state to show visual feedback
+        *self.state.write().unwrap() = AzureSetupState::Configuring;
+        self.request_frame.schedule_frame();
+
         let endpoint = self.endpoint_input.read().unwrap().clone();
         let models = self.models.read().unwrap();
         let selected_idx = *self.selected_model_idx.read().unwrap();
-
         let model = models.get(selected_idx).map(|m| m.model.clone());
         drop(models);
 
-        if let Some(model_name) = model {
-            // Create config directory if it doesn't exist
-            if let Err(e) = std::fs::create_dir_all(&self.codex_home) {
-                *self.error.write().unwrap() =
-                    Some(format!("Failed to create config directory: {e}"));
-                self.request_frame.schedule_frame();
-                return;
-            }
+        let codex_home = self.codex_home.clone();
+        let state = self.state.clone();
+        let error = self.error.clone();
+        let configured_endpoint = self.configured_endpoint.clone();
+        let configured_model = self.configured_model.clone();
+        let request_frame = self.request_frame.clone();
 
-            // Build config content
-            let config_content = format!(
-                r#"# Azure Codex configuration
+        // Do the actual config writing in an async task to not block the UI
+        tokio::spawn(async move {
+            // Small delay to ensure the Configuring state is visible
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+            if let Some(model_name) = model {
+                // Create config directory if it doesn't exist
+                if let Err(e) = std::fs::create_dir_all(&codex_home) {
+                    *error.write().unwrap() =
+                        Some(format!("Failed to create config directory: {e}"));
+                    *state.write().unwrap() = AzureSetupState::ModelSelection;
+                    request_frame.schedule_frame();
+                    return;
+                }
+
+                // Build config content
+                let config_content = format!(
+                    r#"# Azure Codex configuration
 # Generated by first-run setup
 
 azure_endpoint = "{endpoint}"
 model = "{model_name}"
 "#
-            );
+                );
 
-            // Write config file
-            let config_path = self.codex_home.join("config.toml");
-            match std::fs::write(&config_path, config_content) {
-                Ok(()) => {
-                    *self.configured_endpoint.write().unwrap() = Some(endpoint);
-                    *self.configured_model.write().unwrap() = Some(model_name);
-                    *self.state.write().unwrap() = AzureSetupState::Complete;
-                }
-                Err(e) => {
-                    *self.error.write().unwrap() = Some(format!("Failed to save config: {e}"));
+                // Write config file
+                let config_path = codex_home.join("config.toml");
+                match std::fs::write(&config_path, config_content) {
+                    Ok(()) => {
+                        *configured_endpoint.write().unwrap() = Some(endpoint);
+                        *configured_model.write().unwrap() = Some(model_name);
+                        *state.write().unwrap() = AzureSetupState::Complete;
+                    }
+                    Err(e) => {
+                        *error.write().unwrap() = Some(format!("Failed to save config: {e}"));
+                        *state.write().unwrap() = AzureSetupState::ModelSelection;
+                    }
                 }
             }
-        }
 
-        self.request_frame.schedule_frame();
+            request_frame.schedule_frame();
+        });
     }
 }
 
@@ -585,46 +654,55 @@ impl KeyboardHandler for AzureSetupWidget {
             AzureSetupState::FetchingModels => {
                 // Can't interact while fetching
             }
-            AzureSetupState::ModelSelection => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    let mut idx = self.selected_model_idx.write().unwrap();
-                    if *idx > 0 {
-                        *idx -= 1;
-                        // Adjust scroll to keep selection visible
-                        let mut scroll = self.scroll_offset.write().unwrap();
-                        if *idx < *scroll {
-                            *scroll = *idx;
-                        }
-                    }
-                    drop(idx);
-                    self.request_frame.schedule_frame();
+            AzureSetupState::ModelSelection => {
+                // Only process key press events, not release or repeat
+                if key_event.kind != KeyEventKind::Press {
+                    return;
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    let models = self.models.read().unwrap();
-                    let len = models.len();
-                    drop(models);
+                match key_event.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        let mut idx = self.selected_model_idx.write().unwrap();
+                        if *idx > 0 {
+                            *idx -= 1;
+                            // Adjust scroll to keep selection visible
+                            let mut scroll = self.scroll_offset.write().unwrap();
+                            if *idx < *scroll {
+                                *scroll = *idx;
+                            }
+                        }
+                        drop(idx);
+                        self.request_frame.schedule_frame();
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let models = self.models.read().unwrap();
+                        let len = models.len();
+                        drop(models);
 
-                    let mut idx = self.selected_model_idx.write().unwrap();
-                    if *idx < len.saturating_sub(1) {
-                        *idx += 1;
-                        // Adjust scroll to keep selection visible
-                        let mut scroll = self.scroll_offset.write().unwrap();
-                        if *idx >= *scroll + MAX_VISIBLE_MODELS {
-                            *scroll = idx.saturating_sub(MAX_VISIBLE_MODELS - 1);
+                        let mut idx = self.selected_model_idx.write().unwrap();
+                        if *idx < len.saturating_sub(1) {
+                            *idx += 1;
+                            // Adjust scroll to keep selection visible
+                            let mut scroll = self.scroll_offset.write().unwrap();
+                            if *idx >= *scroll + MAX_VISIBLE_MODELS {
+                                *scroll = idx.saturating_sub(MAX_VISIBLE_MODELS - 1);
+                            }
                         }
+                        drop(idx);
+                        self.request_frame.schedule_frame();
                     }
-                    drop(idx);
-                    self.request_frame.schedule_frame();
+                    KeyCode::Enter => {
+                        self.save_config();
+                    }
+                    KeyCode::Esc => {
+                        *self.state.write().unwrap() = AzureSetupState::EndpointEntry;
+                        self.request_frame.schedule_frame();
+                    }
+                    _ => {}
                 }
-                KeyCode::Enter => {
-                    self.save_config();
-                }
-                KeyCode::Esc => {
-                    *self.state.write().unwrap() = AzureSetupState::EndpointEntry;
-                    self.request_frame.schedule_frame();
-                }
-                _ => {}
-            },
+            }
+            AzureSetupState::Configuring => {
+                // Can't interact while saving configuration
+            }
             AzureSetupState::NoModelsFound => match key_event.code {
                 KeyCode::Enter => {
                     self.start_fetching_models();
@@ -664,7 +742,8 @@ impl StepStateProvider for AzureSetupWidget {
             AzureSetupState::EndpointEntry
             | AzureSetupState::FetchingModels
             | AzureSetupState::ModelSelection
-            | AzureSetupState::NoModelsFound => StepState::InProgress,
+            | AzureSetupState::NoModelsFound
+            | AzureSetupState::Configuring => StepState::InProgress,
             AzureSetupState::Complete | AzureSetupState::Skipped => StepState::Complete,
         }
     }
@@ -689,6 +768,10 @@ impl WidgetRef for AzureSetupWidget {
             AzureSetupState::NoModelsFound => {
                 drop(state);
                 self.render_no_models_found(area, buf);
+            }
+            AzureSetupState::Configuring => {
+                drop(state);
+                self.render_configuring(area, buf);
             }
             AzureSetupState::Complete => {
                 drop(state);
