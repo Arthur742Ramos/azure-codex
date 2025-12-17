@@ -173,6 +173,7 @@ fn suspend_process() -> Result<()> {
     super::restore()?;
     unsafe { libc::kill(0, libc::SIGTSTP) };
     // After the process resumes, reapply terminal modes so drawing can continue.
-    super::set_modes()?;
+    // Use default mouse capture (false = mouse events captured by application).
+    super::set_modes(false)?;
     Ok(())
 }

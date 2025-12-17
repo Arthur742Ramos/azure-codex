@@ -7,6 +7,8 @@
 
 use codex_core::azure::deployments::AzureDeploymentsManager;
 use codex_protocol::openai_models::ModelPreset;
+use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::openai_models::ReasoningEffortPreset;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
@@ -48,6 +50,8 @@ pub enum AzureSetupState {
     FetchingModels,
     /// User is selecting a model from the list.
     ModelSelection,
+    /// User is selecting reasoning effort for a reasoning model.
+    ReasoningEffortSelection,
     /// No models were found - show error.
     NoModelsFound,
     /// Saving configuration after model selection.
@@ -75,6 +79,10 @@ pub struct AzureSetupWidget {
     pub selected_model_idx: Arc<RwLock<usize>>,
     /// Scroll offset for model list (first visible model index).
     pub scroll_offset: Arc<RwLock<usize>>,
+    /// Available reasoning effort options for the selected model.
+    pub reasoning_efforts: Arc<RwLock<Vec<ReasoningEffortPreset>>>,
+    /// Currently selected reasoning effort index.
+    pub selected_reasoning_idx: Arc<RwLock<usize>>,
     /// Error message to display.
     pub error: Arc<RwLock<Option<String>>>,
     /// Path to codex home directory.
@@ -85,6 +93,8 @@ pub struct AzureSetupWidget {
     pub configured_endpoint: Arc<RwLock<Option<String>>>,
     /// The configured model (after setup completes).
     pub configured_model: Arc<RwLock<Option<String>>>,
+    /// The configured reasoning effort (after setup completes).
+    pub configured_reasoning_effort: Arc<RwLock<Option<ReasoningEffort>>>,
 }
 
 impl AzureSetupWidget {
@@ -100,11 +110,14 @@ impl AzureSetupWidget {
             models: Arc::new(RwLock::new(Vec::new())),
             selected_model_idx: Arc::new(RwLock::new(0)),
             scroll_offset: Arc::new(RwLock::new(0)),
+            reasoning_efforts: Arc::new(RwLock::new(Vec::new())),
+            selected_reasoning_idx: Arc::new(RwLock::new(0)),
             error: Arc::new(RwLock::new(None)),
             codex_home,
             animations_enabled,
             configured_endpoint: Arc::new(RwLock::new(None)),
             configured_model: Arc::new(RwLock::new(None)),
+            configured_reasoning_effort: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -116,6 +129,11 @@ impl AzureSetupWidget {
     /// Get the configured model after setup completes.
     pub fn get_configured_model(&self) -> Option<String> {
         self.configured_model.read().ok()?.clone()
+    }
+
+    /// Get the configured reasoning effort after setup completes.
+    pub fn get_configured_reasoning_effort(&self) -> Option<ReasoningEffort> {
+        *self.configured_reasoning_effort.read().ok()?
     }
 
     fn render_endpoint_entry(&self, area: Rect, buf: &mut Buffer) {
@@ -431,6 +449,98 @@ impl AzureSetupWidget {
             .render(content_area, buf);
     }
 
+    fn render_reasoning_effort_selection(&self, area: Rect, buf: &mut Buffer) {
+        // Constrain the overall width to avoid rendering issues on narrow terminals
+        // Center content horizontally when the window is wider than needed.
+        const MAX_CONTENT_WIDTH: u16 = 80;
+        let content_width = area.width.min(MAX_CONTENT_WIDTH);
+        let h_offset = if area.width > content_width {
+            (area.width - content_width) / 2
+        } else {
+            0
+        };
+        let content_area = Rect {
+            x: area.x + h_offset,
+            y: area.y,
+            width: content_width,
+            height: area.height,
+        };
+
+        let models = self.models.read().unwrap();
+        let selected_model_idx = *self.selected_model_idx.read().unwrap();
+        let model_name = models
+            .get(selected_model_idx)
+            .map(|m| m.display_name.clone())
+            .unwrap_or_default();
+        drop(models);
+
+        let efforts = self.reasoning_efforts.read().unwrap();
+        let selected_idx = *self.selected_reasoning_idx.read().unwrap();
+
+        // Adapt layout based on available height
+        let is_compact = area.height < 12;
+
+        let mut lines: Vec<Line> = vec![
+            Line::from(vec![
+                "  ".into(),
+                theme::header_span("Select reasoning effort"),
+            ]),
+            Line::from(vec!["  Model: ".dim(), theme::path_span(&model_name)]),
+            "".into(),
+        ];
+
+        if !is_compact {
+            lines.push(
+                "  Higher reasoning effort provides more thorough analysis"
+                    .dim()
+                    .into(),
+            );
+            lines.push("  but uses more compute resources.".dim().into());
+            lines.push("".into());
+        }
+
+        // Render reasoning effort options
+        for (idx, effort) in efforts.iter().enumerate() {
+            let is_selected = idx == selected_idx;
+            let marker = if is_selected {
+                theme::selected_marker()
+            } else {
+                theme::unselected_marker()
+            };
+            let style = if is_selected {
+                Style::default().fg(Color::Cyan)
+            } else {
+                Style::default()
+            };
+
+            let effort_name = format!("{:?}", effort.effort);
+            lines.push(Line::from(vec![
+                "  ".into(),
+                marker,
+                " ".into(),
+                Span::styled(effort_name, style.add_modifier(Modifier::BOLD)),
+            ]));
+            lines.push(Line::from(vec![
+                "      ".into(),
+                Span::styled(effort.description.clone(), Style::default().dim()),
+            ]));
+        }
+
+        lines.push("".into());
+        if is_compact {
+            lines.push("  ↑↓=select, Enter=confirm, Esc=back".dim().into());
+        } else {
+            lines.push("  Use ↑↓ to select, Enter to confirm".dim().into());
+            lines.push("  Press Esc to go back to model selection".dim().into());
+        }
+
+        drop(efforts);
+
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .render(content_area, buf);
+    }
+
     fn render_no_models_found(&self, area: Rect, buf: &mut Buffer) {
         let endpoint = self.endpoint_input.read().unwrap();
         let lines: Vec<Line> = vec![
@@ -493,6 +603,7 @@ impl AzureSetupWidget {
     fn render_complete(&self, area: Rect, buf: &mut Buffer) {
         let endpoint = self.configured_endpoint.read().unwrap();
         let model = self.configured_model.read().unwrap();
+        let reasoning_effort = self.configured_reasoning_effort.read().unwrap();
 
         let mut lines: Vec<Line> = vec![Line::from(vec![
             theme::checkmark(),
@@ -505,9 +616,16 @@ impl AzureSetupWidget {
         if let Some(m) = model.as_ref() {
             lines.push(Line::from(vec!["  Model: ".dim(), theme::path_span(m)]));
         }
+        if let Some(effort) = reasoning_effort.as_ref() {
+            lines.push(Line::from(vec![
+                "  Reasoning: ".dim(),
+                theme::path_span(&format!("{effort:?}")),
+            ]));
+        }
 
         drop(endpoint);
         drop(model);
+        drop(reasoning_effort);
 
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
@@ -613,11 +731,18 @@ impl AzureSetupWidget {
         let model = models.get(selected_idx).map(|m| m.model.clone());
         drop(models);
 
+        // Get the selected reasoning effort if any
+        let efforts = self.reasoning_efforts.read().unwrap();
+        let reasoning_idx = *self.selected_reasoning_idx.read().unwrap();
+        let reasoning_effort = efforts.get(reasoning_idx).map(|e| e.effort);
+        drop(efforts);
+
         let codex_home = self.codex_home.clone();
         let state = self.state.clone();
         let error = self.error.clone();
         let configured_endpoint = self.configured_endpoint.clone();
         let configured_model = self.configured_model.clone();
+        let configured_reasoning_effort = self.configured_reasoning_effort.clone();
         let request_frame = self.request_frame.clone();
 
         // Do the actual config writing in an async task to not block the UI
@@ -635,14 +760,26 @@ impl AzureSetupWidget {
                     return;
                 }
 
-                // Build config content
+                // Build config content with optional reasoning effort
+                let reasoning_line = reasoning_effort.as_ref().map_or(String::new(), |effort| {
+                    let effort_str = match effort {
+                        ReasoningEffort::None => "none",
+                        ReasoningEffort::Minimal => "minimal",
+                        ReasoningEffort::Low => "low",
+                        ReasoningEffort::Medium => "medium",
+                        ReasoningEffort::High => "high",
+                        ReasoningEffort::XHigh => "xhigh",
+                    };
+                    format!("model_reasoning_effort = \"{effort_str}\"\n")
+                });
+
                 let config_content = format!(
                     r#"# Azure Codex configuration
 # Generated by first-run setup
 
 azure_endpoint = "{endpoint}"
 model = "{model_name}"
-"#
+{reasoning_line}"#
                 );
 
                 // Write config file
@@ -651,6 +788,7 @@ model = "{model_name}"
                     Ok(()) => {
                         *configured_endpoint.write().unwrap() = Some(endpoint);
                         *configured_model.write().unwrap() = Some(model_name);
+                        *configured_reasoning_effort.write().unwrap() = reasoning_effort;
                         *state.write().unwrap() = AzureSetupState::Complete;
                     }
                     Err(e) => {
@@ -662,6 +800,46 @@ model = "{model_name}"
 
             request_frame.schedule_frame();
         });
+    }
+
+    /// Transition to reasoning effort selection if the model supports it,
+    /// otherwise go directly to save_config.
+    fn proceed_after_model_selection(&mut self) {
+        let models = self.models.read().unwrap();
+        let selected_idx = *self.selected_model_idx.read().unwrap();
+
+        if let Some(model) = models.get(selected_idx) {
+            let efforts = model.supported_reasoning_efforts.clone();
+
+            // If model has multiple reasoning effort options, show selection
+            if efforts.len() > 1 {
+                // Find the default effort index
+                let default_idx = efforts
+                    .iter()
+                    .position(|e| e.effort == model.default_reasoning_effort)
+                    .unwrap_or(0);
+
+                drop(models);
+
+                *self.reasoning_efforts.write().unwrap() = efforts;
+                *self.selected_reasoning_idx.write().unwrap() = default_idx;
+                *self.state.write().unwrap() = AzureSetupState::ReasoningEffortSelection;
+                self.request_frame.schedule_frame();
+            } else {
+                // No reasoning selection needed, save directly
+                // If there's exactly one effort, use it
+                if let Some(effort) = efforts.first() {
+                    let mut efforts_vec = self.reasoning_efforts.write().unwrap();
+                    *efforts_vec = vec![effort.clone()];
+                    *self.selected_reasoning_idx.write().unwrap() = 0;
+                }
+                drop(models);
+                self.save_config();
+            }
+        } else {
+            drop(models);
+            self.save_config();
+        }
     }
 }
 
@@ -744,10 +922,48 @@ impl KeyboardHandler for AzureSetupWidget {
                         self.request_frame.schedule_frame();
                     }
                     KeyCode::Enter => {
-                        self.save_config();
+                        // Check if model supports reasoning, if so show selection
+                        self.proceed_after_model_selection();
                     }
                     KeyCode::Esc => {
                         *self.state.write().unwrap() = AzureSetupState::EndpointEntry;
+                        self.request_frame.schedule_frame();
+                    }
+                    _ => {}
+                }
+            }
+            AzureSetupState::ReasoningEffortSelection => {
+                // Only process key press events, not release or repeat
+                if key_event.kind != KeyEventKind::Press {
+                    return;
+                }
+                match key_event.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        let mut idx = self.selected_reasoning_idx.write().unwrap();
+                        if *idx > 0 {
+                            *idx -= 1;
+                        }
+                        drop(idx);
+                        self.request_frame.schedule_frame();
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let efforts = self.reasoning_efforts.read().unwrap();
+                        let len = efforts.len();
+                        drop(efforts);
+
+                        let mut idx = self.selected_reasoning_idx.write().unwrap();
+                        if *idx < len.saturating_sub(1) {
+                            *idx += 1;
+                        }
+                        drop(idx);
+                        self.request_frame.schedule_frame();
+                    }
+                    KeyCode::Enter => {
+                        self.save_config();
+                    }
+                    KeyCode::Esc => {
+                        // Go back to model selection
+                        *self.state.write().unwrap() = AzureSetupState::ModelSelection;
                         self.request_frame.schedule_frame();
                     }
                     _ => {}
@@ -795,6 +1011,7 @@ impl StepStateProvider for AzureSetupWidget {
             AzureSetupState::EndpointEntry
             | AzureSetupState::FetchingModels
             | AzureSetupState::ModelSelection
+            | AzureSetupState::ReasoningEffortSelection
             | AzureSetupState::NoModelsFound
             | AzureSetupState::Configuring => StepState::InProgress,
             AzureSetupState::Complete | AzureSetupState::Skipped => StepState::Complete,
@@ -817,6 +1034,10 @@ impl WidgetRef for AzureSetupWidget {
             AzureSetupState::ModelSelection => {
                 drop(state);
                 self.render_model_selection(area, buf);
+            }
+            AzureSetupState::ReasoningEffortSelection => {
+                drop(state);
+                self.render_reasoning_effort_selection(area, buf);
             }
             AzureSetupState::NoModelsFound => {
                 drop(state);

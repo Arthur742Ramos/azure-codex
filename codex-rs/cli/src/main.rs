@@ -420,10 +420,25 @@ fn pre_main_hardening() {
 }
 
 fn main() -> anyhow::Result<()> {
-    arg0_dispatch_or_else(|codex_linux_sandbox_exe| async move {
-        cli_main(codex_linux_sandbox_exe).await?;
-        Ok(())
-    })
+    // Spawn the entire application on a thread with a large stack to prevent
+    // stack overflow in debug builds. Debug builds don't inline functions and
+    // use significantly more stack space, which can exceed the default 1MB
+    // main thread stack on Windows.
+    #[cfg(debug_assertions)]
+    const STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB for debug builds
+    #[cfg(not(debug_assertions))]
+    const STACK_SIZE: usize = 8 * 1024 * 1024; // 8 MB for release builds
+
+    std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(|| {
+            arg0_dispatch_or_else(|codex_linux_sandbox_exe| async move {
+                cli_main(codex_linux_sandbox_exe).await?;
+                Ok(())
+            })
+        })?
+        .join()
+        .map_err(|e| anyhow::anyhow!("Main thread panicked: {e:?}"))?
 }
 
 async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {

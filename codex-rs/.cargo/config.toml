@@ -1,5 +1,7 @@
 [target.'cfg(all(windows, target_env = "msvc"))']
-rustflags = ["-C", "link-arg=/STACK:8388608"]
+# 32MB stack for debug builds - debug builds use significantly more stack space
+rustflags = ["-C", "link-arg=/STACK:33554432"]
 
 [target.'cfg(all(windows, target_env = "gnu"))']
-rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
+# 32MB stack for debug builds - debug builds use significantly more stack space
+rustflags = ["-C", "link-arg=-Wl,--stack,33554432"]

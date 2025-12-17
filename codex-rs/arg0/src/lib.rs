@@ -95,7 +95,20 @@ where
 
     // Regular invocation – create a Tokio runtime and execute the provided
     // async entry-point.
-    let runtime = tokio::runtime::Runtime::new()?;
+    //
+    // Use a larger stack size for worker threads in debug builds to prevent
+    // stack overflow. Debug builds don't inline functions and use significantly
+    // more stack space.
+    #[cfg(debug_assertions)]
+    const THREAD_STACK_SIZE: usize = 8 * 1024 * 1024; // 8 MB for debug builds
+    #[cfg(not(debug_assertions))]
+    const THREAD_STACK_SIZE: usize = 2 * 1024 * 1024; // 2 MB for release builds
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(THREAD_STACK_SIZE)
+        .build()?;
+
     runtime.block_on(async move {
         let codex_linux_sandbox_exe: Option<PathBuf> = if cfg!(target_os = "linux") {
             std::env::current_exe().ok()
