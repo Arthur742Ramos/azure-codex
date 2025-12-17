@@ -380,6 +380,13 @@ pub struct Tui {
     /// Defaults to `true`.
     #[serde(default = "default_true")]
     pub show_tooltips: bool,
+
+    /// Disable mouse capture to allow native terminal text selection/copy/paste.
+    /// When `true`, mouse scrolling and app-based text selection are disabled,
+    /// but you can use your terminal's native mouse selection.
+    /// Defaults to `false`.
+    #[serde(default)]
+    pub disable_mouse_capture: bool,
 }
 
 const fn default_true() -> bool {

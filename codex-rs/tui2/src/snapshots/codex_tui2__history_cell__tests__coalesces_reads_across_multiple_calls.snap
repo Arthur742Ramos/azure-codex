@@ -1,7 +1,8 @@
 ---
 source: tui2/src/history_cell.rs
+assertion_line: 2083
 expression: rendered
 ---
-• Explored
+● Explored
   └ Search shimmer_spans
     Read shimmer.rs, status_indicator_widget.rs

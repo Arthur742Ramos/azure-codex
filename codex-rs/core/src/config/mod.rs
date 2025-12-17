@@ -174,6 +174,10 @@ pub struct Config {
     /// Show startup tooltips in the TUI welcome screen.
     pub show_tooltips: bool,
 
+    /// Disable mouse capture to allow native terminal text selection/copy/paste.
+    /// When `true`, mouse scrolling and app-based text selection are disabled.
+    pub disable_mouse_capture: bool,
+
     /// The directory that should be treated as the current working directory
     /// for the session. All relative paths inside the business-logic layer are
     /// resolved against this path.
@@ -1349,6 +1353,11 @@ impl Config {
                 .unwrap_or_default(),
             animations: cfg.tui.as_ref().map(|t| t.animations).unwrap_or(true),
             show_tooltips: cfg.tui.as_ref().map(|t| t.show_tooltips).unwrap_or(true),
+            disable_mouse_capture: cfg
+                .tui
+                .as_ref()
+                .map(|t| t.disable_mouse_capture)
+                .unwrap_or(false),
             otel: {
                 let t: OtelConfigToml = cfg.otel.unwrap_or_default();
                 let log_user_prompt = t.log_user_prompt.unwrap_or(false);
@@ -3127,6 +3136,7 @@ model_verbosity = "high"
                 tui_notifications: Default::default(),
                 animations: true,
                 show_tooltips: true,
+                disable_mouse_capture: false,
                 otel: OtelConfig::default(),
                 azure_endpoint: None,
                 azure_api_version: "2025-04-01-preview".to_string(),
@@ -3205,6 +3215,7 @@ model_verbosity = "high"
             tui_notifications: Default::default(),
             animations: true,
             show_tooltips: true,
+            disable_mouse_capture: false,
             otel: OtelConfig::default(),
             azure_endpoint: None,
             azure_api_version: "2025-04-01-preview".to_string(),
@@ -3298,6 +3309,7 @@ model_verbosity = "high"
             tui_notifications: Default::default(),
             animations: true,
             show_tooltips: true,
+            disable_mouse_capture: false,
             otel: OtelConfig::default(),
             azure_endpoint: None,
             azure_api_version: "2025-04-01-preview".to_string(),
@@ -3377,6 +3389,7 @@ model_verbosity = "high"
             tui_notifications: Default::default(),
             animations: true,
             show_tooltips: true,
+            disable_mouse_capture: false,
             otel: OtelConfig::default(),
             azure_endpoint: None,
             azure_api_version: "2025-04-01-preview".to_string(),

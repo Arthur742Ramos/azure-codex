@@ -43,7 +43,6 @@ codex-file-search = { workspace = true }
 codex-login = { workspace = true }
 codex-protocol = { workspace = true }
 codex-utils-absolute-path = { workspace = true }
-codex-tui = { workspace = true }
 color-eyre = { workspace = true }
 crossterm = { workspace = true, features = ["bracketed-paste", "event-stream"] }
 derive_more = { workspace = true, features = ["is_variant"] }
@@ -99,6 +98,12 @@ tokio-util = { workspace = true, features = ["time"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+] }
 
 # Clipboard support via `arboard` is not available on Android/Termux.
 # Only include it for non-Android targets so the crate builds on Android.

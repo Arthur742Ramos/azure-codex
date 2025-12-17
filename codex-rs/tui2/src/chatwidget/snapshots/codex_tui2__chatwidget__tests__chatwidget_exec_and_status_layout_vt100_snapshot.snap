@@ -1,11 +1,39 @@
 ---
 source: tui2/src/chatwidget/tests.rs
+assertion_line: 3238
 expression: term.backend().vt100().screen().contents()
 ---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 • I’m going to search the repo for where “Change Approved” is rendered to update
   that view.
 
-• Explored
+● Explored
   └ Search Change Approved
     Read diff_render.rs
 

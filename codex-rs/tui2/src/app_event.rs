@@ -175,6 +175,14 @@ pub(crate) enum AppEvent {
     OpenFeedbackConsent {
         category: FeedbackCategory,
     },
+
+    /// Trigger an async refresh of Azure model deployments.
+    RefreshAzureModels,
+
+    /// Toggle mouse capture mode. When disabled, native terminal text selection
+    /// is available. When enabled, the app handles mouse events for scrolling
+    /// and text selection.
+    ToggleMouseCapture,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

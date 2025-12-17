@@ -54,7 +54,22 @@ pub(crate) mod scrolling;
 /// A type alias for the terminal type used in this application
 pub type Terminal = CustomTerminal<CrosstermBackend<Stdout>>;
 
-pub fn set_modes() -> Result<()> {
+/// Set up terminal modes for the TUI.
+///
+/// # Arguments
+/// * `disable_mouse_capture` - When `true`, mouse capture is disabled, allowing native
+///   terminal text selection/copy/paste. When `false` (default), mouse events are captured
+///   by the application for scrolling and selection.
+pub fn set_modes(disable_mouse_capture: bool) -> Result<()> {
+    // On Windows, save the original console mode before any ANSI escapes are sent.
+    // This ensures we can properly restore the console state when toggling mouse capture.
+    #[cfg(windows)]
+    {
+        if let Err(e) = crate::windows_mouse::save_original_mode() {
+            tracing::warn!("Failed to save original Windows console mode: {e}");
+        }
+    }
+
     execute!(stdout(), EnableBracketedPaste)?;
 
     enable_raw_mode()?;
@@ -74,10 +89,47 @@ pub fn set_modes() -> Result<()> {
     );
 
     let _ = execute!(stdout(), EnableFocusChange);
+
     // Enable application mouse mode so scroll events are delivered as
-    // Mouse events instead of arrow keys.
-    let _ = execute!(stdout(), EnableMouseCapture);
+    // Mouse events instead of arrow keys - unless disabled by config.
+    // Always do a disable->enable cycle to normalize console state; without this,
+    // mouse capture can be stuck until the user toggles it manually.
+    disable_mouse_capture_internal();
+    enable_mouse_capture_internal();
+
+    if disable_mouse_capture {
+        disable_mouse_capture_internal();
+    }
+
     Ok(())
+}
+
+/// Enable mouse capture (internal helper).
+fn enable_mouse_capture_internal() {
+    let _ = execute!(stdout(), EnableMouseCapture);
+
+    // On Windows, also enable mouse capture via the Win32 Console API.
+    // Windows Terminal does not properly handle ANSI escape codes for mouse capture
+    // (see https://github.com/crossterm-rs/crossterm/issues/446), so we use
+    // SetConsoleMode with ENABLE_MOUSE_INPUT directly as a workaround.
+    #[cfg(windows)]
+    {
+        if let Err(e) = crate::windows_mouse::enable_mouse_capture() {
+            tracing::warn!("Failed to enable Windows mouse capture via Win32 API: {e}");
+        }
+    }
+}
+
+/// Disable mouse capture (internal helper).
+fn disable_mouse_capture_internal() {
+    let _ = execute!(stdout(), DisableMouseCapture);
+
+    #[cfg(windows)]
+    {
+        if let Err(e) = crate::windows_mouse::disable_mouse_capture() {
+            tracing::warn!("Failed to disable Windows mouse capture via Win32 API: {e}");
+        }
+    }
 }
 
 /// Restore the terminal to its original state.
@@ -86,6 +138,15 @@ pub fn restore() -> Result<()> {
     // Pop may fail on platforms that didn't support the push; ignore errors.
     let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
     let _ = execute!(stdout(), DisableMouseCapture);
+
+    // On Windows, restore the original console mode (disables Win32 mouse capture).
+    #[cfg(windows)]
+    {
+        if let Err(e) = crate::windows_mouse::disable_mouse_capture() {
+            tracing::warn!("Failed to disable Windows mouse capture via Win32 API: {e}");
+        }
+    }
+
     execute!(stdout(), DisableBracketedPaste)?;
     let _ = execute!(stdout(), DisableFocusChange);
     disable_raw_mode()?;
@@ -94,19 +155,74 @@ pub fn restore() -> Result<()> {
 }
 
 /// Initialize the terminal (inline viewport; history stays in normal scrollback)
-pub fn init() -> Result<Terminal> {
+///
+/// # Arguments
+/// * `disable_mouse_capture` - When `true`, mouse capture is disabled to allow native
+///   terminal text selection. Pass `false` for the default behavior.
+pub fn init(disable_mouse_capture: bool) -> Result<Terminal> {
+    use crossterm::terminal::size;
+    use ratatui::layout::Position;
+    use std::io::Write;
+
     if !stdin().is_terminal() {
         return Err(std::io::Error::other("stdin is not a terminal"));
     }
     if !stdout().is_terminal() {
         return Err(std::io::Error::other("stdout is not a terminal"));
     }
-    set_modes()?;
+
+    // Get terminal size BEFORE any mode changes
+    let (_, term_height) = size()?;
+
+    // Query cursor position BEFORE setting terminal modes.
+    let initial_cursor = crossterm::cursor::position().unwrap_or((0, 0));
+    tracing::debug!(
+        "Initial cursor position: ({}, {}), terminal height: {}",
+        initial_cursor.0,
+        initial_cursor.1,
+        term_height
+    );
+
+    // Print newlines to scroll the terminal down and make room for the TUI.
+    // This pushes any existing content into scrollback before we start drawing.
+    // We want the TUI to start at the bottom of the visible screen.
+    let lines_to_scroll = term_height
+        .saturating_sub(initial_cursor.1)
+        .saturating_sub(1);
+    if lines_to_scroll > 0 {
+        let mut stdout_handle = stdout();
+        for _ in 0..lines_to_scroll {
+            let _ = writeln!(stdout_handle);
+        }
+        let _ = stdout_handle.flush();
+    }
+
+    // Now query cursor position again - it should be near the bottom
+    let cursor_pos = crossterm::cursor::position()
+        .map(|(x, y)| Position { x, y })
+        .unwrap_or(Position {
+            x: 0,
+            y: term_height.saturating_sub(1),
+        });
+    tracing::debug!(
+        "Cursor position after scrolling: ({}, {})",
+        cursor_pos.x,
+        cursor_pos.y
+    );
+
+    set_modes(disable_mouse_capture)?;
 
     set_panic_hook();
 
     let backend = CrosstermBackend::new(stdout());
-    let tui = CustomTerminal::with_options(backend)?;
+
+    // Start viewport at current cursor position (should be near bottom after scrolling)
+    let tui = CustomTerminal::with_cursor_position(backend, cursor_pos)?;
+
+    tracing::debug!(
+        "Terminal initialized with viewport starting at y={}",
+        cursor_pos.y
+    );
     Ok(tui)
 }
 
@@ -140,10 +256,17 @@ pub struct Tui {
     terminal_focused: Arc<AtomicBool>,
     enhanced_keys_supported: bool,
     notification_backend: Option<DesktopNotificationBackend>,
+    // True when mouse capture is active (app handles mouse events for scrolling/selection)
+    mouse_capture_enabled: bool,
 }
 
 impl Tui {
-    pub fn new(terminal: Terminal) -> Self {
+    /// Create a new Tui instance.
+    ///
+    /// # Arguments
+    /// * `terminal` - The terminal backend
+    /// * `mouse_capture_enabled` - Whether mouse capture is initially enabled
+    pub fn new(terminal: Terminal, mouse_capture_enabled: bool) -> Self {
         let (draw_tx, _) = broadcast::channel(1);
         let frame_requester = FrameRequester::new(draw_tx.clone());
 
@@ -166,6 +289,44 @@ impl Tui {
             terminal_focused: Arc::new(AtomicBool::new(true)),
             enhanced_keys_supported,
             notification_backend: Some(detect_backend()),
+            mouse_capture_enabled,
+        }
+    }
+
+    /// Returns whether mouse capture is currently enabled.
+    #[allow(dead_code)]
+    pub fn is_mouse_capture_enabled(&self) -> bool {
+        self.mouse_capture_enabled
+    }
+
+    /// Toggle mouse capture mode.
+    ///
+    /// When mouse capture is enabled, the application handles mouse events for scrolling
+    /// and text selection. When disabled, the terminal's native mouse handling is used,
+    /// allowing native text selection/copy/paste.
+    ///
+    /// Returns the new state (true = enabled, false = disabled).
+    pub fn toggle_mouse_capture(&mut self) -> bool {
+        if self.mouse_capture_enabled {
+            disable_mouse_capture_internal();
+            self.mouse_capture_enabled = false;
+        } else {
+            enable_mouse_capture_internal();
+            self.mouse_capture_enabled = true;
+        }
+        self.mouse_capture_enabled
+    }
+
+    /// Set mouse capture mode explicitly.
+    #[allow(dead_code)]
+    pub fn set_mouse_capture(&mut self, enabled: bool) {
+        if enabled != self.mouse_capture_enabled {
+            if enabled {
+                enable_mouse_capture_internal();
+            } else {
+                disable_mouse_capture_internal();
+            }
+            self.mouse_capture_enabled = enabled;
         }
     }
 
@@ -227,6 +388,14 @@ impl Tui {
     pub fn event_stream(&self) -> Pin<Box<dyn Stream<Item = TuiEvent> + Send + 'static>> {
         use tokio_stream::StreamExt;
 
+        // Re-enable mouse capture now that the event stream is starting.
+        // On Windows, the initial enable during set_modes() happens before the
+        // EventStream is created, so mouse events may not be captured. This
+        // re-enable ensures the console mode is set correctly after the reader starts.
+        if self.mouse_capture_enabled {
+            enable_mouse_capture_internal();
+        }
+
         let mut crossterm_events = crossterm::event::EventStream::new();
         let mut draw_rx = self.draw_tx.subscribe();
 
@@ -283,6 +452,12 @@ impl Tui {
                     result = draw_rx.recv() => {
                         match result {
                             Ok(_) => {
+                                // Re-enable mouse capture on Windows before draw.
+                                // ANSI sequences during rendering can reset console mode.
+                                #[cfg(windows)]
+                                {
+                                    let _ = crate::windows_mouse::enable_mouse_capture();
+                                }
                                 yield TuiEvent::Draw;
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
@@ -360,15 +535,25 @@ impl Tui {
             let terminal = &mut self.terminal;
             if let Some(new_area) = pending_viewport_area.take() {
                 terminal.set_viewport_area(new_area);
-                terminal.clear()?;
+                // DISABLED: terminal.clear()?;
             }
 
             let size = terminal.size()?;
 
-            let area = Rect::new(0, 0, size.width, height.min(size.height));
+            // Match original tui behavior: modify existing viewport_area in place
+            // to preserve the y position (inline mode keeps scrollback).
+            let mut area = terminal.viewport_area;
+            area.height = height.min(size.height);
+            area.width = size.width;
+            // If the viewport has expanded past the screen bottom, adjust y position.
+            if area.bottom() > size.height {
+                area.y = size.height.saturating_sub(area.height);
+            }
             if area != terminal.viewport_area {
-                // TODO(nornagon): probably this could be collapsed with the clear + set_viewport_area above.
-                terminal.clear()?;
+                // Only clear if we already had content (skip on first draw)
+                if !terminal.viewport_area.is_empty() {
+                    terminal.clear()?;
+                }
                 terminal.set_viewport_area(area);
             }
 

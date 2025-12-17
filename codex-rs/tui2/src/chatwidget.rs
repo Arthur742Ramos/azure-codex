@@ -1577,6 +1577,9 @@ impl ChatWidget {
             SlashCommand::Model => {
                 self.open_model_popup();
             }
+            SlashCommand::Endpoint => {
+                self.open_endpoint_popup();
+            }
             SlashCommand::Approvals => {
                 self.open_approvals_popup();
             }
@@ -1623,6 +1626,9 @@ impl ChatWidget {
             }
             SlashCommand::Mcp => {
                 self.add_mcp_output();
+            }
+            SlashCommand::ToggleMouseMode => {
+                self.app_event_tx.send(AppEvent::ToggleMouseCapture);
             }
             SlashCommand::Rollout => {
                 if let Some(path) = self.rollout_path() {
@@ -2231,6 +2237,18 @@ impl ChatWidget {
                 }
             };
 
+        // For Azure, if no models are available yet, show a helpful message
+        // and trigger an async fetch
+        if presets.is_empty() && self.models_manager.is_azure() {
+            self.add_info_message(
+                "Fetching Azure deployments... Please try /model again in a moment.".to_string(),
+                None,
+            );
+            // Trigger async model fetch via event
+            self.app_event_tx.send(AppEvent::RefreshAzureModels);
+            return;
+        }
+
         let current_label = presets
             .iter()
             .find(|preset| preset.model == current_model)
@@ -2271,7 +2289,7 @@ impl ChatWidget {
             .collect();
 
         if !other_presets.is_empty() {
-            let all_models = other_presets;
+            let all_models = other_presets.clone();
             let actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
                 tx.send(AppEvent::OpenAllModelsPopup {
                     models: all_models.clone(),
@@ -2291,6 +2309,33 @@ impl ChatWidget {
                 dismiss_on_select: true,
                 ..Default::default()
             });
+
+            // Add a "Change reasoning level" option for the current model
+            if let Some(current_preset) = other_presets
+                .iter()
+                .find(|p| p.model == current_model)
+                .cloned()
+            {
+                // Only show if the model supports multiple reasoning levels
+                if current_preset.supported_reasoning_efforts.len() > 1 {
+                    let current_effort = self.config.model_reasoning_effort;
+                    let effort_label = current_effort
+                        .map(Self::reasoning_effort_label)
+                        .unwrap_or("default");
+                    let actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
+                        tx.send(AppEvent::OpenReasoningPopup {
+                            model: current_preset.clone(),
+                        });
+                    })];
+                    items.push(SelectionItem {
+                        name: "Change reasoning level".to_string(),
+                        description: Some(format!("Current: {effort_label}")),
+                        actions,
+                        dismiss_on_select: true,
+                        ..Default::default()
+                    });
+                }
+            }
         }
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
@@ -2359,6 +2404,64 @@ impl ChatWidget {
             items,
             ..Default::default()
         });
+    }
+
+    /// Open a popup to show or change the Azure OpenAI endpoint.
+    pub(crate) fn open_endpoint_popup(&mut self) {
+        let current_endpoint = self.config.azure_endpoint.clone();
+
+        match current_endpoint {
+            Some(endpoint) => {
+                // Show current endpoint with option to change it
+                let display_endpoint = endpoint
+                    .strip_prefix("https://")
+                    .or_else(|| endpoint.strip_prefix("http://"))
+                    .unwrap_or(&endpoint);
+
+                let endpoint_for_action = endpoint.clone();
+                let items: Vec<SelectionItem> = vec![
+                    SelectionItem {
+                        name: display_endpoint.to_string(),
+                        description: Some("Current Azure OpenAI endpoint".to_string()),
+                        is_current: true,
+                        actions: vec![],
+                        dismiss_on_select: true,
+                        ..Default::default()
+                    },
+                    SelectionItem {
+                        name: "Change endpoint...".to_string(),
+                        description: Some("Edit azure_endpoint in config.toml".to_string()),
+                        actions: vec![Box::new(move |_tx| {
+                            // The user needs to edit config.toml manually and restart
+                            tracing::info!(
+                                "User selected to change endpoint from {}",
+                                endpoint_for_action
+                            );
+                        })],
+                        dismiss_on_select: true,
+                        ..Default::default()
+                    },
+                ];
+
+                self.bottom_pane.show_selection_view(SelectionViewParams {
+                    title: Some("Azure OpenAI Endpoint".to_string()),
+                    subtitle: Some(
+                        "To change the endpoint, edit azure_endpoint in your config.toml and restart."
+                            .to_string(),
+                    ),
+                    footer_hint: Some(standard_popup_hint_line()),
+                    items,
+                    ..Default::default()
+                });
+            }
+            None => {
+                // No endpoint configured - show instructions
+                self.add_info_message(
+                    "No Azure endpoint configured. Add azure_endpoint to your config.toml or run /setup.".to_string(),
+                    None,
+                );
+            }
+        }
     }
 
     fn model_selection_actions(

@@ -1,7 +1,8 @@
 ---
 source: tui2/src/chatwidget/tests.rs
+assertion_line: 2041
 expression: active_blob(&chat)
 ---
-• Explored
+● Explored
   └ List ls -la
     Read foo.txt, bar.txt

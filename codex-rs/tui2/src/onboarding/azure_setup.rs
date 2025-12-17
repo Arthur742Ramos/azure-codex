@@ -36,6 +36,7 @@ use crate::onboarding::onboarding_screen::KeyboardHandler;
 use crate::onboarding::onboarding_screen::StepState;
 use crate::onboarding::onboarding_screen::StepStateProvider;
 use crate::shimmer::shimmer_spans;
+use crate::theme;
 use crate::tui::FrameRequester;
 
 /// State machine for the Azure setup flow.
@@ -181,13 +182,13 @@ impl AzureSetupWidget {
             .areas(content_area);
 
             let intro_lines: Vec<Line> = vec![
-                Line::from(vec!["  ".into(), "Azure Codex Setup".bold().cyan()]),
+                Line::from(vec!["  ".into(), theme::brand_span("Azure Codex Setup")]),
                 Line::from(vec![
                     "  ".into(),
                     "Ex: ".dim(),
-                    "my-resource".cyan(),
+                    theme::path_span("my-resource"),
                     " or ".dim(),
-                    "https://my-resource.openai.azure.com".cyan(),
+                    theme::path_span("https://my-resource.openai.azure.com"),
                 ]),
             ];
 
@@ -227,14 +228,21 @@ impl AzureSetupWidget {
             .areas(content_area);
 
             let intro_lines: Vec<Line> = vec![
-                Line::from(vec!["  ".into(), "Welcome to Azure Codex!".bold().cyan()]),
+                Line::from(vec![
+                    "  ".into(),
+                    theme::brand_span("Welcome to Azure Codex!"),
+                ]),
                 "".into(),
                 "  Enter your Azure OpenAI resource name or endpoint.".into(),
                 "".into(),
-                Line::from(vec!["  ".into(), "Examples: ".dim(), "my-resource".cyan()]),
+                Line::from(vec![
+                    "  ".into(),
+                    "Examples: ".dim(),
+                    theme::path_span("my-resource"),
+                ]),
                 Line::from(vec![
                     "            ".into(),
-                    "https://my-resource.openai.azure.com".cyan(),
+                    theme::path_span("https://my-resource.openai.azure.com"),
                 ]),
                 "".into(),
                 "  You can find your resource name in the Azure Portal"
@@ -327,7 +335,7 @@ impl AzureSetupWidget {
         let mut lines: Vec<Line> = vec![
             Line::from(vec![
                 "  ".into(),
-                "Select a GPT model deployment".bold().cyan(),
+                theme::header_span("Select a GPT model deployment"),
             ]),
             "".into(),
         ];
@@ -354,7 +362,11 @@ impl AzureSetupWidget {
             for idx in scroll_offset..end_idx {
                 let model = &models[idx];
                 let is_selected = idx == selected_idx;
-                let marker = if is_selected { "●" } else { " " };
+                let marker = if is_selected {
+                    theme::selected_marker()
+                } else {
+                    theme::unselected_marker()
+                };
                 let style = if is_selected {
                     Style::default().fg(Color::Cyan)
                 } else {
@@ -362,7 +374,9 @@ impl AzureSetupWidget {
                 };
 
                 lines.push(Line::from(vec![
-                    Span::styled(format!("  {marker} "), style),
+                    "  ".into(),
+                    marker,
+                    " ".into(),
                     Span::styled(
                         model.display_name.clone(),
                         style.add_modifier(Modifier::BOLD),
@@ -404,13 +418,16 @@ impl AzureSetupWidget {
         let endpoint = self.endpoint_input.read().unwrap();
         let lines: Vec<Line> = vec![
             "".into(),
-            Line::from(vec!["  ".into(), "No GPT deployments found".bold().red()]),
+            Line::from(vec![
+                "  ".into(),
+                theme::error_span("No GPT deployments found"),
+            ]),
             "".into(),
-            Line::from(vec!["  Endpoint: ".dim(), endpoint.clone().cyan()]),
+            Line::from(vec!["  Endpoint: ".dim(), theme::path_span(&endpoint)]),
             "".into(),
             "  Make sure you have:".into(),
             "".into(),
-            "  1. Logged in with: az login".cyan().into(),
+            Line::from(vec!["  1. Logged in with: ".into(), "az login".cyan()]),
             "  2. Deployed a GPT model in your Azure OpenAI resource".into(),
             "  3. The endpoint URL is correct".into(),
             "".into(),
@@ -444,10 +461,10 @@ impl AzureSetupWidget {
             "".into(),
             spans.into(),
             "".into(),
-            Line::from(vec!["  Endpoint: ".dim(), endpoint.clone().cyan()]),
+            Line::from(vec!["  Endpoint: ".dim(), theme::path_span(&endpoint)]),
         ];
         if let Some(name) = model_name {
-            lines.push(Line::from(vec!["  Model: ".dim(), name.cyan()]));
+            lines.push(Line::from(vec!["  Model: ".dim(), theme::path_span(&name)]));
         }
         drop(endpoint);
 
@@ -460,13 +477,16 @@ impl AzureSetupWidget {
         let endpoint = self.configured_endpoint.read().unwrap();
         let model = self.configured_model.read().unwrap();
 
-        let mut lines: Vec<Line> = vec!["✓ Azure OpenAI configured".fg(Color::Green).into()];
+        let mut lines: Vec<Line> = vec![Line::from(vec![
+            theme::checkmark(),
+            " Azure OpenAI configured".into(),
+        ])];
 
         if let Some(ep) = endpoint.as_ref() {
-            lines.push(Line::from(vec!["  Endpoint: ".dim(), ep.clone().into()]));
+            lines.push(Line::from(vec!["  Endpoint: ".dim(), theme::path_span(ep)]));
         }
         if let Some(m) = model.as_ref() {
-            lines.push(Line::from(vec!["  Model: ".dim(), m.clone().into()]));
+            lines.push(Line::from(vec!["  Model: ".dim(), theme::path_span(m)]));
         }
 
         drop(endpoint);
@@ -484,7 +504,10 @@ impl AzureSetupWidget {
             "  You can configure Azure OpenAI later by editing:"
                 .dim()
                 .into(),
-            Line::from(vec!["  ".into(), "~/.azure-codex/config.toml".cyan()]),
+            Line::from(vec![
+                "  ".into(),
+                theme::path_span("~/.azure-codex/config.toml"),
+            ]),
         ];
 
         Paragraph::new(lines)

@@ -1,6 +1,7 @@
 ---
 source: tui2/src/chatwidget/tests.rs
+assertion_line: 2023
 expression: active_blob(&chat)
 ---
-• Explored
+● Explored
   └ List ls -la

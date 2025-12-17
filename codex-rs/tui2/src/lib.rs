@@ -76,6 +76,7 @@ mod streaming;
 mod style;
 mod terminal_palette;
 mod text_formatting;
+pub mod theme;
 mod tooltips;
 mod tui;
 mod ui_consts;
@@ -85,6 +86,9 @@ mod updates;
 mod version;
 
 mod wrapping;
+
+#[cfg(windows)]
+mod windows_mouse;
 
 #[cfg(test)]
 pub mod test_backend;
@@ -351,10 +355,12 @@ async fn run_ratatui_app(
         tracing::error!("panic: {info}");
         prev_hook(info);
     }));
-    let mut terminal = tui::init()?;
-    terminal.clear()?;
+    let disable_mouse_capture = initial_config.disable_mouse_capture;
+    let terminal = tui::init(disable_mouse_capture)?;
+    // Don't clear the terminal at startup - preserve scrollback like Claude Code does
 
-    let mut tui = Tui::new(terminal);
+    // mouse_capture_enabled is the inverse of disable_mouse_capture
+    let mut tui = Tui::new(terminal, !disable_mouse_capture);
 
     #[cfg(not(debug_assertions))]
     {

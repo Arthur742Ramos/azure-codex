@@ -1,8 +1,9 @@
 ---
 source: tui2/src/history_cell.rs
+assertion_line: 2337
 expression: rendered
 ---
-• Ran echo
+● Ran echo
   │ this_is_a_very_long_si
   │ ngle_token_that_will_w
   │ … +2 lines

@@ -1146,7 +1146,7 @@ fn exec_history_cell_shows_working_then_completed() {
     let blob = lines_to_single_string(lines);
     // New behavior: no glyph markers; ensure command is shown and no panic.
     assert!(
-        blob.contains("• Ran"),
+        blob.contains("● Ran"),
         "expected summary header present: {blob:?}"
     );
     assert!(
@@ -1173,7 +1173,7 @@ fn exec_history_cell_shows_working_then_failed() {
     let lines = &cells[0];
     let blob = lines_to_single_string(lines);
     assert!(
-        blob.contains("• Ran false"),
+        blob.contains("● Ran false"),
         "expected command and header text present: {blob:?}"
     );
     assert!(blob.to_lowercase().contains("bloop"), "expected error text");
@@ -1213,7 +1213,7 @@ fn exec_end_without_begin_uses_event_command() {
     assert_eq!(cells.len(), 1, "expected finalized exec cell to flush");
     let blob = lines_to_single_string(&cells[0]);
     assert!(
-        blob.contains("• Ran echo orphaned"),
+        blob.contains("● Ran echo orphaned"),
         "expected command text to come from event: {blob:?}"
     );
     assert!(
@@ -1243,7 +1243,7 @@ fn exec_history_shows_unified_exec_startup_commands() {
     assert_eq!(cells.len(), 1, "expected finalized exec cell to flush");
     let blob = lines_to_single_string(&cells[0]);
     assert!(
-        blob.contains("• Ran echo unified exec startup"),
+        blob.contains("● Ran echo unified exec startup"),
         "expected startup command to render: {blob:?}"
     );
 }

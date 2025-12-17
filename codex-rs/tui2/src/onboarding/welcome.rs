@@ -5,7 +5,6 @@ use crossterm::event::KeyModifiers;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::prelude::Widget;
-use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::Clear;
 use ratatui::widgets::Paragraph;
@@ -15,6 +14,7 @@ use ratatui::widgets::Wrap;
 use crate::ascii_animation::AsciiAnimation;
 use crate::onboarding::onboarding_screen::KeyboardHandler;
 use crate::onboarding::onboarding_screen::StepStateProvider;
+use crate::theme;
 use crate::tui::FrameRequester;
 
 use super::onboarding_screen::StepState;
@@ -77,8 +77,8 @@ impl WidgetRef for &WelcomeWidget {
         lines.push(Line::from(vec![
             "  ".into(),
             "Welcome to ".into(),
-            "Codex".bold(),
-            ", OpenAI's command-line coding agent".into(),
+            theme::brand_span("Azure Codex"),
+            ", your Azure-powered coding assistant".into(),
         ]));
 
         Paragraph::new(lines)

@@ -88,16 +88,6 @@ pub struct AppExitInfo {
     pub session_lines: Vec<String>,
 }
 
-impl From<AppExitInfo> for codex_tui::AppExitInfo {
-    fn from(info: AppExitInfo) -> Self {
-        codex_tui::AppExitInfo {
-            token_usage: info.token_usage,
-            conversation_id: info.conversation_id,
-            update_action: info.update_action.map(Into::into),
-        }
-    }
-}
-
 fn session_summary(
     token_usage: TokenUsage,
     conversation_id: Option<ConversationId>,
@@ -1612,6 +1602,23 @@ impl App {
             }
             AppEvent::OpenAllModelsPopup { models } => {
                 self.chat_widget.open_all_models_popup(models);
+            }
+            AppEvent::RefreshAzureModels => {
+                // Trigger an async fetch of Azure models to populate the cache
+                let models_manager = self.server.get_models_manager();
+                let config = self.config.clone();
+                tokio::spawn(async move {
+                    let _ = models_manager.list_models(&config).await;
+                });
+            }
+            AppEvent::ToggleMouseCapture => {
+                let enabled = tui.toggle_mouse_capture();
+                let message = if enabled {
+                    "Mouse capture enabled. App handles scrolling and text selection."
+                } else {
+                    "Mouse capture disabled. Use native terminal text selection."
+                };
+                self.chat_widget.add_info_message(message.to_string(), None);
             }
             AppEvent::OpenFullAccessConfirmation { preset } => {
                 self.chat_widget.open_full_access_confirmation(preset);

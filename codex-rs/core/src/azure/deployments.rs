@@ -488,7 +488,7 @@ fn get_reasoning_efforts_for_model(
     underlying_model: Option<&str>,
 ) -> ReasoningSupport {
     let name_lower = deployment_name.to_lowercase();
-    let underlying_lower = underlying_model.map(|m| m.to_lowercase());
+    let underlying_lower = underlying_model.map(str::to_lowercase);
 
     // Specialized support maps based on model capability signals.
     let is_gpt5_pro = name_lower.contains("gpt-5-pro")

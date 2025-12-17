@@ -1,11 +1,12 @@
 ---
 source: tui2/src/status/tests.rs
+assertion_line: 596
 expression: sanitized
 ---
 /status
 
 ╭───────────────────────────────────────────────────────────────────╮
-│  >_ Azure Codex (v0.0.0)                                          │
+│  >_ Azure Codex (v0.1.2)                                          │
 │                                                                   │
 │  Model:            gpt-5.1-codex (reasoning none, summaries auto) │
 │  Directory: [[workspace]]                                         │

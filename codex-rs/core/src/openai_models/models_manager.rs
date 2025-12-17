@@ -47,6 +47,8 @@ pub struct ModelsManager {
     provider: ModelProviderInfo,
     /// Azure deployments manager for Azure OpenAI endpoints.
     azure_deployments: Option<Arc<AzureDeploymentsManager>>,
+    /// Cached Azure model presets from the last successful fetch.
+    azure_models_cache: RwLock<Vec<ModelPreset>>,
 }
 
 impl ModelsManager {
@@ -62,6 +64,7 @@ impl ModelsManager {
             cache_ttl: DEFAULT_MODEL_CACHE_TTL,
             provider: ModelProviderInfo::create_openai_provider(),
             azure_deployments: None,
+            azure_models_cache: RwLock::new(Vec::new()),
         }
     }
 
@@ -78,6 +81,7 @@ impl ModelsManager {
             cache_ttl: DEFAULT_MODEL_CACHE_TTL,
             provider: ModelProviderInfo::create_openai_provider(),
             azure_deployments: Some(azure_deployments),
+            azure_models_cache: RwLock::new(Vec::new()),
         }
     }
 
@@ -94,6 +98,7 @@ impl ModelsManager {
             cache_ttl: DEFAULT_MODEL_CACHE_TTL,
             provider,
             azure_deployments: None,
+            azure_models_cache: RwLock::new(Vec::new()),
         }
     }
 
@@ -138,6 +143,8 @@ impl ModelsManager {
             debug!("Fetching Azure GPT deployments for model picker");
             let presets = azure_deployments.get_gpt_model_presets().await;
             if !presets.is_empty() {
+                // Cache the results for synchronous access via try_list_models
+                *self.azure_models_cache.write().await = presets.clone();
                 return presets;
             }
             // Fall back to local models if Azure fetch fails
@@ -155,6 +162,16 @@ impl ModelsManager {
     }
 
     pub fn try_list_models(&self) -> Result<Vec<ModelPreset>, TryLockError> {
+        // For Azure, return cached models if available
+        if self.azure_deployments.is_some() {
+            let cache = self.azure_models_cache.try_read()?.clone();
+            if !cache.is_empty() {
+                return Ok(cache);
+            }
+            // If no cached Azure models yet, return empty (caller should use async version)
+            return Ok(Vec::new());
+        }
+        // For non-Azure, use remote models
         let remote_models = self.remote_models.try_read()?.clone();
         Ok(self.build_available_models(remote_models))
     }
@@ -166,6 +183,8 @@ impl ModelsManager {
             debug!("Fetching Azure GPT deployments");
             let presets = azure_deployments.get_gpt_model_presets().await;
             if !presets.is_empty() {
+                // Cache the results for synchronous access
+                *self.azure_models_cache.write().await = presets.clone();
                 return presets;
             }
         }

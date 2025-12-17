@@ -159,6 +159,23 @@ where
         })
     }
 
+    /// Creates a new [`Terminal`] with a pre-queried cursor position.
+    ///
+    /// This is useful when the cursor position needs to be captured before
+    /// terminal modes are changed (which might reset cursor position on some platforms).
+    pub fn with_cursor_position(backend: B, cursor_pos: Position) -> io::Result<Self> {
+        let screen_size = backend.size()?;
+        Ok(Self {
+            backend,
+            buffers: [Buffer::empty(Rect::ZERO), Buffer::empty(Rect::ZERO)],
+            current: 0,
+            hidden_cursor: false,
+            viewport_area: Rect::new(0, cursor_pos.y, 0, 0),
+            last_known_screen_size: screen_size,
+            last_known_cursor_pos: cursor_pos,
+        })
+    }
+
     /// Get a Frame object which provides a consistent view into the terminal state for rendering.
     pub fn get_frame(&mut self) -> Frame<'_> {
         Frame {

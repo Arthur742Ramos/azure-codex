@@ -165,11 +165,34 @@ pub(crate) fn render_rows(
         }
     }
 
+    // Calculate if there are more items above/below for scroll indicators
+    let has_more_above = start_idx > 0;
+    let has_more_below = start_idx + visible_items < rows_all.len();
+
     let desc_col = compute_desc_col(rows_all, start_idx, visible_items, area.width);
 
     // Render items, wrapping descriptions and aligning wrapped lines under the
     // shared description column. Stop when we run out of vertical space.
     let mut cur_y = area.y;
+
+    // Show scroll indicator at top if there are more items above
+    if has_more_above && area.height > 0 {
+        let indicator = Line::from(vec![
+            Span::from("  ↑ ").dim(),
+            Span::from(format!("{start_idx} more above")).dim(),
+        ]);
+        indicator.render(
+            Rect {
+                x: area.x,
+                y: cur_y,
+                width: area.width,
+                height: 1,
+            },
+            buf,
+        );
+        cur_y = cur_y.saturating_add(1);
+    }
+
     for (i, row) in rows_all
         .iter()
         .enumerate()
@@ -177,6 +200,12 @@ pub(crate) fn render_rows(
         .take(visible_items)
     {
         if cur_y >= area.y + area.height {
+            break;
+        }
+
+        // Reserve space for bottom scroll indicator if needed
+        let reserve_bottom = if has_more_below { 1 } else { 0 };
+        if cur_y >= area.y + area.height.saturating_sub(reserve_bottom) {
             break;
         }
 
@@ -200,7 +229,7 @@ pub(crate) fn render_rows(
 
         // Render the wrapped lines.
         for line in wrapped {
-            if cur_y >= area.y + area.height {
+            if cur_y >= area.y + area.height.saturating_sub(reserve_bottom) {
                 break;
             }
             line.render(
@@ -214,6 +243,24 @@ pub(crate) fn render_rows(
             );
             cur_y = cur_y.saturating_add(1);
         }
+    }
+
+    // Show scroll indicator at bottom if there are more items below
+    if has_more_below && cur_y < area.y + area.height {
+        let remaining = rows_all.len().saturating_sub(start_idx + visible_items);
+        let indicator = Line::from(vec![
+            Span::from("  ↓ ").dim(),
+            Span::from(format!("{remaining} more below")).dim(),
+        ]);
+        indicator.render(
+            Rect {
+                x: area.x,
+                y: cur_y,
+                width: area.width,
+                height: 1,
+            },
+            buf,
+        );
     }
 }
 
@@ -246,11 +293,21 @@ pub(crate) fn measure_rows_height(
         }
     }
 
+    // Account for scroll indicators
+    let has_more_above = start_idx > 0;
+    let has_more_below = start_idx + visible_items < rows_all.len();
+
     let desc_col = compute_desc_col(rows_all, start_idx, visible_items, content_width);
 
     use crate::wrapping::RtOptions;
     use crate::wrapping::word_wrap_line;
     let mut total: u16 = 0;
+
+    // Add space for top scroll indicator
+    if has_more_above {
+        total = total.saturating_add(1);
+    }
+
     for row in rows_all
         .iter()
         .enumerate()
@@ -265,5 +322,11 @@ pub(crate) fn measure_rows_height(
             .subsequent_indent(Line::from(" ".repeat(continuation_indent)));
         total = total.saturating_add(word_wrap_line(&full_line, opts).len() as u16);
     }
+
+    // Add space for bottom scroll indicator
+    if has_more_below {
+        total = total.saturating_add(1);
+    }
+
     total.max(1)
 }

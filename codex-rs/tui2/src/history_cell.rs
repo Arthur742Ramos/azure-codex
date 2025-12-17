@@ -575,7 +575,12 @@ pub(crate) fn new_session_info(
 ) -> SessionInfoCell {
     let SessionConfiguredEvent { model, .. } = event;
     // Header box rendered as history (so it appears at the very top)
-    let header = SessionHeaderHistoryCell::new(model_state, config.cwd.clone(), CODEX_CLI_VERSION);
+    let header = SessionHeaderHistoryCell::new(
+        model_state,
+        config.cwd.clone(),
+        CODEX_CLI_VERSION,
+        config.azure_endpoint.clone(),
+    );
     let mut parts: Vec<Box<dyn HistoryCell>> = vec![Box::new(header)];
 
     if is_first_event {
@@ -682,14 +687,21 @@ struct SessionHeaderHistoryCell {
     version: &'static str,
     model_state: SharedModelState,
     directory: PathBuf,
+    azure_endpoint: Option<String>,
 }
 
 impl SessionHeaderHistoryCell {
-    fn new(model_state: SharedModelState, directory: PathBuf, version: &'static str) -> Self {
+    fn new(
+        model_state: SharedModelState,
+        directory: PathBuf,
+        version: &'static str,
+        azure_endpoint: Option<String>,
+    ) -> Self {
         Self {
             version,
             model_state,
             directory,
+            azure_endpoint,
         }
     }
 
@@ -793,6 +805,31 @@ impl HistoryCell for SessionHeaderHistoryCell {
         }
         // Otherwise, omit the hint entirely for very narrow terminals
 
+        // Optional endpoint line for Azure
+        let endpoint_spans: Option<Vec<Span<'static>>> = self.azure_endpoint.as_ref().map(|ep| {
+            let endpoint_label = format!(
+                "{endpoint_label:<label_width$}",
+                endpoint_label = "endpoint:"
+            );
+            let endpoint_prefix = format!("{endpoint_label} ");
+            let endpoint_prefix_width = UnicodeWidthStr::width(endpoint_prefix.as_str());
+            let endpoint_max_width = inner_width.saturating_sub(endpoint_prefix_width);
+            // Extract just the hostname from the endpoint URL for brevity
+            let display_endpoint = ep
+                .strip_prefix("https://")
+                .or_else(|| ep.strip_prefix("http://"))
+                .unwrap_or(ep);
+            let truncated = if UnicodeWidthStr::width(display_endpoint) > endpoint_max_width {
+                crate::text_formatting::center_truncate_path(display_endpoint, endpoint_max_width)
+            } else {
+                display_endpoint.to_string()
+            };
+            vec![
+                Span::from(endpoint_prefix).dim(),
+                Span::from(truncated).cyan(),
+            ]
+        });
+
         let dir_label = format!("{DIR_LABEL:<label_width$}");
         let dir_prefix = format!("{dir_label} ");
         let dir_prefix_width = UnicodeWidthStr::width(dir_prefix.as_str());
@@ -800,12 +837,15 @@ impl HistoryCell for SessionHeaderHistoryCell {
         let dir = self.format_directory(Some(dir_max_width));
         let dir_spans = vec![Span::from(dir_prefix).dim(), Span::from(dir)];
 
-        let lines = vec![
+        let mut lines = vec![
             make_row(title_spans),
             make_row(Vec::new()),
             make_row(model_spans),
-            make_row(dir_spans),
         ];
+        if let Some(ep_spans) = endpoint_spans {
+            lines.push(make_row(ep_spans));
+        }
+        lines.push(make_row(dir_spans));
 
         with_border(lines)
     }
@@ -1917,7 +1957,7 @@ mod tests {
     fn session_header_shows_model_and_reasoning() {
         let model_state =
             SharedModelState::new("gpt-4o".to_string(), Some(ReasoningEffortConfig::High));
-        let cell = SessionHeaderHistoryCell::new(model_state, std::env::temp_dir(), "test");
+        let cell = SessionHeaderHistoryCell::new(model_state, std::env::temp_dir(), "test", None);
 
         let lines = render_lines(&cell.display_lines(80));
         let model_line = lines
@@ -1934,7 +1974,8 @@ mod tests {
     fn session_header_updates_when_model_changes() {
         let model_state =
             SharedModelState::new("gpt-4o".to_string(), Some(ReasoningEffortConfig::High));
-        let cell = SessionHeaderHistoryCell::new(model_state.clone(), std::env::temp_dir(), "test");
+        let cell =
+            SessionHeaderHistoryCell::new(model_state.clone(), std::env::temp_dir(), "test", None);
 
         // Initial state
         let lines = render_lines(&cell.display_lines(80));

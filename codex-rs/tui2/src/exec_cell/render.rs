@@ -9,6 +9,7 @@ use crate::render::highlight::highlight_bash_to_lines;
 use crate::render::line_utils::prefix_lines;
 use crate::render::line_utils::push_owned_lines;
 use crate::shimmer::shimmer_spans;
+use crate::theme;
 use crate::wrapping::RtOptions;
 use crate::wrapping::word_wrap_line;
 use crate::wrapping::word_wrap_lines;
@@ -236,10 +237,10 @@ impl HistoryCell for ExecCell {
                     .map(format_duration)
                     .unwrap_or_else(|| "unknown".to_string());
                 let mut result: Line = if output.exit_code == 0 {
-                    Line::from("✓".green().bold())
+                    Line::from(theme::checkmark())
                 } else {
                     Line::from(vec![
-                        "✗".red().bold(),
+                        theme::crossmark(),
                         format!(" ({})", output.exit_code).into(),
                     ])
                 };
@@ -258,13 +259,13 @@ impl ExecCell {
             if self.is_active() {
                 spinner(self.active_start_time(), self.animations_enabled())
             } else {
-                "•".dim()
+                theme::bullet_success()
             },
             " ".into(),
             if self.is_active() {
-                "Exploring".bold()
+                theme::header_span("Exploring")
             } else {
-                "Explored".bold()
+                theme::header_span("Explored")
             },
         ]));
 
@@ -339,7 +340,7 @@ impl ExecCell {
 
             for (title, line) in call_lines {
                 let line = Line::from(line);
-                let initial_indent = Line::from(vec![title.cyan(), " ".into()]);
+                let initial_indent = Line::from(vec![theme::tool_span(title), " ".into()]);
                 let subsequent_indent = " ".repeat(initial_indent.width()).into();
                 let wrapped = word_wrap_line(
                     &line,
@@ -362,8 +363,8 @@ impl ExecCell {
         let layout = EXEC_DISPLAY_LAYOUT;
         let success = call.output.as_ref().map(|o| o.exit_code == 0);
         let bullet = match success {
-            Some(true) => "•".green().bold(),
-            Some(false) => "•".red().bold(),
+            Some(true) => theme::bullet_success(),
+            Some(false) => theme::bullet_error(),
             None => spinner(call.start_time, self.animations_enabled()),
         };
         let is_interaction = call.is_unified_exec_interaction();
@@ -380,7 +381,12 @@ impl ExecCell {
         let mut header_line = if is_interaction {
             Line::from(vec![bullet.clone(), " ".into()])
         } else {
-            Line::from(vec![bullet.clone(), " ".into(), title.bold(), " ".into()])
+            Line::from(vec![
+                bullet.clone(),
+                " ".into(),
+                theme::header_span(title),
+                " ".into(),
+            ])
         };
         let header_prefix_width = header_line.width();
 

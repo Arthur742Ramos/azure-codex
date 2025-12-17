@@ -84,15 +84,53 @@ model = "gpt-4o"
 ### Building
 
 ```bash
-# Debug build
+# Debug build (faster, use for development)
 cargo build -p codex-cli
 
-# Release build
+# Release build (slower, use for final testing)
 cargo build -p codex-cli --release
 
 # Run tests
 cargo test
 ```
+
+### Fast Iteration During Development
+
+**IMPORTANT**: Release builds take a long time. Use these faster alternatives for iterative development:
+
+#### 1. Compilation Check Only (Fastest ~1 min)
+```bash
+# Check specific crate without building
+cargo check -p codex-tui2    # For UI changes
+cargo check -p codex-core    # For core/model changes
+cargo check -p codex-cli     # For CLI changes
+```
+
+#### 2. Debug Build (Fast ~3 min first time, seconds for incremental)
+```bash
+cargo build -p codex-cli
+# Run with:
+./target/debug/codex         # Linux/Mac
+.\target\debug\codex.exe     # Windows
+```
+
+#### 3. Watch Mode (Auto-rebuild on save)
+```bash
+cargo watch -x "check -p codex-tui2"
+```
+
+#### 4. Build Order by Speed
+| Command | Time | Use Case |
+|---------|------|----------|
+| `cargo check -p <crate>` | ~1 min | Verify compilation only |
+| `cargo build -p codex-cli` | ~3 min | Debug build for testing |
+| `cargo build -p codex-cli --release` | ~10+ min | Final optimized build |
+
+#### 5. Crate-Specific Checks
+When you modify specific files, check only the affected crate:
+- `core/src/**` → `cargo check -p codex-core`
+- `tui2/src/**` → `cargo check -p codex-tui2`
+- `cli/src/**` → `cargo check -p codex-cli`
 
 ### Code Style
 
@@ -317,9 +355,33 @@ Op::OverrideTurnContext(TurnContextOverride {
 
 ### Adding New Slash Commands
 
-1. Add handler in `tui2/src/slash_commands/`
-2. Register in the command dispatch logic
-3. Update help text
+1. **Add the command variant** in `tui2/src/slash_command.rs`:
+   - Add to `SlashCommand` enum (order matters - it's the presentation order in popup)
+   - Add description in `description()` method
+   - Update `available_during_task()` method
+
+2. **Add the handler** in `tui2/src/chatwidget.rs`:
+   - Find the `dispatch_command()` method
+   - Add a match arm for your new `SlashCommand::YourCommand`
+   - Implement the handler method (e.g., `open_your_popup()`)
+
+3. **Example** (adding `/endpoint` command):
+   ```rust
+   // In slash_command.rs - enum
+   pub enum SlashCommand {
+       Model,
+       Endpoint,  // Add here
+       // ...
+   }
+
+   // In slash_command.rs - description
+   SlashCommand::Endpoint => "show or change the Azure OpenAI endpoint",
+
+   // In chatwidget.rs - dispatch_command
+   SlashCommand::Endpoint => {
+       self.open_endpoint_popup();
+   }
+   ```
 
 ## Testing
 
