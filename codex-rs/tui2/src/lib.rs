@@ -96,11 +96,15 @@ pub mod test_backend;
 use crate::onboarding::TrustDirectorySelection;
 use crate::onboarding::onboarding_screen::OnboardingScreenArgs;
 use crate::onboarding::onboarding_screen::run_onboarding_app;
+use crate::shimmer::shimmer_spans;
 use crate::tui::Tui;
 pub use cli::Cli;
 pub use markdown_render::render_markdown_text;
 pub use public_widgets::composer_input::ComposerAction;
 pub use public_widgets::composer_input::ComposerInput;
+use ratatui::layout::Alignment;
+use ratatui::text::Line;
+use ratatui::widgets::Paragraph;
 use std::io::Write as _;
 
 // (tests access modules directly within the crate)
@@ -510,6 +514,9 @@ async fn run_ratatui_app(
     // for smaller prompts like onboarding and model migration.
     let _ = tui.enter_alt_screen();
 
+    // Show loading screen while app initializes
+    show_loading_screen(&mut tui);
+
     let app_result = App::run(
         &mut tui,
         auth_manager,
@@ -538,6 +545,41 @@ async fn run_ratatui_app(
     session_log::log_session_end();
     // ignore error when collecting usage – report underlying error instead
     app_result
+}
+
+/// Show a loading screen with animated text while the app initializes.
+fn show_loading_screen(tui: &mut Tui) {
+    let loading_text = "Starting Azure Codex...";
+
+    // Render frames for ~2 seconds (one full shimmer loop cycle)
+    // 40 frames at 50ms = 2 seconds
+    for _ in 0..40 {
+        let _ = tui.terminal.draw(|frame| {
+            let area = frame.area();
+
+            // Clear the screen
+            frame.render_widget_ref(ratatui::widgets::Clear, area);
+
+            // Create shimmer animation text
+            let spans = shimmer_spans(loading_text);
+            let line = Line::from(spans);
+            let paragraph = Paragraph::new(line).alignment(Alignment::Center);
+
+            // Center vertically
+            let y_offset = area.height / 2;
+            let centered_area = ratatui::layout::Rect {
+                x: area.x,
+                y: y_offset,
+                width: area.width,
+                height: 1,
+            };
+
+            frame.render_widget_ref(paragraph, centered_area);
+        });
+
+        // 50ms between frames for smooth animation
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 #[expect(

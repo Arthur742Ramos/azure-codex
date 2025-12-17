@@ -10,6 +10,7 @@ use pulldown_cmark::Parser;
 use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
 use ratatui::style::Style;
+use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::text::Span;
 use ratatui::text::Text;
@@ -394,11 +395,24 @@ where
         self.needs_newline = false;
     }
 
-    fn start_codeblock(&mut self, _lang: Option<String>, indent: Option<Span<'static>>) {
+    fn start_codeblock(&mut self, lang: Option<String>, indent: Option<Span<'static>>) {
         self.flush_current_line();
         if !self.text.lines.is_empty() {
             self.push_blank_line();
         }
+
+        // Add a visual header for the code block with language tag (only for non-empty language)
+        if let Some(ref lang_str) = lang
+            && !lang_str.is_empty()
+        {
+            let header_line = Line::from(vec![
+                Span::from("┌─ ").dim(),
+                Span::from(lang_str.clone()).cyan(),
+                Span::from(" ─").dim(),
+            ]);
+            self.push_line(header_line);
+        }
+
         self.in_code_block = true;
         self.indent_stack.push(IndentContext::new(
             vec![indent.unwrap_or_default()],
@@ -409,6 +423,7 @@ where
     }
 
     fn end_codeblock(&mut self) {
+        // No footer to keep code blocks clean for copy/paste
         self.needs_newline = true;
         self.in_code_block = false;
         self.indent_stack.pop();

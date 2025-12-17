@@ -121,10 +121,16 @@ impl AzureSetupWidget {
     fn render_endpoint_entry(&self, area: Rect, buf: &mut Buffer) {
         // Constrain the overall width to avoid rendering issues on narrow terminals
         // or when the terminal reports incorrect buffer size instead of viewport size.
+        // Center content horizontally when the window is wider than needed.
         const MAX_CONTENT_WIDTH: u16 = 80;
         let content_width = area.width.min(MAX_CONTENT_WIDTH);
+        let h_offset = if area.width > content_width {
+            (area.width - content_width) / 2
+        } else {
+            0
+        };
         let content_area = Rect {
-            x: area.x,
+            x: area.x + h_offset,
             y: area.y,
             width: content_width,
             height: area.height,
@@ -139,9 +145,14 @@ impl AzureSetupWidget {
 
         let endpoint = self.endpoint_input.read().unwrap();
         let content_line: Line = if endpoint.is_empty() {
-            vec!["https://".dim()].into()
+            // Show placeholder with cursor
+            Line::from(vec!["https://".dim(), "█".fg(Color::Cyan)])
         } else {
-            Line::from(endpoint.clone()).fg(Color::Cyan)
+            // Show input with cursor at end
+            Line::from(vec![
+                Span::styled(endpoint.clone(), Style::default().fg(Color::Cyan)),
+                "█".fg(Color::Cyan),
+            ])
         };
         drop(endpoint);
 
@@ -316,10 +327,16 @@ impl AzureSetupWidget {
 
     fn render_model_selection(&self, area: Rect, buf: &mut Buffer) {
         // Constrain the overall width to avoid rendering issues on narrow terminals
+        // Center content horizontally when the window is wider than needed.
         const MAX_CONTENT_WIDTH: u16 = 80;
         let content_width = area.width.min(MAX_CONTENT_WIDTH);
+        let h_offset = if area.width > content_width {
+            (area.width - content_width) / 2
+        } else {
+            0
+        };
         let content_area = Rect {
-            x: area.x,
+            x: area.x + h_offset,
             y: area.y,
             width: content_width,
             height: area.height,
@@ -663,14 +680,19 @@ impl KeyboardHandler for AzureSetupWidget {
                 KeyCode::Char(c)
                     if key_event.kind == KeyEventKind::Press
                         && !key_event.modifiers.contains(KeyModifiers::SUPER)
-                        && !key_event.modifiers.contains(KeyModifiers::CONTROL)
                         && !key_event.modifiers.contains(KeyModifiers::ALT) =>
                 {
-                    let mut input = self.endpoint_input.write().unwrap();
-                    input.push(c);
-                    *self.error.write().unwrap() = None;
-                    drop(input);
-                    self.request_frame.schedule_frame();
+                    if c == 'v' && key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                        if let Ok(text) = crate::clipboard_paste::paste_text() {
+                            self.handle_paste(text);
+                        }
+                    } else if !key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                        let mut input = self.endpoint_input.write().unwrap();
+                        input.push(c);
+                        *self.error.write().unwrap() = None;
+                        drop(input);
+                        self.request_frame.schedule_frame();
+                    }
                 }
                 _ => {}
             },

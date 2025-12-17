@@ -4,6 +4,7 @@ use crate::key_hint;
 use crate::key_hint::KeyBinding;
 use crate::render::line_utils::prefix_lines;
 use crate::status::format_tokens_compact;
+use crate::theme;
 use crate::ui_consts::FOOTER_INDENT_COLS;
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
@@ -266,17 +267,28 @@ fn build_columns(entries: Vec<Line<'static>>) -> Vec<Line<'static>> {
 }
 
 fn context_window_line(percent: Option<i64>, used_tokens: Option<i64>) -> Line<'static> {
+    // Visual progress bar width (in characters)
+    const BAR_WIDTH: usize = 10;
+
     if let Some(percent) = percent {
         let percent = percent.clamp(0, 100);
-        return Line::from(vec![Span::from(format!("{percent}% context left")).dim()]);
+        // Show context "remaining" as filled portion (more intuitive)
+        // Color based on how much is LEFT: green when lots left, red when little left
+        let mut spans = theme::progress_bar_remaining(percent, BAR_WIDTH);
+        spans.push(Span::from(format!(" {percent}% left")).dim());
+        return Line::from(spans);
     }
 
     if let Some(tokens) = used_tokens {
         let used_fmt = format_tokens_compact(tokens);
+        // Without total context, just show usage text
         return Line::from(vec![Span::from(format!("{used_fmt} used")).dim()]);
     }
 
-    Line::from(vec![Span::from("100% context left").dim()])
+    // Default: show full bar with 100% left
+    let mut spans = theme::progress_bar_remaining(100, BAR_WIDTH);
+    spans.push(Span::from(" 100% left").dim());
+    Line::from(spans)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

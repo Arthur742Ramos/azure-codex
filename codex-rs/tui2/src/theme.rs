@@ -229,6 +229,202 @@ pub fn unselected_marker() -> Span<'static> {
     "○".dim()
 }
 
+// ============================================================================
+// Progress Bar Helpers
+// ============================================================================
+
+/// Render a visual progress bar using Unicode block characters.
+///
+/// # Arguments
+/// * `percent` - Progress percentage (0-100)
+/// * `width` - Total width of the bar in characters
+///
+/// # Returns
+/// A vector of styled spans representing the progress bar
+pub fn progress_bar(percent: i64, width: usize) -> Vec<Span<'static>> {
+    let percent = percent.clamp(0, 100) as usize;
+    let filled = (width * percent) / 100;
+    let empty = width.saturating_sub(filled);
+
+    // Create the filled portion with color based on percentage
+    // Using Stylize trait methods for reliable color application
+    let filled_str = "█".repeat(filled);
+    let filled_span: Span<'static> = if percent >= 80 {
+        Span::from(filled_str).red().bold()
+    } else if percent >= 60 {
+        Span::from(filled_str).magenta().bold()
+    } else if percent >= 40 {
+        Span::from(filled_str).cyan().bold()
+    } else {
+        Span::from(filled_str).green().bold()
+    };
+
+    vec![filled_span, Span::from("░".repeat(empty)).dim()]
+}
+
+/// Render a compact progress bar with percentage label.
+///
+/// Example: "████░░░░ 45%"
+pub fn progress_bar_labeled(percent: i64, bar_width: usize) -> Vec<Span<'static>> {
+    let mut spans = progress_bar(percent, bar_width);
+    spans.push(Span::from(format!(" {percent}%")).dim());
+    spans
+}
+
+/// Render a progress bar showing REMAINING percentage (for context window).
+///
+/// The filled portion represents what's LEFT, with color indicating health:
+/// - Green: 60-100% remaining (healthy)
+/// - Cyan: 40-59% remaining (moderate)
+/// - Magenta: 20-39% remaining (warning)
+/// - Red: 0-19% remaining (critical)
+///
+/// Example with 71% remaining: "███████░░░ 71% left"
+pub fn progress_bar_remaining(percent_remaining: i64, width: usize) -> Vec<Span<'static>> {
+    let percent = percent_remaining.clamp(0, 100) as usize;
+    let filled = (width * percent) / 100;
+    let empty = width.saturating_sub(filled);
+
+    // Color based on how much is LEFT (inverse of usage-based coloring)
+    let filled_str = "█".repeat(filled);
+    let filled_span: Span<'static> = if percent >= 60 {
+        Span::from(filled_str).green().bold()
+    } else if percent >= 40 {
+        Span::from(filled_str).cyan().bold()
+    } else if percent >= 20 {
+        Span::from(filled_str).magenta().bold()
+    } else {
+        Span::from(filled_str).red().bold()
+    };
+
+    vec![filled_span, Span::from("░".repeat(empty)).dim()]
+}
+
+/// Render context usage as a visual indicator.
+///
+/// Example: "Context: ████████░░░░ 67% (86k/128k)"
+pub fn context_usage_bar(
+    used_tokens: Option<i64>,
+    total_tokens: Option<i64>,
+    bar_width: usize,
+) -> Vec<Span<'static>> {
+    let (percent, label) = match (used_tokens, total_tokens) {
+        (Some(used), Some(total)) if total > 0 => {
+            let pct = ((used as f64 / total as f64) * 100.0).round() as i64;
+            let used_k = format_tokens_short(used);
+            let total_k = format_tokens_short(total);
+            (pct, format!(" ({used_k}/{total_k})"))
+        }
+        (Some(used), None) => {
+            let used_k = format_tokens_short(used);
+            (0, format!(" ({used_k} used)"))
+        }
+        _ => (0, String::new()),
+    };
+
+    let mut spans = vec![Span::from("Context: ").dim()];
+    spans.extend(progress_bar(percent, bar_width));
+    spans.push(Span::from(format!(" {percent}%")).dim());
+    if !label.is_empty() {
+        spans.push(Span::from(label).dim());
+    }
+    spans
+}
+
+/// Format token count in compact form (e.g., "128k", "1.2M")
+fn format_tokens_short(tokens: i64) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{}k", tokens / 1_000)
+    } else {
+        tokens.to_string()
+    }
+}
+
+// ============================================================================
+// Box Border Characters
+// ============================================================================
+
+/// Unicode box drawing characters for consistent borders
+pub mod border {
+    /// Top-left corner
+    pub const TL: &str = "╭";
+    /// Top-right corner
+    pub const TR: &str = "╮";
+    /// Bottom-left corner
+    pub const BL: &str = "╰";
+    /// Bottom-right corner
+    pub const BR: &str = "╯";
+    /// Horizontal line
+    pub const H: &str = "─";
+    /// Vertical line
+    pub const V: &str = "│";
+    /// T-junction pointing down
+    pub const T_DOWN: &str = "┬";
+    /// T-junction pointing up
+    pub const T_UP: &str = "┴";
+    /// T-junction pointing right
+    pub const T_RIGHT: &str = "├";
+    /// T-junction pointing left
+    pub const T_LEFT: &str = "┤";
+    /// Cross junction
+    pub const CROSS: &str = "┼";
+}
+
+// ============================================================================
+// Tool Call Display Helpers
+// ============================================================================
+
+/// Create a tool header span with icon
+pub fn tool_header(name: &str) -> Vec<Span<'static>> {
+    let icon = match name.to_lowercase().as_str() {
+        "read" | "readfile" => "📄",
+        "search" | "grep" | "find" => "🔍",
+        "write" | "edit" | "patch" => "✏️",
+        "run" | "exec" | "bash" | "shell" => "▶",
+        "web" | "fetch" | "http" => "🌐",
+        _ => "⚙",
+    };
+    vec![
+        Span::from(format!("{icon} ")).dim(),
+        Span::styled(name.to_string(), tool_name_style()),
+    ]
+}
+
+/// Create a collapsible indicator
+pub fn collapse_indicator(expanded: bool) -> Span<'static> {
+    if expanded { "▾".dim() } else { "▸".dim() }
+}
+
+/// Status indicator for tool calls
+pub fn tool_status(completed: bool, success: bool) -> Span<'static> {
+    if !completed {
+        "●".cyan().bold() // Running
+    } else if success {
+        "✓".green().bold() // Success
+    } else {
+        "✗".red().bold() // Failed
+    }
+}
+
+// ============================================================================
+// Message Container Helpers
+// ============================================================================
+
+/// Create a role label for message containers
+pub fn role_label(role: &str) -> Span<'static> {
+    match role.to_lowercase().as_str() {
+        "user" | "you" => Span::styled(" You ".to_string(), Style::default().bold()),
+        "assistant" | "codex" | "azure codex" => Span::styled(
+            " Azure Codex ".to_string(),
+            Style::default().fg(COLOR_PRIMARY).bold(),
+        ),
+        "system" => Span::styled(" System ".to_string(), Style::default().dim()),
+        _ => Span::styled(format!(" {role} "), Style::default().dim()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

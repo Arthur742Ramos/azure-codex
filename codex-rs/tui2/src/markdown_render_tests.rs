@@ -653,8 +653,17 @@ fn link() {
 
 #[test]
 fn code_block_unhighlighted() {
+    use ratatui::style::Stylize;
     let text = render_markdown_text("```rust\nfn main() {}\n```\n");
-    let expected = Text::from_iter([Line::from_iter(["", "fn main() {}"])]);
+    // Code blocks with language tags now have a visual header
+    let expected = Text::from_iter([
+        Line::from_iter([
+            Span::from("┌─ ").dim(),
+            Span::from("rust").cyan(),
+            Span::from(" ─").dim(),
+        ]),
+        Line::from_iter([Span::default(), Span::from("fn main() {}")]),
+    ]);
     assert_eq!(text, expected);
 }
 
@@ -721,9 +730,11 @@ Here is a code block that shows another fenced block:
                 .collect::<String>()
         })
         .collect();
+    // Code blocks with language tags now have a visual header
     assert_eq!(
         lines,
         vec![
+            "┌─ text ─".to_string(), // Language header
             "Here is a code block that shows another fenced block:".to_string(),
             String::new(),
             "```md".to_string(),

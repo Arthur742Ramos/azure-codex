@@ -436,16 +436,31 @@ impl AuthModeWidget {
                     KeyCode::Char(c)
                         if key_event.kind == KeyEventKind::Press
                             && !key_event.modifiers.contains(KeyModifiers::SUPER)
-                            && !key_event.modifiers.contains(KeyModifiers::CONTROL)
                             && !key_event.modifiers.contains(KeyModifiers::ALT) =>
                     {
-                        if state.prepopulated_from_env {
-                            state.value.clear();
-                            state.prepopulated_from_env = false;
+                        if c == 'v' && key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                            if let Ok(text) = crate::clipboard_paste::paste_text() {
+                                let trimmed = text.trim();
+                                if !trimmed.is_empty() {
+                                    if state.prepopulated_from_env {
+                                        state.value = trimmed.to_string();
+                                        state.prepopulated_from_env = false;
+                                    } else {
+                                        state.value.push_str(trimmed);
+                                    }
+                                    self.error = None;
+                                    should_request_frame = true;
+                                }
+                            }
+                        } else if !key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                            if state.prepopulated_from_env {
+                                state.value.clear();
+                                state.prepopulated_from_env = false;
+                            }
+                            state.value.push(c);
+                            self.error = None;
+                            should_request_frame = true;
                         }
-                        state.value.push(c);
-                        self.error = None;
-                        should_request_frame = true;
                     }
                     _ => {}
                 }

@@ -182,12 +182,6 @@ impl OnboardingScreen {
         out
     }
 
-    fn is_auth_in_progress(&self) -> bool {
-        self.steps.iter().any(|step| {
-            matches!(step, Step::Auth(_)) && matches!(step.get_step_state(), StepState::InProgress)
-        })
-    }
-
     pub(crate) fn is_done(&self) -> bool {
         self.is_done
             || !self
@@ -270,11 +264,8 @@ impl KeyboardHandler for OnboardingScreen {
             _ => false,
         };
         if should_quit {
-            if self.is_auth_in_progress() {
-                // If the user cancels the auth menu, exit the app rather than
-                // leave the user at a prompt in an unauthed state.
-                self.should_exit = true;
-            }
+            // Always exit the app when Ctrl+C/D is pressed, regardless of state.
+            self.should_exit = true;
             self.is_done = true;
         } else {
             if let Some(Step::Welcome(widget)) = self
@@ -420,6 +411,7 @@ pub(crate) async fn run_onboarding_app(
     args: OnboardingScreenArgs,
     tui: &mut Tui,
 ) -> Result<OnboardingResult> {
+    use crossterm::event::KeyModifiers;
     use tokio_stream::StreamExt;
 
     let mut onboarding_screen = OnboardingScreen::new(tui, args);
@@ -438,6 +430,18 @@ pub(crate) async fn run_onboarding_app(
             match event {
                 TuiEvent::Mouse(_) => {}
                 TuiEvent::Key(key_event) => {
+                    // Handle Ctrl+M to toggle mouse capture (for copy/paste support)
+                    if key_event.kind == KeyEventKind::Press
+                        && key_event.code == KeyCode::Char('m')
+                        && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        let enabled = tui.toggle_mouse_capture();
+                        tracing::info!(
+                            "Mouse capture toggled: {}",
+                            if enabled { "enabled" } else { "disabled" }
+                        );
+                        continue;
+                    }
                     onboarding_screen.handle_key_event(key_event);
                 }
                 TuiEvent::Paste(text) => {

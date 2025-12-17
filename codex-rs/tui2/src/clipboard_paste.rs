@@ -236,6 +236,19 @@ pub fn paste_image_to_temp_png() -> Result<(PathBuf, PastedImageInfo), PasteImag
     ))
 }
 
+/// Capture text from system clipboard.
+#[cfg(not(target_os = "android"))]
+pub fn paste_text() -> Result<String, String> {
+    // arboard::Clipboard::new() can fail if the system clipboard is busy or unavailable.
+    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    cb.get_text().map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn paste_text() -> Result<String, String> {
+    Err("Clipboard paste not supported on Android".to_string())
+}
+
 /// Normalize pasted text that may represent a filesystem path.
 ///
 /// Supports:

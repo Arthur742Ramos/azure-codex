@@ -153,9 +153,19 @@ impl HistoryCell for UserHistoryCell {
                 .wrap_algorithm(textwrap::WrapAlgorithm::FirstFit),
         );
 
-        lines.push(Line::from("").style(style));
-        lines.extend(prefix_lines(wrapped, "› ".bold().dim(), "  ".into()));
-        lines.push(Line::from("").style(style));
+        // Add a subtle role indicator with the message
+        let border_width = usize::from(wrap_width).saturating_sub(8).min(40);
+        let bottom_width = usize::from(wrap_width).saturating_sub(2).min(45);
+        lines.push(Line::from(vec![
+            Span::from("╭─").dim(),
+            Span::from(" You ").bold(),
+            Span::from("─".repeat(border_width)).dim(),
+        ]));
+        lines.extend(prefix_lines(wrapped, "│ ".dim(), "│ ".dim()));
+        lines.push(Line::from(vec![
+            Span::from("╰").dim(),
+            Span::from("─".repeat(bottom_width)).dim(),
+        ]));
         lines
     }
 }
