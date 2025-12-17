@@ -414,7 +414,22 @@ pub(crate) async fn run_onboarding_app(
     use crossterm::event::KeyModifiers;
     use tokio_stream::StreamExt;
 
-    // Clear the terminal before showing the onboarding screen
+    // Full terminal clear before showing the onboarding screen.
+    // This is necessary because the TUI uses inline mode (not alternate screen)
+    // to preserve scrollback, which means old content can bleed through.
+    let _ = ratatui::crossterm::execute!(
+        std::io::stdout(),
+        // Reset all terminal attributes (colors, styles)
+        ratatui::crossterm::style::SetAttribute(ratatui::crossterm::style::Attribute::Reset),
+        ratatui::crossterm::style::SetForegroundColor(ratatui::crossterm::style::Color::Reset),
+        ratatui::crossterm::style::SetBackgroundColor(ratatui::crossterm::style::Color::Reset),
+        // Move cursor to top-left
+        ratatui::crossterm::cursor::MoveTo(0, 0),
+        // Clear the entire screen
+        ratatui::crossterm::terminal::Clear(ratatui::crossterm::terminal::ClearType::All),
+        // Also clear scrollback buffer to prevent artifacts
+        ratatui::crossterm::terminal::Clear(ratatui::crossterm::terminal::ClearType::Purge)
+    );
     let _ = tui.terminal.clear();
 
     let mut onboarding_screen = OnboardingScreen::new(tui, args);
