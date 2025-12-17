@@ -414,6 +414,9 @@ pub(crate) async fn run_onboarding_app(
     use crossterm::event::KeyModifiers;
     use tokio_stream::StreamExt;
 
+    // Clear the terminal before showing the onboarding screen
+    let _ = tui.terminal.clear();
+
     let mut onboarding_screen = OnboardingScreen::new(tui, args);
     // One-time guard to fully clear the screen after ChatGPT login success message is shown
     let mut did_full_clear_after_success = false;

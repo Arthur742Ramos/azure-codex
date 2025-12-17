@@ -2409,6 +2409,8 @@ impl ChatWidget {
     /// Open a popup to show or change the Azure OpenAI endpoint.
     pub(crate) fn open_endpoint_popup(&mut self) {
         let current_endpoint = self.config.azure_endpoint.clone();
+        let config_path = self.config.codex_home.join("config.toml");
+        let config_path_str = config_path.display().to_string();
 
         match current_endpoint {
             Some(endpoint) => {
@@ -2418,7 +2420,7 @@ impl ChatWidget {
                     .or_else(|| endpoint.strip_prefix("http://"))
                     .unwrap_or(&endpoint);
 
-                let endpoint_for_action = endpoint.clone();
+                let config_path_for_action = config_path_str.clone();
                 let items: Vec<SelectionItem> = vec![
                     SelectionItem {
                         name: display_endpoint.to_string(),
@@ -2429,14 +2431,17 @@ impl ChatWidget {
                         ..Default::default()
                     },
                     SelectionItem {
-                        name: "Change endpoint...".to_string(),
-                        description: Some("Edit azure_endpoint in config.toml".to_string()),
-                        actions: vec![Box::new(move |_tx| {
-                            // The user needs to edit config.toml manually and restart
-                            tracing::info!(
-                                "User selected to change endpoint from {}",
-                                endpoint_for_action
-                            );
+                        name: "View config location".to_string(),
+                        description: Some(format!("Config: {config_path_str}")),
+                        actions: vec![Box::new(move |tx| {
+                            tx.send(AppEvent::InsertHistoryCell(Box::new(
+                                crate::history_cell::new_info_event(
+                                    format!(
+                                        "To change the endpoint, edit `azure_endpoint` in:\n`{config_path_for_action}`\n\nThen restart Azure Codex for changes to take effect."
+                                    ),
+                                    None,
+                                ),
+                            )));
                         })],
                         dismiss_on_select: true,
                         ..Default::default()
@@ -2446,8 +2451,7 @@ impl ChatWidget {
                 self.bottom_pane.show_selection_view(SelectionViewParams {
                     title: Some("Azure OpenAI Endpoint".to_string()),
                     subtitle: Some(
-                        "To change the endpoint, edit azure_endpoint in your config.toml and restart."
-                            .to_string(),
+                        "Endpoint changes require editing config.toml and restarting.".to_string(),
                     ),
                     footer_hint: Some(standard_popup_hint_line()),
                     items,
@@ -2457,7 +2461,9 @@ impl ChatWidget {
             None => {
                 // No endpoint configured - show instructions
                 self.add_info_message(
-                    "No Azure endpoint configured. Add azure_endpoint to your config.toml or run /setup.".to_string(),
+                    format!(
+                        "No Azure endpoint configured.\n\nTo configure:\n1. Add `azure_endpoint = \"your-resource\"` to `{config_path_str}`\n2. Restart Azure Codex"
+                    ),
                     None,
                 );
             }

@@ -145,8 +145,8 @@ impl AzureSetupWidget {
 
         let endpoint = self.endpoint_input.read().unwrap();
         let content_line: Line = if endpoint.is_empty() {
-            // Show placeholder with cursor
-            Line::from(vec!["https://".dim(), "█".fg(Color::Cyan)])
+            // Show placeholder with cursor - don't show https:// to avoid confusion
+            Line::from(vec!["my-resource".dim(), "█".fg(Color::Cyan)])
         } else {
             // Show input with cursor at end
             Line::from(vec![
@@ -535,22 +535,30 @@ impl AzureSetupWidget {
     /// Normalize endpoint input to a full URL.
     /// Accepts either:
     /// - A full URL (e.g., "https://my-resource.openai.azure.com")
+    /// - A partial URL with scheme (e.g., "https://my-resource")
+    /// - A domain without scheme (e.g., "my-resource.openai.azure.com")
     /// - Just the resource name (e.g., "my-resource")
     fn normalize_endpoint(input: &str) -> String {
         let trimmed = input.trim();
 
-        // If it already looks like a URL, return as-is
-        if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
-            return trimmed.to_string();
+        // Strip any scheme prefix first to normalize
+        let without_scheme = trimmed
+            .strip_prefix("https://")
+            .or_else(|| trimmed.strip_prefix("http://"))
+            .unwrap_or(trimmed);
+
+        // If it looks like a complete Azure OpenAI domain, just add the scheme
+        if without_scheme.contains(".openai.azure.com") {
+            return format!("https://{without_scheme}");
         }
 
-        // If it contains a dot, assume it's a domain without the scheme
-        if trimmed.contains('.') {
-            return format!("https://{trimmed}");
+        // If it contains a dot, assume it's a custom domain without the scheme
+        if without_scheme.contains('.') {
+            return format!("https://{without_scheme}");
         }
 
-        // Otherwise, assume it's just the resource name
-        format!("https://{trimmed}.openai.azure.com")
+        // Otherwise, assume it's just the resource name - construct full URL
+        format!("https://{without_scheme}.openai.azure.com")
     }
 
     fn start_fetching_models(&self) {
