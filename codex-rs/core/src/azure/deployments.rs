@@ -454,14 +454,17 @@ impl AzureDeployment {
         // Determine supported reasoning efforts based on the model
         let supported_reasoning_efforts =
             get_reasoning_efforts_for_model(&self.name, underlying_model);
+        let default_reasoning_effort = supported_reasoning_efforts
+            .default_effort
+            .unwrap_or(ReasoningEffort::Medium);
 
         ModelPreset {
             id: self.name.clone(),
             model: self.name.clone(),
             display_name,
             description,
-            default_reasoning_effort: ReasoningEffort::Medium,
-            supported_reasoning_efforts,
+            default_reasoning_effort,
+            supported_reasoning_efforts: supported_reasoning_efforts.presets,
             is_default: false,
             upgrade: None,
             show_in_picker: true,
@@ -483,36 +486,59 @@ fn supports_xhigh(model_name: &str) -> bool {
 fn get_reasoning_efforts_for_model(
     deployment_name: &str,
     underlying_model: Option<&str>,
-) -> Vec<ReasoningEffortPreset> {
+) -> ReasoningSupport {
+    let name_lower = deployment_name.to_lowercase();
+    let underlying_lower = underlying_model.map(|m| m.to_lowercase());
+
+    // Specialized support maps based on model capability signals.
+    let is_gpt5_pro = name_lower.contains("gpt-5-pro")
+        || underlying_lower
+            .as_ref()
+            .is_some_and(|m| m.contains("gpt-5-pro"));
+
+    if is_gpt5_pro {
+        return ReasoningSupport {
+            default_effort: Some(ReasoningEffort::High),
+            presets: vec![effort(
+                ReasoningEffort::High,
+                "High reasoning (maximum supported by GPT-5-Pro)",
+            )],
+        };
+    }
+
     let has_xhigh = supports_xhigh(deployment_name) || underlying_model.is_some_and(supports_xhigh);
 
-    let mut efforts = vec![
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::None,
-            description: "No additional reasoning".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Low,
-            description: "Quick responses".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Medium,
-            description: "Balanced reasoning".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::High,
-            description: "Thorough reasoning".to_string(),
-        },
+    let mut presets = vec![
+        effort(ReasoningEffort::None, "No additional reasoning"),
+        effort(ReasoningEffort::Low, "Quick responses"),
+        effort(ReasoningEffort::Medium, "Balanced reasoning"),
+        effort(ReasoningEffort::High, "Thorough reasoning"),
     ];
 
     if has_xhigh {
-        efforts.push(ReasoningEffortPreset {
-            effort: ReasoningEffort::XHigh,
-            description: "Extra high reasoning for complex problems".to_string(),
-        });
+        presets.push(effort(
+            ReasoningEffort::XHigh,
+            "Extra high reasoning for complex problems",
+        ));
     }
 
-    efforts
+    ReasoningSupport {
+        default_effort: Some(ReasoningEffort::Medium),
+        presets,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ReasoningSupport {
+    default_effort: Option<ReasoningEffort>,
+    presets: Vec<ReasoningEffortPreset>,
+}
+
+fn effort(effort: ReasoningEffort, description: &str) -> ReasoningEffortPreset {
+    ReasoningEffortPreset {
+        effort,
+        description: description.to_string(),
+    }
 }
 
 /// Format a deployment name into a display name.
@@ -594,13 +620,19 @@ mod tests {
     fn test_reasoning_efforts_with_xhigh() {
         let efforts = get_reasoning_efforts_for_model("gpt-5.2", None);
         assert!(
-            efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            efforts
+                .presets
+                .iter()
+                .any(|e| e.effort == ReasoningEffort::XHigh),
             "gpt-5.2 should have xHigh"
         );
 
         let efforts = get_reasoning_efforts_for_model("gpt-5.1-codex-max", None);
         assert!(
-            efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            efforts
+                .presets
+                .iter()
+                .any(|e| e.effort == ReasoningEffort::XHigh),
             "gpt-5.1-codex-max should have xHigh"
         );
     }
@@ -609,13 +641,19 @@ mod tests {
     fn test_reasoning_efforts_without_xhigh() {
         let efforts = get_reasoning_efforts_for_model("gpt-5.1", None);
         assert!(
-            !efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            !efforts
+                .presets
+                .iter()
+                .any(|e| e.effort == ReasoningEffort::XHigh),
             "gpt-5.1 should NOT have xHigh"
         );
 
         let efforts = get_reasoning_efforts_for_model("gpt-4o", None);
         assert!(
-            !efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            !efforts
+                .presets
+                .iter()
+                .any(|e| e.effort == ReasoningEffort::XHigh),
             "gpt-4o should NOT have xHigh"
         );
     }
@@ -625,15 +663,39 @@ mod tests {
         // Deployment name doesn't indicate xHigh, but underlying model does
         let efforts = get_reasoning_efforts_for_model("my-custom-deployment", Some("gpt-5.2"));
         assert!(
-            efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            efforts
+                .presets
+                .iter()
+                .any(|e| e.effort == ReasoningEffort::XHigh),
             "Should have xHigh based on underlying model gpt-5.2"
         );
 
         // Neither deployment nor underlying model supports xHigh
         let efforts = get_reasoning_efforts_for_model("my-custom-deployment", Some("gpt-4o"));
         assert!(
-            !efforts.iter().any(|e| e.effort == ReasoningEffort::XHigh),
+            !efforts
+                .presets
+                .iter()
+                .any(|e| e.effort == ReasoningEffort::XHigh),
             "Should NOT have xHigh for gpt-4o"
+        );
+    }
+
+    #[test]
+    fn test_reasoning_efforts_gpt5_pro_high_only() {
+        let efforts = get_reasoning_efforts_for_model("gpt-5-pro", None);
+        assert_eq!(
+            efforts.default_effort,
+            Some(ReasoningEffort::High),
+            "gpt-5-pro default should be High"
+        );
+        assert_eq!(
+            efforts.presets,
+            vec![ReasoningEffortPreset {
+                effort: ReasoningEffort::High,
+                description: "High reasoning (maximum supported by GPT-5-Pro)".to_string()
+            }],
+            "gpt-5-pro should only surface High"
         );
     }
 }
