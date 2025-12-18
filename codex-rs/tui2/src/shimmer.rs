@@ -78,3 +78,17 @@ fn color_for_level(intensity: f32) -> Style {
         Style::default().add_modifier(Modifier::BOLD)
     }
 }
+
+/// Returns a blinking cursor span that toggles visibility every 500ms.
+/// When visible, shows "█" in cyan; when hidden, shows a space.
+pub(crate) fn blinking_cursor_span() -> Span<'static> {
+    let blink_period_ms = 500;
+    let elapsed_ms = elapsed_since_start().as_millis() as u64;
+    let is_visible = (elapsed_ms / blink_period_ms).is_multiple_of(2);
+
+    if is_visible {
+        Span::styled("█", Style::default().fg(Color::Cyan))
+    } else {
+        Span::raw(" ")
+    }
+}

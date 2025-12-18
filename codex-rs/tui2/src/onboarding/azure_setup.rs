@@ -37,6 +37,7 @@ use std::sync::RwLock;
 use crate::onboarding::onboarding_screen::KeyboardHandler;
 use crate::onboarding::onboarding_screen::StepState;
 use crate::onboarding::onboarding_screen::StepStateProvider;
+use crate::shimmer::blinking_cursor_span;
 use crate::shimmer::shimmer_spans;
 use crate::theme;
 use crate::tui::FrameRequester;
@@ -161,15 +162,21 @@ impl AzureSetupWidget {
         let is_compact = area.height < 8;
         let is_medium = area.height >= 8 && area.height < 15;
 
+        // Schedule frame redraws for cursor blinking animation
+        if self.animations_enabled {
+            self.request_frame
+                .schedule_frame_in(std::time::Duration::from_millis(100));
+        }
+
         let endpoint = self.endpoint_input.read().unwrap();
         let content_line: Line = if endpoint.is_empty() {
-            // Show placeholder with cursor - don't show https:// to avoid confusion
-            Line::from(vec!["my-resource".dim(), "█".fg(Color::Cyan)])
+            // Show just the blinking cursor when empty (no placeholder text)
+            Line::from(vec![blinking_cursor_span()])
         } else {
-            // Show input with cursor at end
+            // Show input with blinking cursor at end
             Line::from(vec![
                 Span::styled(endpoint.clone(), Style::default().fg(Color::Cyan)),
-                "█".fg(Color::Cyan),
+                blinking_cursor_span(),
             ])
         };
         drop(endpoint);
@@ -215,9 +222,9 @@ impl AzureSetupWidget {
                 Line::from(vec![
                     "  ".into(),
                     "Ex: ".dim(),
-                    theme::path_span("my-resource"),
+                    theme::path_span("your-resource"),
                     " or ".dim(),
-                    theme::path_span("https://my-resource.openai.azure.com"),
+                    theme::path_span("https://your-resource.openai.azure.com"),
                 ]),
             ];
 
@@ -267,11 +274,11 @@ impl AzureSetupWidget {
                 Line::from(vec![
                     "  ".into(),
                     "Examples: ".dim(),
-                    theme::path_span("my-resource"),
+                    theme::path_span("your-resource"),
                 ]),
                 Line::from(vec![
                     "            ".into(),
-                    theme::path_span("https://my-resource.openai.azure.com"),
+                    theme::path_span("https://your-resource.openai.azure.com"),
                 ]),
                 "".into(),
                 "  You can find your resource name in the Azure Portal"
@@ -652,10 +659,10 @@ impl AzureSetupWidget {
 
     /// Normalize endpoint input to a full URL.
     /// Accepts either:
-    /// - A full URL (e.g., "https://my-resource.openai.azure.com")
-    /// - A partial URL with scheme (e.g., "https://my-resource")
-    /// - A domain without scheme (e.g., "my-resource.openai.azure.com")
-    /// - Just the resource name (e.g., "my-resource")
+    /// - A full URL (e.g., "https://your-resource.openai.azure.com")
+    /// - A partial URL with scheme (e.g., "https://your-resource")
+    /// - A domain without scheme (e.g., "your-resource.openai.azure.com")
+    /// - Just the resource name (e.g., "your-resource")
     fn normalize_endpoint(input: &str) -> String {
         let trimmed = input.trim();
 
