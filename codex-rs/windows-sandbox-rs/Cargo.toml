@@ -6,11 +6,27 @@ name = "codex-windows-sandbox"
 version.workspace = true
 
 [package.metadata.cargo-shear]
-# These files are included via #[path = ...] or as sibling modules, which cargo-shear doesn't detect
+# These files are included via #[path = ...], windows_modules! macro, or as sibling modules,
+# which cargo-shear doesn't detect
 ignored-paths = [
+    # Binary entry point implementations (included via #[path = ...])
     "src/command_runner_win.rs",
     "src/setup_main_win.rs",
+    # Sibling module included by setup_main_win.rs
     "src/read_acl_mutex.rs",
+    # Windows-only modules included via windows_modules! macro (cfg(target_os = "windows"))
+    "src/acl.rs",
+    "src/allow.rs",
+    "src/audit.rs",
+    "src/cap.rs",
+    "src/dpapi.rs",
+    "src/env.rs",
+    "src/identity.rs",
+    "src/logging.rs",
+    "src/policy.rs",
+    "src/process.rs",
+    "src/token.rs",
+    "src/winutil.rs",
 ]
 
 [lib]
