@@ -138,34 +138,68 @@ impl HistoryCell for UserHistoryCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut lines: Vec<Line<'static>> = Vec::new();
 
-        let wrap_width = width
-            .saturating_sub(
-                LIVE_PREFIX_COLS + 1, /* keep a one-column right margin for wrapping */
-            )
-            .max(1);
+        // Account for border chars: "│ " (2) + " │" (2) = 4 total
+        let content_wrap_width = width.saturating_sub(LIVE_PREFIX_COLS + 1 + 4).max(1);
 
         let style = user_message_style();
 
         let wrapped = word_wrap_lines(
             self.message.lines().map(|l| Line::from(l).style(style)),
             // Wrap algorithm matches textarea.rs.
-            RtOptions::new(usize::from(wrap_width))
+            RtOptions::new(usize::from(content_wrap_width))
                 .wrap_algorithm(textwrap::WrapAlgorithm::FirstFit),
         );
 
-        // Add a subtle role indicator with the message
-        let border_width = usize::from(wrap_width).saturating_sub(8).min(40);
-        let bottom_width = usize::from(wrap_width).saturating_sub(2).min(45);
+        // Calculate max content width for consistent border alignment
+        let max_content_width = wrapped
+            .iter()
+            .map(|line| {
+                line.iter()
+                    .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+                    .sum::<usize>()
+            })
+            .max()
+            .unwrap_or(0);
+
+        // Ensure minimum width and cap at reasonable max
+        let header = " You ";
+        let header_width = 2 + header.len(); // "╭─" + " You "
+        let inner_width = max_content_width.max(header_width + 2).min(50);
+
+        // Top border: ╭─ You ─────╮
+        let top_fill = inner_width.saturating_sub(header_width);
         lines.push(Line::from(vec![
             Span::from("╭─").dim(),
-            Span::from(" You ").bold(),
-            Span::from("─".repeat(border_width)).dim(),
+            Span::from(header).bold(),
+            Span::from("─".repeat(top_fill)).dim(),
+            Span::from("─╮").dim(),
         ]));
-        lines.extend(prefix_lines(wrapped, "│ ".dim(), "│ ".dim()));
+
+        // Content lines with padding and right border
+        for line in wrapped {
+            let line_width: usize = line
+                .iter()
+                .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+                .sum();
+            let padding = inner_width.saturating_sub(line_width);
+            let mut spans: Vec<Span<'static>> = Vec::with_capacity(line.spans.len() + 3);
+            spans.push(Span::from("│ ").dim());
+            spans.extend(line.into_iter());
+            if padding > 0 {
+                spans.push(Span::from(" ".repeat(padding)));
+            }
+            spans.push(Span::from(" │").dim());
+            lines.push(Line::from(spans));
+        }
+
+        // Bottom border: ╰─────────╯
+        let bottom_fill = inner_width + 2; // +2 for the spaces on either side of content
         lines.push(Line::from(vec![
             Span::from("╰").dim(),
-            Span::from("─".repeat(bottom_width)).dim(),
+            Span::from("─".repeat(bottom_fill)).dim(),
+            Span::from("╯").dim(),
         ]));
+
         lines
     }
 }
