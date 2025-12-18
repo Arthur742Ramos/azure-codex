@@ -1732,6 +1732,14 @@ fn render_bottom_popup(chat: &ChatWidget, width: u16) -> String {
         })
         .collect();
 
+    let app_name = codex_branding::APP_NAME;
+    if let Some(header_idx) = lines
+        .iter()
+        .position(|line| !line.trim().is_empty() && line.contains(app_name))
+    {
+        lines.drain(0..=header_idx);
+    }
+
     while lines.first().is_some_and(|line| line.trim().is_empty()) {
         lines.remove(0);
     }

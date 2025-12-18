@@ -2,8 +2,6 @@
 source: tui2/src/chatwidget/tests.rs
 expression: popup
 ---
->_ Azure Codex  ·  caribou                     ctrl + k commands  ·  ? shortcuts
-
   Select Approval Mode
 
 › 1. Read Only (current)  Requires approval to edit files and run commands.
