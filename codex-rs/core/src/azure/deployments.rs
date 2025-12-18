@@ -468,6 +468,7 @@ impl AzureDeployment {
             is_default: false,
             upgrade: None,
             show_in_picker: true,
+            supported_in_api: true, // Azure deployments are always API-accessible
         }
     }
 }
