@@ -142,12 +142,13 @@ impl HistoryCell for UserHistoryCell {
         let content_wrap_width = width.saturating_sub(LIVE_PREFIX_COLS + 1 + 4).max(1);
 
         let style = user_message_style();
+        let max_inner_width: usize = 50;
+        let wrap_width = usize::from(content_wrap_width).min(max_inner_width).max(1);
 
         let wrapped = word_wrap_lines(
             self.message.lines().map(|l| Line::from(l).style(style)),
             // Wrap algorithm matches textarea.rs.
-            RtOptions::new(usize::from(content_wrap_width))
-                .wrap_algorithm(textwrap::WrapAlgorithm::FirstFit),
+            RtOptions::new(wrap_width).wrap_algorithm(textwrap::WrapAlgorithm::FirstFit),
         );
 
         // Calculate max content width for consistent border alignment
@@ -164,7 +165,7 @@ impl HistoryCell for UserHistoryCell {
         // Ensure minimum width and cap at reasonable max
         let header = " You ";
         let header_width = 2 + header.len(); // "╭─" + " You "
-        let inner_width = max_content_width.max(header_width + 2).min(50);
+        let inner_width = max_content_width.max(header_width + 2).min(max_inner_width);
 
         // Top border: ╭─ You ─────╮
         // Total top width needs to equal inner_width + 4 (matching content and bottom border)

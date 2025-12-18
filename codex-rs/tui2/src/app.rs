@@ -184,8 +184,18 @@ async fn handle_model_migration_prompt_if_needed(
     app_event_tx: &AppEventSender,
     models_manager: Arc<ModelsManager>,
 ) -> Option<AppExitInfo> {
-    // Continue loading animation during model list fetching (this is the slow Azure call)
-    let available_models = with_loading_animation(tui, models_manager.list_models(config)).await;
+    let available_models = if models_manager.is_azure() {
+        match models_manager.try_list_models(config) {
+            Ok(models) if !models.is_empty() => models,
+            _ => {
+                app_event_tx.send(AppEvent::RefreshAzureModels);
+                return None;
+            }
+        }
+    } else {
+        // Continue loading animation during model list fetching (this is the slow Azure call)
+        with_loading_animation(tui, models_manager.list_models(config)).await
+    };
     let upgrade = available_models
         .iter()
         .find(|preset| preset.model == model)
