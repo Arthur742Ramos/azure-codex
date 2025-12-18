@@ -5,6 +5,14 @@ license.workspace = true
 name = "codex-windows-sandbox"
 version.workspace = true
 
+[package.metadata.cargo-shear]
+# These files are included via #[path = ...] or as sibling modules, which cargo-shear doesn't detect
+ignored-paths = [
+    "src/command_runner_win.rs",
+    "src/setup_main_win.rs",
+    "src/read_acl_mutex.rs",
+]
+
 [lib]
 name = "codex_windows_sandbox"
 path = "src/lib.rs"

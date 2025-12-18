@@ -26,14 +26,25 @@
 ### Why Azure Codex?
 
 - **Enterprise Ready**: Built for Azure's enterprise security and compliance requirements
+- **Zero-Config Setup**: Interactive wizard guides you through first-run configuration
 - **Azure Entra ID**: Native support for Azure authentication (CLI, Managed Identity, Service Principal)
-- **Simple Configuration**: Just 2 lines of config to get started
-- **Dynamic Model Switching**: Change models on-the-fly without restarting
+- **Dynamic Model Switching**: Change models and endpoints on-the-fly without restarting
 - **Deployment Discovery**: Automatically discovers your Azure OpenAI deployments
+- **Reasoning Effort Control**: Configure reasoning intensity for GPT-5/o-series models
 
 ---
 
 ## Features
+
+### Interactive Setup Wizard
+
+On first run, Azure Codex guides you through configuration with an interactive wizard:
+
+1. **Enter your Azure endpoint** - Just type your resource name (e.g., `my-openai-resource`)
+2. **Select a model** - Automatically discovers and lists your GPT deployments
+3. **Choose reasoning effort** - For reasoning models, select Low/Medium/High intensity
+
+No manual config file editing required!
 
 ### Azure-Native Authentication
 
@@ -50,36 +61,32 @@ Azure Codex supports multiple authentication methods through Azure Entra ID:
 
 Supports Azure Public, US Government, and China clouds.
 
-### Simplified Configuration
+### Dynamic Model & Endpoint Switching
 
-Get started with just 2 lines:
+Change your model or endpoint without restarting:
 
+- **`/model`** - Switch between GPT deployments instantly
+- **`/endpoint`** - Connect to a different Azure OpenAI resource
+
+### Reasoning Effort Control
+
+For GPT-5 and o-series reasoning models, configure how much "thinking" the model does:
+
+| Effort | Description | Use Case |
+|--------|-------------|----------|
+| **Low** | Quick responses, minimal reasoning | Simple tasks, fast iteration |
+| **Medium** | Balanced reasoning | General development |
+| **High** | Deep reasoning, thorough analysis | Complex problems, architecture |
+
+Configure via `/model` command or in config:
 ```toml
-azure_endpoint = "https://your-resource.openai.azure.com"
-model = "gpt-4o"
-```
-
-### Dynamic Model Discovery
-
-The `/models` command automatically discovers and lists your Azure OpenAI GPT deployments:
-
-```
-/models
-┌─────────────────────────────────────────┐
-│ Select Model                            │
-├─────────────────────────────────────────┤
-│ ● GPT 4o          Azure deployment      │
-│   GPT 4.1         Azure deployment      │
-│   GPT 5           Azure deployment      │
-│   GPT 5.1 Codex   Azure deployment      │
-│   GPT 5.2         Azure deployment      │
-└─────────────────────────────────────────┘
+model_reasoning_effort = "medium"  # low, medium, high
 ```
 
 ### All Original Codex Features
 
 - Interactive TUI with syntax highlighting
-- Sandboxed command execution
+- Sandboxed command execution (Windows & Linux)
 - MCP (Model Context Protocol) support
 - Git integration
 - File mentions with `@`
@@ -93,27 +100,10 @@ The `/models` command automatically discovers and lists your Azure OpenAI GPT de
 ### Prerequisites
 
 - **Azure CLI**: Install from [aka.ms/installazurecli](https://aka.ms/installazurecli)
-- **Azure OpenAI Resource**: With at least one model deployment
-- **Node.js** (for NPM install): v16 or higher
-- **Rust toolchain** (only for building from source): Install from [rustup.rs](https://rustup.rs)
+- **Azure OpenAI Resource**: With at least one GPT model deployment
+- **Rust toolchain** (for building from source): Install from [rustup.rs](https://rustup.rs)
 
 ### Installation
-
-#### NPM (Recommended)
-
-```bash
-# Install globally
-npm install -g azure-codex
-
-# Run
-azure-codex
-```
-
-Or use without installing:
-
-```bash
-npx azure-codex
-```
 
 #### Build from Source
 
@@ -135,22 +125,40 @@ cargo build -p codex-cli --release
    az login
    ```
 
-2. **Create config file** at `~/.azure-codex/config.toml`:
-   ```toml
-   azure_endpoint = "https://your-resource.openai.azure.com"
-   model = "gpt-4o"  # Your deployment name
-   ```
-
-3. **Run Azure Codex**:
+2. **Run Azure Codex**:
    ```bash
-   codex
+   ./target/release/codex    # Linux/macOS
+   .\target\release\codex.exe  # Windows
    ```
 
-That's it! Azure Codex will authenticate using your Azure CLI credentials and connect to your Azure OpenAI endpoint.
+3. **Follow the setup wizard**:
+   - Enter your Azure OpenAI resource name (e.g., `my-openai-resource`)
+   - Select a model from your discovered deployments
+   - Choose reasoning effort (for reasoning models)
+
+That's it! The wizard saves your configuration automatically.
+
+### Manual Configuration (Alternative)
+
+If you prefer manual setup, create `~/.azure-codex/config.toml`:
+
+```toml
+azure_endpoint = "https://your-resource.openai.azure.com"
+model = "gpt-4o"  # Your deployment name
+```
 
 ---
 
 ## Configuration
+
+### Config File Location
+
+| Platform | Path |
+|----------|------|
+| Linux/macOS | `~/.azure-codex/config.toml` |
+| Windows | `%USERPROFILE%\.azure-codex\config.toml` |
+
+Override with `AZURE_CODEX_HOME` environment variable.
 
 ### Minimal Configuration
 
@@ -169,8 +177,11 @@ azure_endpoint = "https://your-resource.openai.azure.com"
 # Model/deployment name (required)
 model = "gpt-4o"
 
-# API version (optional, defaults to 2025-04-01-preview)
-# For GPT-5/reasoning models, use 2025-04-01-preview or newer
+# Reasoning effort for GPT-5/o-series models (optional)
+# Values: "low", "medium", "high"
+model_reasoning_effort = "medium"
+
+# API version (optional, defaults to latest preview)
 azure_api_version = "2025-04-01-preview"
 
 # Azure authentication configuration (optional)
@@ -297,6 +308,7 @@ export AZURE_OPENAI_API_KEY="your-api-key"
 | Command | Description |
 |---------|-------------|
 | `/model` | Choose what model and reasoning effort to use |
+| `/endpoint` | Show or change the Azure OpenAI endpoint |
 | `/approvals` | Choose what Codex can do without approval |
 | `/skills` | Use skills to improve how Codex performs specific tasks |
 | `/review` | Review current changes and find issues |
@@ -309,6 +321,7 @@ export AZURE_OPENAI_API_KEY="your-api-key"
 | `/mention` | Mention a file |
 | `/status` | Show current session configuration and token usage |
 | `/mcp` | List configured MCP tools |
+| `/togglemouse` | Toggle mouse capture for native text selection |
 | `/logout` | Log out of Codex |
 | `/feedback` | Send logs to maintainers |
 | `/quit` | Exit Azure Codex |
@@ -338,9 +351,19 @@ Change models on-the-fly using `/model`:
 
 1. Type `/model` in the TUI
 2. Select a different GPT deployment
-3. Your next message uses the new model immediately
+3. Optionally adjust reasoning effort
+4. Your next message uses the new model immediately
 
 No restart required!
+
+### Dynamic Endpoint Switching
+
+Connect to a different Azure OpenAI resource using `/endpoint`:
+
+1. Type `/endpoint` in the TUI
+2. Enter the new resource name
+3. Select a model from the new resource
+4. Continue your session with the new endpoint
 
 ### Supported Models
 
@@ -349,6 +372,7 @@ Azure Codex filters to GPT models only. Your available models depend on your Azu
 - GPT-4 series (gpt-4, gpt-4o, gpt-4-turbo)
 - GPT-5 series (gpt-5, gpt-5.1, gpt-5.2)
 - GPT Codex models (gpt-5-codex, gpt-5.1-codex-max)
+- o-series reasoning models (o1, o3, o4-mini)
 
 ---
 
@@ -368,10 +392,9 @@ azure-codex/
 │   │   │   ├── config/       # Configuration loading
 │   │   │   └── ...
 │   ├── cli/                  # CLI entry point
-│   ├── tui/                  # Terminal UI (legacy)
 │   ├── tui2/                 # Terminal UI (current)
+│   │   └── src/onboarding/   # First-run setup wizard
 │   └── exec/                 # Non-interactive mode
-├── test-config/              # Test configuration
 └── docs/                     # Documentation
 ```
 
@@ -382,15 +405,26 @@ azure-codex/
 ### Building
 
 ```bash
-# Debug build
+# Quick compilation check (fastest)
+cargo check -p codex-cli
+
+# Debug build (fast, for testing)
 cargo build -p codex-cli
 
-# Release build
+# Release build (optimized, for production)
 cargo build -p codex-cli --release
 
 # Run tests
 cargo test
 ```
+
+### Build Times
+
+| Command | Time | Use Case |
+|---------|------|----------|
+| `cargo check -p codex-cli` | ~1 min | Verify compilation |
+| `cargo build -p codex-cli` | ~3 min | Debug build for testing |
+| `cargo build -p codex-cli --release` | ~10 min | Optimized production build |
 
 ### Testing with Custom Config
 
@@ -444,6 +478,10 @@ az account show
 az account get-access-token --scope https://cognitiveservices.azure.com/.default
 ```
 
+### Loading animation freezes
+
+This can happen during Azure deployment discovery. The CLI makes Azure CLI calls to discover your deployments, which may take a few seconds depending on network conditions.
+
 ---
 
 ## Differences from OpenAI Codex
@@ -454,7 +492,8 @@ az account get-access-token --scope https://cognitiveservices.azure.com/.default
 | Endpoint | api.openai.com | Your Azure endpoint |
 | Model Discovery | OpenAI models API | Azure deployments API |
 | Wire API | Responses API | Chat Completions API |
-| Default Config | OpenAI-focused | Azure-focused |
+| First-Run Setup | Manual config | Interactive wizard |
+| Endpoint Switching | Restart required | `/endpoint` command |
 
 ---
 

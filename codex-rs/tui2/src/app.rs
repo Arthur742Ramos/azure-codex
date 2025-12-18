@@ -24,6 +24,7 @@ use crate::tui::TuiEvent;
 use crate::tui::scrolling::TranscriptLineMeta;
 use crate::tui::scrolling::TranscriptScroll;
 use crate::update_action::UpdateAction;
+use crate::with_loading_animation;
 use crate::wrapping::RtOptions;
 use crate::wrapping::word_wrap_line;
 use crate::wrapping::word_wrap_lines_borrowed;
@@ -183,7 +184,8 @@ async fn handle_model_migration_prompt_if_needed(
     app_event_tx: &AppEventSender,
     models_manager: Arc<ModelsManager>,
 ) -> Option<AppExitInfo> {
-    let available_models = models_manager.list_models(config).await;
+    // Continue loading animation during model list fetching (this is the slow Azure call)
+    let available_models = with_loading_animation(tui, models_manager.list_models(config)).await;
     let upgrade = available_models
         .iter()
         .find(|preset| preset.model == model)
@@ -387,10 +389,15 @@ impl App {
                 SessionSource::Cli,
             ))
         };
-        let mut model = conversation_manager
-            .get_models_manager()
-            .get_model(&config.model, &config)
-            .await;
+
+        // Continue loading animation during model fetching
+        let mut model = with_loading_animation(
+            tui,
+            conversation_manager
+                .get_models_manager()
+                .get_model(&config.model, &config),
+        )
+        .await;
         let exit_info = handle_model_migration_prompt_if_needed(
             tui,
             &mut config,
@@ -407,10 +414,15 @@ impl App {
         }
 
         let enhanced_keys_supported = tui.enhanced_keys_supported();
-        let model_family = conversation_manager
-            .get_models_manager()
-            .construct_model_family(model.as_str(), &config)
-            .await;
+
+        // Continue loading animation during model family construction
+        let model_family = with_loading_animation(
+            tui,
+            conversation_manager
+                .get_models_manager()
+                .construct_model_family(model.as_str(), &config),
+        )
+        .await;
         let mut chat_widget = match resume_selection {
             ResumeSelection::StartFresh | ResumeSelection::Exit => {
                 let init = crate::chatwidget::ChatWidgetInit {
@@ -429,16 +441,17 @@ impl App {
                 ChatWidget::new(init, conversation_manager.clone())
             }
             ResumeSelection::Resume(path) => {
-                let resumed = conversation_manager
-                    .resume_conversation_from_rollout(
+                // Continue loading animation during session resume
+                let resumed = with_loading_animation(
+                    tui,
+                    conversation_manager.resume_conversation_from_rollout(
                         config.clone(),
                         path.clone(),
                         auth_manager.clone(),
-                    )
-                    .await
-                    .wrap_err_with(|| {
-                        format!("Failed to resume session from {}", path.display())
-                    })?;
+                    ),
+                )
+                .await
+                .wrap_err_with(|| format!("Failed to resume session from {}", path.display()))?;
                 let init = crate::chatwidget::ChatWidgetInit {
                     config: config.clone(),
                     frame_requester: tui.frame_requester(),

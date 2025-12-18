@@ -547,36 +547,68 @@ async fn run_ratatui_app(
     app_result
 }
 
-/// Show a loading screen with animated text while the app initializes.
-fn show_loading_screen(tui: &mut Tui) {
+/// Render a single frame of the loading screen animation.
+/// Call this in a loop during async initialization to keep the animation running.
+pub fn render_loading_frame(tui: &mut Tui) {
     let loading_text = "Starting Azure Codex...";
 
-    // Render frames for ~2 seconds (one full shimmer loop cycle)
-    // 40 frames at 50ms = 2 seconds
-    for _ in 0..40 {
-        let _ = tui.terminal.draw(|frame| {
-            let area = frame.area();
+    let _ = tui.terminal.draw(|frame| {
+        let area = frame.area();
 
-            // Clear the screen
-            frame.render_widget_ref(ratatui::widgets::Clear, area);
+        // Clear the screen
+        frame.render_widget_ref(ratatui::widgets::Clear, area);
 
-            // Create shimmer animation text
-            let spans = shimmer_spans(loading_text);
-            let line = Line::from(spans);
-            let paragraph = Paragraph::new(line).alignment(Alignment::Center);
+        // Create shimmer animation text
+        let spans = shimmer_spans(loading_text);
+        let line = Line::from(spans);
+        let paragraph = Paragraph::new(line).alignment(Alignment::Center);
 
-            // Center vertically
-            let y_offset = area.height / 2;
-            let centered_area = ratatui::layout::Rect {
-                x: area.x,
-                y: y_offset,
-                width: area.width,
-                height: 1,
-            };
+        // Center vertically
+        let y_offset = area.height / 2;
+        let centered_area = ratatui::layout::Rect {
+            x: area.x,
+            y: y_offset,
+            width: area.width,
+            height: 1,
+        };
 
-            frame.render_widget_ref(paragraph, centered_area);
-        });
+        frame.render_widget_ref(paragraph, centered_area);
+    });
+}
 
+/// Wait for a future while rendering the loading animation.
+/// Renders a frame every 50ms until the future completes.
+pub async fn with_loading_animation<F, T>(tui: &mut Tui, future: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    use tokio::time::Duration;
+    use tokio::time::interval;
+
+    tokio::pin!(future);
+
+    let mut frame_interval = interval(Duration::from_millis(50));
+    // Don't delay the first tick
+    frame_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        tokio::select! {
+            result = &mut future => {
+                return result;
+            }
+            _ = frame_interval.tick() => {
+                render_loading_frame(tui);
+            }
+        }
+    }
+}
+
+/// Show a loading screen with animated text while the app initializes.
+fn show_loading_screen(tui: &mut Tui) {
+    // Render initial frames for ~1 second to show something immediately
+    // The App::run will continue the animation during async initialization
+    for _ in 0..20 {
+        render_loading_frame(tui);
         // 50ms between frames for smooth animation
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
