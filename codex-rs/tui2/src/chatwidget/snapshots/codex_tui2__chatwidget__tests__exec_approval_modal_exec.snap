@@ -1,12 +1,11 @@
 ---
 source: tui2/src/chatwidget/tests.rs
-assertion_line: 783
 expression: "format!(\"{buf:?}\")"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 13 },
     content: [
-        "                                                                                ",
+        ">_ Azure Codex  ·  caribou                     ctrl + k commands  ·  ? shortcuts",
         "                                                                                ",
         "  Would you like to run the following command?                                  ",
         "                                                                                ",
@@ -21,7 +20,16 @@ Buffer {
         "  Press enter to confirm or esc to cancel                                       ",
     ],
     styles: [
-        x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+        x: 3, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
+        x: 14, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+        x: 19, y: 0, fg: Cyan, bg: Reset, underline: Reset, modifier: BOLD,
+        x: 26, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 47, y: 0, fg: Blue, bg: Reset, underline: Reset, modifier: BOLD,
+        x: 55, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+        x: 69, y: 0, fg: Blue, bg: Reset, underline: Reset, modifier: BOLD,
+        x: 70, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+        x: 0, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 2, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
         x: 46, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 10, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: ITALIC,

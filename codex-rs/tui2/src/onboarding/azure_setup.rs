@@ -169,13 +169,21 @@ impl AzureSetupWidget {
         }
 
         let endpoint = self.endpoint_input.read().unwrap();
-        let content_line: Line = if endpoint.is_empty() {
+        let trimmed = endpoint.trim();
+        let normalized_preview = if trimmed.is_empty() {
+            None
+        } else {
+            let normalized = Self::normalize_endpoint(trimmed);
+            (normalized != trimmed).then_some(normalized)
+        };
+
+        let content_line: Line = if trimmed.is_empty() {
             // Show just the blinking cursor when empty (no placeholder text)
             Line::from(vec![blinking_cursor_span()])
         } else {
             // Show input with blinking cursor at end
             Line::from(vec![
-                Span::styled(endpoint.clone(), Style::default().fg(Color::Cyan)),
+                Span::styled(trimmed.to_string(), Style::default().fg(Color::Cyan)),
                 blinking_cursor_span(),
             ])
         };
@@ -217,7 +225,7 @@ impl AzureSetupWidget {
             ])
             .areas(content_area);
 
-            let intro_lines: Vec<Line> = vec![
+            let mut intro_lines: Vec<Line> = vec![
                 Line::from(vec!["  ".into(), theme::brand_span("Azure Codex Setup")]),
                 Line::from(vec![
                     "  ".into(),
@@ -227,6 +235,13 @@ impl AzureSetupWidget {
                     theme::path_span("https://your-resource.openai.azure.com"),
                 ]),
             ];
+            if let Some(preview) = normalized_preview.as_deref() {
+                intro_lines.push(Line::from(vec![
+                    "  ".into(),
+                    "Detected: ".dim(),
+                    theme::path_span(preview),
+                ]));
+            }
 
             Paragraph::new(intro_lines)
                 .wrap(Wrap { trim: false })
@@ -263,7 +278,7 @@ impl AzureSetupWidget {
             ])
             .areas(content_area);
 
-            let intro_lines: Vec<Line> = vec![
+            let mut intro_lines: Vec<Line> = vec![
                 Line::from(vec![
                     "  ".into(),
                     theme::brand_span("Welcome to Azure Codex!"),
@@ -281,12 +296,22 @@ impl AzureSetupWidget {
                     theme::path_span("https://your-resource.openai.azure.com"),
                 ]),
                 "".into(),
+            ];
+            if let Some(preview) = normalized_preview.as_deref() {
+                intro_lines.push(Line::from(vec![
+                    "  ".into(),
+                    "Detected: ".dim(),
+                    theme::path_span(preview),
+                ]));
+                intro_lines.push("".into());
+            }
+            intro_lines.extend(vec![
                 "  You can find your resource name in the Azure Portal"
                     .dim()
                     .into(),
                 "  under your Azure OpenAI resource.".dim().into(),
                 "".into(),
-            ];
+            ]);
 
             Paragraph::new(intro_lines)
                 .wrap(Wrap { trim: false })

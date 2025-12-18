@@ -1,8 +1,12 @@
 use codex_file_search::FileMatch;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Stylize as _;
+use ratatui::text::Line;
+use ratatui::text::Span;
 use ratatui::widgets::WidgetRef;
 
+use crate::key_hint;
 use crate::render::Insets;
 use crate::render::RectExt;
 
@@ -10,6 +14,7 @@ use super::popup_consts::MAX_POPUP_ROWS;
 use super::scroll_state::ScrollState;
 use super::selection_popup_common::GenericDisplayRow;
 use super::selection_popup_common::render_rows;
+use crossterm::event::KeyCode;
 
 /// Visual state for the file-search popup.
 pub(crate) struct FileSearchPopup {
@@ -111,12 +116,53 @@ impl FileSearchPopup {
         // up to MAX_RESULTS regardless of the waiting flag so the list
         // remains stable while a newer search is in-flight.
 
-        self.matches.len().clamp(1, MAX_POPUP_ROWS) as u16
+        let list_rows = self.matches.len().clamp(1, MAX_POPUP_ROWS) as u16;
+        // +1 for the header line (query + key hints).
+        list_rows.saturating_add(1)
     }
 }
 
 impl WidgetRef for &FileSearchPopup {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        let inner = area.inset(Insets::tlbr(0, 2, 0, 0));
+        if inner.is_empty() {
+            return;
+        }
+
+        let header_area = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        };
+        let list_area = Rect {
+            x: inner.x,
+            y: inner.y.saturating_add(1),
+            width: inner.width,
+            height: inner.height.saturating_sub(1),
+        };
+
+        let query = if self.pending_query.is_empty() {
+            "@".to_string()
+        } else {
+            format!("@{}", self.pending_query)
+        };
+        let status = if self.waiting { "searching…" } else { "" };
+        let mut spans: Vec<Span<'static>> = vec![Span::from(query).cyan().bold()];
+        if !status.is_empty() {
+            spans.push("  ·  ".dim());
+            spans.push(Span::from(status).dim());
+        }
+        spans.extend(vec![
+            "  ·  ".dim(),
+            key_hint::plain(KeyCode::Tab).into(),
+            " insert".dim(),
+            "  ·  ".dim(),
+            key_hint::plain(KeyCode::Esc).into(),
+            " close".dim(),
+        ]);
+        Line::from(spans).render_ref(header_area, buf);
+
         // Convert matches to GenericDisplayRow, translating indices to usize at the UI boundary.
         let rows_all: Vec<GenericDisplayRow> = if self.matches.is_empty() {
             Vec::new()
@@ -143,7 +189,7 @@ impl WidgetRef for &FileSearchPopup {
         };
 
         render_rows(
-            area.inset(Insets::tlbr(0, 2, 0, 0)),
+            list_area,
             buf,
             &rows_all,
             &self.state,

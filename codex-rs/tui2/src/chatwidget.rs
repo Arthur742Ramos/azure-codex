@@ -76,11 +76,13 @@ use ratatui::layout::Rect;
 use ratatui::style::Color;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
+use ratatui::text::Span;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Wrap;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 use tracing::debug;
+use unicode_width::UnicodeWidthStr;
 
 use crate::app_event::AppEvent;
 use crate::app_event_sender::AppEventSender;
@@ -106,6 +108,7 @@ use crate::history_cell::HistoryCell;
 use crate::history_cell::McpToolCallCell;
 use crate::history_cell::PlainHistoryCell;
 use crate::history_cell::SharedModelState;
+use crate::key_hint;
 use crate::markdown::append_markdown;
 use crate::render::Insets;
 use crate::render::renderable::ColumnRenderable;
@@ -3482,6 +3485,74 @@ impl Drop for ChatWidget {
 
 impl Renderable for ChatWidget {
     fn render(&self, area: Rect, buf: &mut Buffer) {
+        if area.is_empty() {
+            return;
+        }
+
+        // Top chrome row (brand/model + key hints), intentionally rendered into the
+        // row left empty by the active cell's top inset.
+        let header_area = Rect::new(area.x, area.y, area.width, 1);
+        let (model, reasoning_effort) = self.model_state.get();
+
+        let mut left_spans: Vec<Span<'static>> =
+            vec![">_ ".dim(), Span::from(codex_branding::APP_NAME).bold()];
+        if header_area.width >= 28 {
+            left_spans.push("  ·  ".dim());
+            left_spans.push(Span::from(model).cyan().bold());
+            if let Some(effort) = reasoning_effort {
+                let label = Self::reasoning_effort_label(effort);
+                left_spans.push("  ·  ".dim());
+                left_spans.push(Span::from(format!("r: {label}")).dim());
+            }
+        }
+
+        let right_full: Vec<Span<'static>> = vec![
+            key_hint::ctrl(KeyCode::Char('k')).into(),
+            " commands".dim(),
+            "  ·  ".dim(),
+            key_hint::plain(KeyCode::Char('?')).into(),
+            " shortcuts".dim(),
+        ];
+        let right_compact: Vec<Span<'static>> =
+            vec![key_hint::ctrl(KeyCode::Char('k')).into(), " commands".dim()];
+        let right_min: Vec<Span<'static>> = vec![key_hint::ctrl(KeyCode::Char('k')).into()];
+
+        let span_width = |spans: &[Span<'static>]| -> usize {
+            spans
+                .iter()
+                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+                .sum()
+        };
+
+        let header_width = header_area.width as usize;
+        let mut right_spans = right_full;
+        if span_width(&right_spans).saturating_add(8) > header_width {
+            right_spans = right_compact;
+        }
+        if span_width(&right_spans).saturating_add(8) > header_width {
+            right_spans = right_min;
+        }
+
+        let right_width = span_width(&right_spans).min(header_width) as u16;
+        if right_width > 0 && right_width < header_area.width {
+            let left_area = Rect::new(
+                header_area.x,
+                header_area.y,
+                header_area.width - right_width,
+                1,
+            );
+            let right_area = Rect::new(
+                header_area.x + header_area.width - right_width,
+                header_area.y,
+                right_width,
+                1,
+            );
+            Line::from(left_spans).render(left_area, buf);
+            Line::from(right_spans).render(right_area, buf);
+        } else {
+            Line::from(left_spans).render(header_area, buf);
+        }
+
         self.as_renderable().render(area, buf);
         self.last_rendered_width.set(Some(area.width as usize));
     }

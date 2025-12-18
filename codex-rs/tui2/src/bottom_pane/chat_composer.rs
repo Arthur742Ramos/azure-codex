@@ -96,6 +96,7 @@ pub(crate) struct ChatComposer {
     textarea: TextArea,
     textarea_state: RefCell<TextAreaState>,
     active_popup: ActivePopup,
+    command_popup_opened_with_ctrl_k: bool,
     app_event_tx: AppEventSender,
     history: ChatComposerHistory,
     ctrl_c_quit_hint: bool,
@@ -149,6 +150,7 @@ impl ChatComposer {
             textarea: TextArea::new(),
             textarea_state: RefCell::new(TextAreaState::default()),
             active_popup: ActivePopup::None,
+            command_popup_opened_with_ctrl_k: false,
             app_event_tx,
             history: ChatComposerHistory::new(),
             ctrl_c_quit_hint: false,
@@ -420,13 +422,7 @@ impl ChatComposer {
         if self.handle_shortcut_overlay_key(&key_event) {
             return (InputResult::None, true);
         }
-        if key_event.code == KeyCode::Esc {
-            let next_mode = esc_hint_mode(self.footer_mode, self.is_task_running);
-            if next_mode != self.footer_mode {
-                self.footer_mode = next_mode;
-                return (InputResult::None, true);
-            }
-        } else {
+        if key_event.code != KeyCode::Esc {
             self.footer_mode = reset_mode_after_activity(self.footer_mode);
         }
         let ActivePopup::Command(popup) = &mut self.active_popup else {
@@ -460,13 +456,17 @@ impl ChatComposer {
             KeyEvent {
                 code: KeyCode::Esc, ..
             } => {
-                // Dismiss the slash popup; keep the current input untouched.
                 self.active_popup = ActivePopup::None;
+                if self.command_popup_opened_with_ctrl_k {
+                    self.command_popup_opened_with_ctrl_k = false;
+                    self.textarea.set_text("");
+                }
                 (InputResult::None, true)
             }
             KeyEvent {
                 code: KeyCode::Tab, ..
             } => {
+                self.command_popup_opened_with_ctrl_k = false;
                 // Ensure popup filtering/selection reflects the latest composer text
                 // before applying completion.
                 let first_line = self.textarea.text().lines().next().unwrap_or("");
@@ -518,6 +518,7 @@ impl ChatComposer {
                 modifiers: KeyModifiers::NONE,
                 ..
             } => {
+                self.command_popup_opened_with_ctrl_k = false;
                 // If the current line starts with a custom prompt name and includes
                 // positional args for a numeric-style template, expand and submit
                 // immediately regardless of the popup selection.
@@ -609,13 +610,7 @@ impl ChatComposer {
         if self.handle_shortcut_overlay_key(&key_event) {
             return (InputResult::None, true);
         }
-        if key_event.code == KeyCode::Esc {
-            let next_mode = esc_hint_mode(self.footer_mode, self.is_task_running);
-            if next_mode != self.footer_mode {
-                self.footer_mode = next_mode;
-                return (InputResult::None, true);
-            }
-        } else {
+        if key_event.code != KeyCode::Esc {
             self.footer_mode = reset_mode_after_activity(self.footer_mode);
         }
         let ActivePopup::File(popup) = &mut self.active_popup else {
@@ -733,13 +728,7 @@ impl ChatComposer {
         if self.handle_shortcut_overlay_key(&key_event) {
             return (InputResult::None, true);
         }
-        if key_event.code == KeyCode::Esc {
-            let next_mode = esc_hint_mode(self.footer_mode, self.is_task_running);
-            if next_mode != self.footer_mode {
-                self.footer_mode = next_mode;
-                return (InputResult::None, true);
-            }
-        } else {
+        if key_event.code != KeyCode::Esc {
             self.footer_mode = reset_mode_after_activity(self.footer_mode);
         }
 
@@ -1035,6 +1024,17 @@ impl ChatComposer {
             self.footer_mode = reset_mode_after_activity(self.footer_mode);
         }
         match key_event {
+            KeyEvent {
+                code: KeyCode::Char('k'),
+                modifiers: KeyModifiers::CONTROL,
+                kind: KeyEventKind::Press,
+                ..
+            } if self.is_empty() => {
+                self.command_popup_opened_with_ctrl_k = true;
+                self.textarea.set_text("/");
+                self.textarea.set_cursor(self.textarea.text().len());
+                (InputResult::None, true)
+            }
             KeyEvent {
                 code: KeyCode::Char('d'),
                 modifiers: crossterm::event::KeyModifiers::CONTROL,
@@ -1667,6 +1667,7 @@ impl ChatComposer {
         if !allow {
             if matches!(self.active_popup, ActivePopup::Command(_)) {
                 self.active_popup = ActivePopup::None;
+                self.command_popup_opened_with_ctrl_k = false;
             }
             return;
         }
@@ -1687,6 +1688,7 @@ impl ChatComposer {
         if Self::current_at_token(&self.textarea).is_some() {
             if matches!(self.active_popup, ActivePopup::Command(_)) {
                 self.active_popup = ActivePopup::None;
+                self.command_popup_opened_with_ctrl_k = false;
             }
             return;
         }
@@ -1696,6 +1698,7 @@ impl ChatComposer {
                     popup.on_composer_text_change(first_line.to_string());
                 } else {
                     self.active_popup = ActivePopup::None;
+                    self.command_popup_opened_with_ctrl_k = false;
                 }
             }
             _ => {

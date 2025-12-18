@@ -6,5 +6,5 @@ expression: terminal.backend()
 "› /res                                                      "
 "                                                            "
 "                                                            "
-"                                                            "
+"  /res  ·  tab complete  ·  enter run  ·  esc close         "
 "  /resume  resume a saved chat                              "

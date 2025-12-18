@@ -1693,7 +1693,8 @@ fn render_bottom_first_row(chat: &ChatWidget, width: u16) -> String {
     let area = Rect::new(0, 0, width, height);
     let mut buf = Buffer::empty(area);
     chat.render(area, &mut buf);
-    for y in 0..area.height {
+    // Skip the global chrome row at the top of the chat widget.
+    for y in 1..area.height {
         let mut row = String::new();
         for x in 0..area.width {
             let s = buf[(x, y)].symbol();

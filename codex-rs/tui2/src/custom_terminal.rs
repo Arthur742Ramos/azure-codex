@@ -341,9 +341,17 @@ where
         self.flush()?;
 
         match cursor_position {
-            None => self.hide_cursor()?,
+            None => {
+                // Only hide if cursor is currently visible to avoid rapid blinking
+                if !self.hidden_cursor {
+                    self.hide_cursor()?;
+                }
+            }
             Some(position) => {
-                self.show_cursor()?;
+                // Only show if cursor is currently hidden to avoid rapid blinking
+                if self.hidden_cursor {
+                    self.show_cursor()?;
+                }
                 self.set_cursor_position(position)?;
             }
         }

@@ -8,6 +8,9 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::prelude::Widget;
 use ratatui::style::Color;
+use ratatui::style::Stylize as _;
+use ratatui::text::Line;
+use ratatui::text::Span;
 use ratatui::widgets::Clear;
 use ratatui::widgets::WidgetRef;
 
@@ -21,6 +24,7 @@ use crate::onboarding::azure_setup::AzureSetupWidget;
 use crate::onboarding::trust_directory::TrustDirectorySelection;
 use crate::onboarding::trust_directory::TrustDirectoryWidget;
 use crate::onboarding::welcome::WelcomeWidget;
+use crate::theme;
 use crate::tui::FrameRequester;
 use crate::tui::Tui;
 use crate::tui::TuiEvent;
@@ -297,8 +301,10 @@ impl KeyboardHandler for OnboardingScreen {
 impl WidgetRef for &OnboardingScreen {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         Clear.render(area, buf);
+
+        let header_height = self.render_header(area, buf);
         // Render steps top-to-bottom, measuring each step's height dynamically.
-        let mut y = area.y;
+        let mut y = area.y.saturating_add(header_height);
         let bottom = area.y.saturating_add(area.height);
         let width = area.width;
 
@@ -357,6 +363,119 @@ impl WidgetRef for &OnboardingScreen {
     }
 }
 
+impl OnboardingScreen {
+    fn render_header(&self, area: Rect, buf: &mut Buffer) -> u16 {
+        if area.is_empty() {
+            return 0;
+        }
+
+        let visible_steps: Vec<&Step> = self
+            .steps
+            .iter()
+            .filter(|step| !matches!(step.get_step_state(), StepState::Hidden))
+            .collect();
+        if visible_steps.is_empty() {
+            return 0;
+        }
+
+        let total = visible_steps.len();
+        let current_idx = visible_steps
+            .iter()
+            .position(|step| matches!(step.get_step_state(), StepState::InProgress))
+            .unwrap_or_else(|| total.saturating_sub(1));
+        let current_name = visible_steps
+            .get(current_idx)
+            .map(|s| s.label())
+            .unwrap_or("Setup");
+
+        let header_area = Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height.min(2),
+        };
+
+        // Small terminals: compact "Step X/Y" title only.
+        if header_area.width < 60 || total <= 1 {
+            let line = Line::from(vec![
+                "  ".into(),
+                theme::brand_span("Azure Codex"),
+                "  ".into(),
+                Span::from(format!(
+                    "Step {}/{}: {current_name}",
+                    current_idx + 1,
+                    total
+                ))
+                .dim(),
+            ]);
+            line.render_ref(
+                Rect {
+                    x: header_area.x,
+                    y: header_area.y,
+                    width: header_area.width,
+                    height: 1,
+                },
+                buf,
+            );
+            return 1;
+        }
+
+        let mut spans: Vec<Span<'static>> =
+            vec!["  ".into(), theme::brand_span("Azure Codex"), "  ".into()];
+        spans.push("Setup".bold());
+        spans.push("  ·  ".dim());
+
+        for (idx, step) in visible_steps.iter().enumerate() {
+            if idx > 0 {
+                spans.push("  ›  ".dim());
+            }
+
+            match step.get_step_state() {
+                StepState::Complete => spans.push(theme::checkmark()),
+                StepState::InProgress => {
+                    spans.push(Span::from(format!("{}", idx + 1)).cyan().bold())
+                }
+                StepState::Hidden => {}
+            }
+
+            spans.push(" ".into());
+            let name = step.label();
+            let name_span: Span<'static> = match step.get_step_state() {
+                StepState::Complete => Span::from(name).dim(),
+                StepState::InProgress => Span::from(name).cyan().bold(),
+                StepState::Hidden => Span::from(name).dim(),
+            };
+            spans.push(name_span);
+        }
+
+        Line::from(spans).render_ref(
+            Rect {
+                x: header_area.x,
+                y: header_area.y,
+                width: header_area.width,
+                height: 1,
+            },
+            buf,
+        );
+
+        // Add a single blank separator line when we have room to visually separate the header.
+        if header_area.height >= 2 {
+            Line::from("").render_ref(
+                Rect {
+                    x: header_area.x,
+                    y: header_area.y.saturating_add(1),
+                    width: header_area.width,
+                    height: 1,
+                },
+                buf,
+            );
+            2
+        } else {
+            1
+        }
+    }
+}
+
 impl KeyboardHandler for Step {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         match self {
@@ -384,6 +503,17 @@ impl StepStateProvider for Step {
             Step::AzureSetup(w) => w.get_step_state(),
             Step::Auth(w) => w.get_step_state(),
             Step::TrustDirectory(w) => w.get_step_state(),
+        }
+    }
+}
+
+impl Step {
+    fn label(&self) -> &'static str {
+        match self {
+            Step::Welcome(_) => "Welcome",
+            Step::AzureSetup(_) => "Azure",
+            Step::Auth(_) => "Sign in",
+            Step::TrustDirectory(_) => "Trust",
         }
     }
 }

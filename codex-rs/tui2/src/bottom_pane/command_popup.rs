@@ -1,11 +1,15 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Stylize as _;
+use ratatui::text::Line;
+use ratatui::text::Span;
 use ratatui::widgets::WidgetRef;
 
 use super::popup_consts::MAX_POPUP_ROWS;
 use super::scroll_state::ScrollState;
 use super::selection_popup_common::GenericDisplayRow;
 use super::selection_popup_common::render_rows;
+use crate::key_hint;
 use crate::render::Insets;
 use crate::render::RectExt;
 use crate::slash_command::SlashCommand;
@@ -13,6 +17,7 @@ use crate::slash_command::built_in_slash_commands;
 use codex_common::fuzzy_match::fuzzy_match;
 use codex_protocol::custom_prompts::CustomPrompt;
 use codex_protocol::custom_prompts::PROMPTS_CMD_PREFIX;
+use crossterm::event::KeyCode;
 use std::collections::HashSet;
 
 /// A selectable item in the popup: either a built-in command or a user prompt.
@@ -99,8 +104,10 @@ impl CommandPopup {
     pub(crate) fn calculate_required_height(&self, width: u16) -> u16 {
         use super::selection_popup_common::measure_rows_height;
         let rows = self.rows_from_matches(self.filtered());
+        const HEADER_ROWS: u16 = 1;
+        let content_width = width.saturating_sub(2).max(1);
 
-        measure_rows_height(&rows, &self.state, MAX_POPUP_ROWS, width)
+        HEADER_ROWS + measure_rows_height(&rows, &self.state, MAX_POPUP_ROWS, content_width)
     }
 
     /// Compute fuzzy-filtered matches over built-in commands and user prompts,
@@ -216,9 +223,46 @@ impl CommandPopup {
 
 impl WidgetRef for CommandPopup {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        let inner = area.inset(Insets::tlbr(0, 2, 0, 0));
+        if inner.is_empty() {
+            return;
+        }
+
+        let header_area = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        };
+        let list_area = Rect {
+            x: inner.x,
+            y: inner.y.saturating_add(1),
+            width: inner.width,
+            height: inner.height.saturating_sub(1),
+        };
+
+        let filter_display = if self.command_filter.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", self.command_filter)
+        };
+        let header = Line::from(vec![
+            Span::from(filter_display).cyan().bold(),
+            "  ·  ".dim(),
+            key_hint::plain(KeyCode::Tab).into(),
+            " complete".dim(),
+            "  ·  ".dim(),
+            key_hint::plain(KeyCode::Enter).into(),
+            " run".dim(),
+            "  ·  ".dim(),
+            key_hint::plain(KeyCode::Esc).into(),
+            " close".dim(),
+        ]);
+        header.render_ref(header_area, buf);
+
         let rows = self.rows_from_matches(self.filtered());
         render_rows(
-            area.inset(Insets::tlbr(0, 2, 0, 0)),
+            list_area,
             buf,
             &rows,
             &self.state,

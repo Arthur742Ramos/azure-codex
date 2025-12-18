@@ -543,7 +543,10 @@ impl Tui {
             let terminal = &mut self.terminal;
             if let Some(new_area) = pending_viewport_area.take() {
                 terminal.set_viewport_area(new_area);
-                // DISABLED: terminal.clear()?;
+                // When the viewport origin changes (e.g. resize + cursor moved),
+                // the actual terminal contents no longer match our back buffer.
+                // Clear the new viewport so we don't leave "ghost" text behind.
+                terminal.clear()?;
             }
 
             let size = terminal.size()?;
@@ -558,11 +561,10 @@ impl Tui {
                 area.y = size.height.saturating_sub(area.height);
             }
             if area != terminal.viewport_area {
-                // Only clear if we already had content (skip on first draw)
-                if !terminal.viewport_area.is_empty() {
-                    terminal.clear()?;
-                }
                 terminal.set_viewport_area(area);
+                // When the viewport size changes, the new region may contain preexisting terminal
+                // output. Clear it so rendering doesn't "blend" with whatever was there before.
+                terminal.clear()?;
             }
 
             // Update the y position for suspending so Ctrl-Z can place the cursor correctly.

@@ -1,5 +1,8 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Stylize as _;
+use ratatui::text::Line;
+use ratatui::text::Span;
 use ratatui::widgets::WidgetRef;
 
 use super::popup_consts::MAX_POPUP_ROWS;
@@ -7,10 +10,12 @@ use super::scroll_state::ScrollState;
 use super::selection_popup_common::GenericDisplayRow;
 use super::selection_popup_common::measure_rows_height;
 use super::selection_popup_common::render_rows;
+use crate::key_hint;
 use crate::render::Insets;
 use crate::render::RectExt;
 use codex_common::fuzzy_match::fuzzy_match;
 use codex_core::skills::model::SkillMetadata;
+use crossterm::event::KeyCode;
 
 pub(crate) struct SkillPopup {
     query: String,
@@ -39,7 +44,9 @@ impl SkillPopup {
 
     pub(crate) fn calculate_required_height(&self, width: u16) -> u16 {
         let rows = self.rows_from_matches(self.filtered());
-        measure_rows_height(&rows, &self.state, MAX_POPUP_ROWS, width)
+        const HEADER_ROWS: u16 = 1;
+        let content_width = width.saturating_sub(2).max(1);
+        HEADER_ROWS + measure_rows_height(&rows, &self.state, MAX_POPUP_ROWS, content_width)
     }
 
     pub(crate) fn move_up(&mut self) {
@@ -129,9 +136,42 @@ impl SkillPopup {
 
 impl WidgetRef for SkillPopup {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        let inner = area.inset(Insets::tlbr(0, 2, 0, 0));
+        if inner.is_empty() {
+            return;
+        }
+        let header_area = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        };
+        let list_area = Rect {
+            x: inner.x,
+            y: inner.y.saturating_add(1),
+            width: inner.width,
+            height: inner.height.saturating_sub(1),
+        };
+
+        let query = if self.query.is_empty() {
+            "$".to_string()
+        } else {
+            format!("${}", self.query)
+        };
+        let header = Line::from(vec![
+            Span::from(query).cyan().bold(),
+            "  ·  ".dim(),
+            key_hint::plain(KeyCode::Tab).into(),
+            " insert".dim(),
+            "  ·  ".dim(),
+            key_hint::plain(KeyCode::Esc).into(),
+            " close".dim(),
+        ]);
+        header.render_ref(header_area, buf);
+
         let rows = self.rows_from_matches(self.filtered());
         render_rows(
-            area.inset(Insets::tlbr(0, 2, 0, 0)),
+            list_area,
             buf,
             &rows,
             &self.state,

@@ -167,7 +167,10 @@ impl HistoryCell for UserHistoryCell {
         let inner_width = max_content_width.max(header_width + 2).min(50);
 
         // Top border: ╭─ You ─────╮
-        let top_fill = inner_width.saturating_sub(header_width);
+        // Total top width needs to equal inner_width + 4 (matching content and bottom border)
+        // Top = "╭─" (2) + header (5) + top_fill + "─╮" (2) = 9 + top_fill
+        // So top_fill = inner_width + 4 - 9 = inner_width - 5 = (inner_width + 2) - header_width
+        let top_fill = (inner_width + 2).saturating_sub(header_width);
         lines.push(Line::from(vec![
             Span::from("╭─").dim(),
             Span::from(header).bold(),
@@ -716,7 +719,7 @@ impl SharedModelState {
         }
     }
 
-    fn get(&self) -> (String, Option<ReasoningEffortConfig>) {
+    pub(crate) fn get(&self) -> (String, Option<ReasoningEffortConfig>) {
         if let Ok(guard) = self.inner.read() {
             (guard.model.clone(), guard.reasoning_effort)
         } else {
