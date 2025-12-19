@@ -23,6 +23,7 @@ use crate::tui;
 use crate::tui::TuiEvent;
 use crate::tui::scrolling::TranscriptLineMeta;
 use crate::tui::scrolling::TranscriptScroll;
+use crate::tui::scrolling::mouse_scroll_lines;
 use crate::update_action::UpdateAction;
 use crate::with_loading_animation;
 use crate::wrapping::RtOptions;
@@ -879,17 +880,27 @@ impl App {
 
         match mouse_event.kind {
             MouseEventKind::ScrollUp => {
+                let scroll_lines =
+                    mouse_scroll_lines(mouse_event.modifiers, transcript_area.height as usize);
+                if scroll_lines == 0 {
+                    return;
+                }
                 self.scroll_transcript(
                     tui,
-                    -3,
+                    -(scroll_lines as i32),
                     transcript_area.height as usize,
                     transcript_area.width,
                 );
             }
             MouseEventKind::ScrollDown => {
+                let scroll_lines =
+                    mouse_scroll_lines(mouse_event.modifiers, transcript_area.height as usize);
+                if scroll_lines == 0 {
+                    return;
+                }
                 self.scroll_transcript(
                     tui,
-                    3,
+                    scroll_lines as i32,
                     transcript_area.height as usize,
                     transcript_area.width,
                 );

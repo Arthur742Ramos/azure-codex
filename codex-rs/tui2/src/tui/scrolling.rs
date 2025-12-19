@@ -19,6 +19,8 @@
 //! Spacer rows between non-continuation cells are represented as `TranscriptLineMeta::Spacer`.
 //! They are not valid anchors; `anchor_for` will pick the nearest non-spacer line when needed.
 
+use crossterm::event::KeyModifiers;
+
 /// Per-flattened-line metadata for the transcript view.
 ///
 /// Each rendered line in the flattened transcript has a corresponding `TranscriptLineMeta` entry
@@ -51,6 +53,22 @@ impl TranscriptLineMeta {
             Self::Spacer => None,
         }
     }
+}
+
+const MOUSE_SCROLL_LINES: usize = 1;
+const MOUSE_SCROLL_FAST_LINES: usize = 3;
+
+pub(crate) fn mouse_scroll_lines(modifiers: KeyModifiers, viewport_height: usize) -> usize {
+    if viewport_height == 0 {
+        return 0;
+    }
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        return (viewport_height / 2).max(1);
+    }
+    if modifiers.contains(KeyModifiers::SHIFT) {
+        return MOUSE_SCROLL_FAST_LINES;
+    }
+    MOUSE_SCROLL_LINES
 }
 
 /// Scroll state for the inline transcript viewport.
@@ -362,5 +380,13 @@ mod tests {
                 line_in_cell: 0
             })
         );
+    }
+
+    #[test]
+    fn mouse_scroll_lines_prefers_ctrl_and_shift() {
+        assert_eq!(mouse_scroll_lines(KeyModifiers::NONE, 8), 1);
+        assert_eq!(mouse_scroll_lines(KeyModifiers::SHIFT, 8), 3);
+        assert_eq!(mouse_scroll_lines(KeyModifiers::CONTROL, 8), 4);
+        assert_eq!(mouse_scroll_lines(KeyModifiers::CONTROL, 1), 1);
     }
 }
