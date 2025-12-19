@@ -1,9 +1,8 @@
 ---
 source: tui2/src/chatwidget/tests.rs
+assertion_line: 1881
 expression: popup
 ---
->_ Azure Codex  ·  gpt-5.1-codex-max           ctrl + k commands  ·  ? shortcuts
-
   Select Reasoning Level for gpt-5.1-codex-max
 
   1. Low                   Fast responses with lighter reasoning

@@ -1,9 +1,8 @@
 ---
 source: tui2/src/chatwidget/tests.rs
+assertion_line: 1964
 expression: popup
 ---
->_ Azure Codex  ·  caribou                     ctrl + k commands  ·  ? shortcuts
-
   Upload logs?
 
   The following files will be sent:
