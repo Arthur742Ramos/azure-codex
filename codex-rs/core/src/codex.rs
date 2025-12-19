@@ -1765,6 +1765,7 @@ mod handlers {
     use codex_rmcp_client::ElicitationAction;
     use codex_rmcp_client::ElicitationResponse;
     use mcp_types::RequestId;
+    use std::io::ErrorKind;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tracing::info;
@@ -2075,6 +2076,14 @@ mod handlers {
             .terminate_all_sessions()
             .await;
         info!("Shutting down Codex instance");
+        if let Some(snapshot) = sess.services.user_shell.shell_snapshot.as_ref() {
+            let path = snapshot.path.clone();
+            if let Err(err) = tokio::fs::remove_file(&path).await
+                && err.kind() != ErrorKind::NotFound
+            {
+                warn!("failed to delete shell snapshot {path:?}: {err}");
+            }
+        }
 
         // Gracefully flush and shutdown rollout recorder on session end so tests
         // that inspect the rollout file do not race with the background writer.
