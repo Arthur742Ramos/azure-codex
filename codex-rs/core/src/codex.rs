@@ -2338,7 +2338,6 @@ pub(crate) async fn run_task(
         .await;
     let mut last_agent_message: Option<String> = None;
     let mut auto_resume_attempts = 0;
-    const AUTO_KEEP_GOING_MAX: usize = 1;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -2420,11 +2419,10 @@ pub(crate) async fn run_task(
             Err(e) => {
                 if let CodexErr::Stream(message, _) = &e
                     && message == "response.failed event received"
-                    && auto_resume_attempts < AUTO_KEEP_GOING_MAX
                 {
                     auto_resume_attempts += 1;
                     let message = format!(
-                        "Stream disconnected before completion. Resuming with \"Keep going\" ({auto_resume_attempts}/{AUTO_KEEP_GOING_MAX}).",
+                        "Stream disconnected before completion. Resuming with \"Keep going\" (attempt {auto_resume_attempts}).",
                     );
                     sess.send_event(&turn_context, EventMsg::Warning(WarningEvent { message }))
                         .await;

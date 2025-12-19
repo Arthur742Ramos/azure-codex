@@ -722,6 +722,7 @@ impl App {
             .collect();
         let base_opts: RtOptions<'_> = RtOptions::new(transcript_area.width.max(1) as usize);
         let mut wrapped_is_user_row: Vec<bool> = Vec::with_capacity(wrapped.len());
+        let mut wrapped_line_meta: Vec<TranscriptLineMeta> = Vec::with_capacity(wrapped.len());
         let mut first = true;
         for (idx, line) in lines.iter().enumerate() {
             let opts = if first {
@@ -732,11 +733,15 @@ impl App {
                     .initial_indent(base_opts.subsequent_indent.clone())
             };
             let seg_count = word_wrap_line(line, opts).len();
-            let is_user_row = line_meta
+            let meta = line_meta
                 .get(idx)
-                .and_then(TranscriptLineMeta::cell_index)
+                .copied()
+                .unwrap_or(TranscriptLineMeta::Spacer);
+            let is_user_row = meta
+                .cell_index()
                 .map(|cell_index| is_user_cell.get(cell_index).copied().unwrap_or(false))
                 .unwrap_or(false);
+            wrapped_line_meta.extend(std::iter::repeat_n(meta, seg_count));
             wrapped_is_user_row.extend(std::iter::repeat_n(is_user_row, seg_count));
             first = false;
         }
@@ -746,7 +751,9 @@ impl App {
         let max_visible = std::cmp::min(max_transcript_height as usize, total_lines);
         let max_start = total_lines.saturating_sub(max_visible);
 
-        let (scroll_state, top_offset) = self.transcript_scroll.resolve_top(&line_meta, max_start);
+        let (scroll_state, top_offset) = self
+            .transcript_scroll
+            .resolve_top(&wrapped_line_meta, max_start);
         self.transcript_scroll = scroll_state;
         self.transcript_view_top = top_offset;
 
@@ -963,10 +970,38 @@ impl App {
             return;
         }
 
-        let (_, line_meta) = Self::build_transcript_lines(&self.transcript_cells, width);
+        let (lines, line_meta) = Self::build_transcript_lines(&self.transcript_cells, width);
+        if lines.is_empty() || line_meta.is_empty() {
+            return;
+        }
+
+        let base_opts: RtOptions<'_> = RtOptions::new(width.max(1) as usize);
+        let mut wrapped_line_meta = Vec::new();
+        let mut first = true;
+        for (idx, line) in lines.iter().enumerate() {
+            let opts = if first {
+                base_opts.clone()
+            } else {
+                base_opts
+                    .clone()
+                    .initial_indent(base_opts.subsequent_indent.clone())
+            };
+            let seg_count = word_wrap_line(line, opts).len();
+            let meta = line_meta
+                .get(idx)
+                .copied()
+                .unwrap_or(TranscriptLineMeta::Spacer);
+            wrapped_line_meta.extend(std::iter::repeat_n(meta, seg_count));
+            first = false;
+        }
+
+        if wrapped_line_meta.is_empty() {
+            return;
+        }
+
         self.transcript_scroll =
             self.transcript_scroll
-                .scrolled_by(delta_lines, &line_meta, visible_lines);
+                .scrolled_by(delta_lines, &wrapped_line_meta, visible_lines);
 
         tui.frame_requester().schedule_frame();
     }
