@@ -31,18 +31,24 @@ pub(crate) enum TranscriptLineMeta {
     CellLine {
         cell_index: usize,
         line_in_cell: usize,
+        /// Which wrapped segment this is within the logical line (0-indexed).
+        /// When a long line wraps into multiple visual lines, each gets a different
+        /// `wrap_segment` value (0, 1, 2, ...) so they can be distinguished for anchoring.
+        wrap_segment: usize,
     },
     /// A synthetic spacer row inserted between non-continuation cells.
     Spacer,
 }
 
 impl TranscriptLineMeta {
-    pub(crate) fn cell_line(&self) -> Option<(usize, usize)> {
+    /// Returns (cell_index, line_in_cell, wrap_segment) for CellLine entries.
+    pub(crate) fn cell_line(&self) -> Option<(usize, usize, usize)> {
         match *self {
             Self::CellLine {
                 cell_index,
                 line_in_cell,
-            } => Some((cell_index, line_in_cell)),
+                wrap_segment,
+            } => Some((cell_index, line_in_cell, wrap_segment)),
             Self::Spacer => None,
         }
     }
@@ -81,13 +87,15 @@ pub(crate) enum TranscriptScroll {
     #[default]
     /// Follow the most recent line in the transcript.
     ToBottom,
-    /// Anchor the viewport to a specific transcript cell and line.
+    /// Anchor the viewport to a specific transcript cell, line, and wrapped segment.
     ///
     /// `cell_index` indexes into the logical transcript cell list. `line_in_cell` is the 0-based
     /// visual line index within that cell as produced by the current wrapping/layout.
+    /// `wrap_segment` identifies which wrapped segment within the visual line (0-indexed).
     Scrolled {
         cell_index: usize,
         line_in_cell: usize,
+        wrap_segment: usize,
     },
 }
 
@@ -112,8 +120,9 @@ impl TranscriptScroll {
             Self::Scrolled {
                 cell_index,
                 line_in_cell,
+                wrap_segment,
             } => {
-                let anchor = anchor_index(line_meta, cell_index, line_in_cell);
+                let anchor = anchor_index(line_meta, cell_index, line_in_cell, wrap_segment);
                 match anchor {
                     Some(idx) => (self, idx.min(max_start)),
                     None => (Self::ToBottom, max_start),
@@ -150,7 +159,8 @@ impl TranscriptScroll {
             Self::Scrolled {
                 cell_index,
                 line_in_cell,
-            } => anchor_index(line_meta, cell_index, line_in_cell)
+                wrap_segment,
+            } => anchor_index(line_meta, cell_index, line_in_cell, wrap_segment)
                 .unwrap_or(max_start)
                 .min(max_start),
         };
@@ -173,29 +183,31 @@ impl TranscriptScroll {
     /// Anchor to the first available line at or near the given start offset.
     ///
     /// This is the inverse of "resolving a scroll state to a top-row offset":
-    /// given a concrete flattened line index, pick a stable `(cell_index, line_in_cell)` anchor.
+    /// given a concrete flattened line index, pick a stable `(cell_index, line_in_cell, wrap_segment)` anchor.
     ///
     /// See `resolve_top` for `line_meta` semantics. This prefers the nearest line at or after `start`
     /// (skipping spacer rows), falling back to the nearest line before it when needed.
     pub(crate) fn anchor_for(line_meta: &[TranscriptLineMeta], start: usize) -> Option<Self> {
         let anchor =
             anchor_at_or_after(line_meta, start).or_else(|| anchor_at_or_before(line_meta, start));
-        anchor.map(|(cell_index, line_in_cell)| Self::Scrolled {
+        anchor.map(|(cell_index, line_in_cell, wrap_segment)| Self::Scrolled {
             cell_index,
             line_in_cell,
+            wrap_segment,
         })
     }
 }
 
-/// Locate the flattened line index for a specific transcript cell and line.
+/// Locate the flattened line index for a specific transcript cell, line, and wrap segment.
 ///
-/// This scans `meta` for the exact `(cell_index, line_in_cell)` anchor. It returns `None` when the
-/// anchor is not present in the current frame's flattened line list (for example if a cell was
-/// removed or its displayed line count changed).
+/// This scans `meta` for the exact `(cell_index, line_in_cell, wrap_segment)` anchor. It returns
+/// `None` when the anchor is not present in the current frame's flattened line list (for example
+/// if a cell was removed or its displayed line count changed).
 fn anchor_index(
     line_meta: &[TranscriptLineMeta],
     cell_index: usize,
     line_in_cell: usize,
+    wrap_segment: usize,
 ) -> Option<usize> {
     line_meta
         .iter()
@@ -204,13 +216,17 @@ fn anchor_index(
             TranscriptLineMeta::CellLine {
                 cell_index: ci,
                 line_in_cell: li,
-            } if ci == cell_index && li == line_in_cell => Some(idx),
+                wrap_segment: ws,
+            } if ci == cell_index && li == line_in_cell && ws == wrap_segment => Some(idx),
             _ => None,
         })
 }
 
 /// Find the first transcript line at or after the given flattened index.
-fn anchor_at_or_after(line_meta: &[TranscriptLineMeta], start: usize) -> Option<(usize, usize)> {
+fn anchor_at_or_after(
+    line_meta: &[TranscriptLineMeta],
+    start: usize,
+) -> Option<(usize, usize, usize)> {
     if line_meta.is_empty() {
         return None;
     }
@@ -222,7 +238,10 @@ fn anchor_at_or_after(line_meta: &[TranscriptLineMeta], start: usize) -> Option<
 }
 
 /// Find the nearest transcript line at or before the given flattened index.
-fn anchor_at_or_before(line_meta: &[TranscriptLineMeta], start: usize) -> Option<(usize, usize)> {
+fn anchor_at_or_before(
+    line_meta: &[TranscriptLineMeta],
+    start: usize,
+) -> Option<(usize, usize, usize)> {
     if line_meta.is_empty() {
         return None;
     }
@@ -243,9 +262,18 @@ mod tests {
     }
 
     fn cell_line(cell_index: usize, line_in_cell: usize) -> TranscriptLineMeta {
+        cell_line_wrap(cell_index, line_in_cell, 0)
+    }
+
+    fn cell_line_wrap(
+        cell_index: usize,
+        line_in_cell: usize,
+        wrap_segment: usize,
+    ) -> TranscriptLineMeta {
         TranscriptLineMeta::CellLine {
             cell_index,
             line_in_cell,
+            wrap_segment,
         }
     }
 
@@ -275,6 +303,7 @@ mod tests {
         let scroll = TranscriptScroll::Scrolled {
             cell_index: 1,
             line_in_cell: 0,
+            wrap_segment: 0,
         };
 
         let (state, top) = scroll.resolve_top(&meta, 2);
@@ -289,6 +318,7 @@ mod tests {
         let scroll = TranscriptScroll::Scrolled {
             cell_index: 2,
             line_in_cell: 0,
+            wrap_segment: 0,
         };
 
         let (state, top) = scroll.resolve_top(&meta, 1);
@@ -314,7 +344,8 @@ mod tests {
             state,
             TranscriptScroll::Scrolled {
                 cell_index: 1,
-                line_in_cell: 0
+                line_in_cell: 0,
+                wrap_segment: 0,
             }
         );
     }
@@ -330,6 +361,7 @@ mod tests {
         let scroll = TranscriptScroll::Scrolled {
             cell_index: 0,
             line_in_cell: 0,
+            wrap_segment: 0,
         };
 
         let state = scroll.scrolled_by(5, &meta, 2);
@@ -344,6 +376,7 @@ mod tests {
         let state = TranscriptScroll::Scrolled {
             cell_index: 0,
             line_in_cell: 0,
+            wrap_segment: 0,
         }
         .scrolled_by(-1, &meta, 5);
 
@@ -363,21 +396,24 @@ mod tests {
             TranscriptScroll::anchor_for(&meta, 0),
             Some(TranscriptScroll::Scrolled {
                 cell_index: 0,
-                line_in_cell: 0
+                line_in_cell: 0,
+                wrap_segment: 0,
             })
         );
         assert_eq!(
             TranscriptScroll::anchor_for(&meta, 2),
             Some(TranscriptScroll::Scrolled {
                 cell_index: 1,
-                line_in_cell: 0
+                line_in_cell: 0,
+                wrap_segment: 0,
             })
         );
         assert_eq!(
             TranscriptScroll::anchor_for(&meta, 3),
             Some(TranscriptScroll::Scrolled {
                 cell_index: 1,
-                line_in_cell: 0
+                line_in_cell: 0,
+                wrap_segment: 0,
             })
         );
     }
@@ -388,5 +424,71 @@ mod tests {
         assert_eq!(mouse_scroll_lines(KeyModifiers::SHIFT, 8), 3);
         assert_eq!(mouse_scroll_lines(KeyModifiers::CONTROL, 8), 4);
         assert_eq!(mouse_scroll_lines(KeyModifiers::CONTROL, 1), 1);
+    }
+
+    #[test]
+    fn wrap_segment_distinguishes_wrapped_lines() {
+        // Simulate a long line that wraps into 3 visual lines
+        let meta = meta(&[
+            cell_line_wrap(0, 0, 0), // First wrapped segment
+            cell_line_wrap(0, 0, 1), // Second wrapped segment
+            cell_line_wrap(0, 0, 2), // Third wrapped segment
+            cell_line(0, 1),         // Next line in same cell
+            cell_line(1, 0),         // Different cell
+        ]);
+
+        // Anchor at the second wrapped segment
+        let scroll = TranscriptScroll::anchor_for(&meta, 1);
+        assert_eq!(
+            scroll,
+            Some(TranscriptScroll::Scrolled {
+                cell_index: 0,
+                line_in_cell: 0,
+                wrap_segment: 1,
+            })
+        );
+
+        // Resolve should find the exact position
+        let scroll = scroll.unwrap();
+        let (state, top) = scroll.resolve_top(&meta, 4);
+        assert_eq!(state, scroll);
+        assert_eq!(top, 1); // Position 1, the second wrapped segment
+    }
+
+    #[test]
+    fn scrolled_by_preserves_wrap_segment_position() {
+        // Simulate content with wrapped lines
+        let meta = meta(&[
+            cell_line_wrap(0, 0, 0),
+            cell_line_wrap(0, 0, 1),
+            cell_line_wrap(0, 0, 2),
+            cell_line_wrap(0, 0, 3),
+            cell_line_wrap(0, 0, 4),
+            cell_line(0, 1),
+        ]);
+
+        // Scroll up from bottom by 2 lines (viewport = 3)
+        let state = TranscriptScroll::ToBottom.scrolled_by(-2, &meta, 3);
+
+        // Should land on wrap_segment 1 (position 1)
+        assert_eq!(
+            state,
+            TranscriptScroll::Scrolled {
+                cell_index: 0,
+                line_in_cell: 0,
+                wrap_segment: 1,
+            }
+        );
+
+        // Now scroll down by 1, should move to wrap_segment 2
+        let state = state.scrolled_by(1, &meta, 3);
+        assert_eq!(
+            state,
+            TranscriptScroll::Scrolled {
+                cell_index: 0,
+                line_in_cell: 0,
+                wrap_segment: 2,
+            }
+        );
     }
 }

@@ -750,7 +750,25 @@ impl App {
                 .cell_index()
                 .map(|cell_index| is_user_cell.get(cell_index).copied().unwrap_or(false))
                 .unwrap_or(false);
-            wrapped_line_meta.extend(std::iter::repeat_n(meta, seg_count));
+            // Generate metadata with incrementing wrap_segment for each wrapped segment
+            match meta {
+                TranscriptLineMeta::CellLine {
+                    cell_index,
+                    line_in_cell,
+                    ..
+                } => {
+                    for wrap_segment in 0..seg_count {
+                        wrapped_line_meta.push(TranscriptLineMeta::CellLine {
+                            cell_index,
+                            line_in_cell,
+                            wrap_segment,
+                        });
+                    }
+                }
+                TranscriptLineMeta::Spacer => {
+                    wrapped_line_meta.extend(std::iter::repeat_n(meta, seg_count));
+                }
+            }
             wrapped_is_user_row.extend(std::iter::repeat_n(is_user_row, seg_count));
             first = false;
         }
@@ -1000,7 +1018,25 @@ impl App {
                 .get(idx)
                 .copied()
                 .unwrap_or(TranscriptLineMeta::Spacer);
-            wrapped_line_meta.extend(std::iter::repeat_n(meta, seg_count));
+            // Generate metadata with incrementing wrap_segment for each wrapped segment
+            match meta {
+                TranscriptLineMeta::CellLine {
+                    cell_index,
+                    line_in_cell,
+                    ..
+                } => {
+                    for wrap_segment in 0..seg_count {
+                        wrapped_line_meta.push(TranscriptLineMeta::CellLine {
+                            cell_index,
+                            line_in_cell,
+                            wrap_segment,
+                        });
+                    }
+                }
+                TranscriptLineMeta::Spacer => {
+                    wrapped_line_meta.extend(std::iter::repeat_n(meta, seg_count));
+                }
+            }
             first = false;
         }
 
@@ -1090,6 +1126,7 @@ impl App {
                 line_meta.push(TranscriptLineMeta::CellLine {
                     cell_index,
                     line_in_cell,
+                    wrap_segment: 0, // Will be updated when wrapping is applied
                 });
                 lines.push(line);
             }
@@ -2132,6 +2169,7 @@ impl App {
                     self.transcript_scroll = TranscriptScroll::Scrolled {
                         cell_index: 0,
                         line_in_cell: 0,
+                        wrap_segment: 0,
                     };
                     tui.frame_requester().schedule_frame();
                 }
@@ -2573,6 +2611,7 @@ mod tests {
         let line_meta = vec![TranscriptLineMeta::CellLine {
             cell_index: 0,
             line_in_cell: 0,
+            wrap_segment: 0,
         }];
         let is_user_cell = vec![true];
         let width: u16 = 10;
