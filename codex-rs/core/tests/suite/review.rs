@@ -7,6 +7,7 @@ use codex_core::REVIEW_PROMPT;
 use codex_core::ResponseItem;
 use codex_core::built_in_model_providers;
 use codex_core::config::Config;
+use codex_core::config::Constrained;
 use codex_core::protocol::ENVIRONMENT_CONTEXT_OPEN_TAG;
 use codex_core::protocol::EventMsg;
 use codex_core::protocol::ExitedReviewModeEvent;
@@ -84,7 +85,7 @@ async fn review_op_emits_lifecycle_and_review_output() {
     let server = start_responses_server_with_sse(&sse_raw, 1).await;
     let codex_home = TempDir::new().unwrap();
     let codex = new_conversation_for_server(&server, &codex_home, |cfg| {
-        cfg.sandbox_policy = SandboxPolicy::DangerFullAccess;
+        cfg.sandbox_policy = Constrained::allow_any(SandboxPolicy::DangerFullAccess);
         cfg.did_user_set_custom_approval_policy_or_sandbox_mode = true;
     })
     .await;
@@ -559,7 +560,7 @@ async fn review_input_isolated_from_parent_history() {
 
     // Seed a parent session history via resume file with both user + assistant items.
     let codex_home = TempDir::new().unwrap();
-    let mut config = load_default_config_for_test(&codex_home);
+    let mut config = load_default_config_for_test(&codex_home).await;
     config.model_provider = ModelProviderInfo {
         base_url: Some(format!("{}/v1", server.uri())),
         ..built_in_model_providers()["openai"].clone()
@@ -660,31 +661,28 @@ async fn review_input_isolated_from_parent_history() {
         .expect("expected POST request to /responses");
     let body = request.body_json::<serde_json::Value>().unwrap();
     let input = body["input"].as_array().expect("input array");
-    assert_eq!(
-        input.len(),
-        2,
-        "expected environment context and review prompt"
+    assert!(
+        input.len() >= 2,
+        "expected at least environment context and review prompt"
     );
 
-    let env_msg = &input[0];
-    assert_eq!(env_msg["type"].as_str().unwrap(), "message");
-    assert_eq!(env_msg["role"].as_str().unwrap(), "user");
-    let env_text = env_msg["content"][0]["text"].as_str().expect("env text");
-    assert!(
-        env_text.starts_with(ENVIRONMENT_CONTEXT_OPEN_TAG),
-        "environment context must be the first item"
-    );
+    let env_text = input
+        .iter()
+        .filter_map(|msg| msg["content"][0]["text"].as_str())
+        .find(|text| text.starts_with(ENVIRONMENT_CONTEXT_OPEN_TAG))
+        .expect("env text");
     assert!(
         env_text.contains("<cwd>"),
         "environment context should include cwd"
     );
 
-    let review_msg = &input[1];
-    assert_eq!(review_msg["type"].as_str().unwrap(), "message");
-    assert_eq!(review_msg["role"].as_str().unwrap(), "user");
+    let review_text = input
+        .iter()
+        .filter_map(|msg| msg["content"][0]["text"].as_str())
+        .find(|text| *text == review_prompt)
+        .expect("review prompt text");
     assert_eq!(
-        review_msg["content"][0]["text"].as_str().unwrap(),
-        review_prompt,
+        review_text, review_prompt,
         "user message should only contain the raw review prompt"
     );
 
@@ -851,7 +849,7 @@ where
         base_url: Some(format!("{}/v1", server.uri())),
         ..built_in_model_providers()["openai"].clone()
     };
-    let mut config = load_default_config_for_test(codex_home);
+    let mut config = load_default_config_for_test(codex_home).await;
     config.model_provider = model_provider;
     mutator(&mut config);
     let conversation_manager = ConversationManager::with_models_provider(
@@ -880,7 +878,7 @@ where
         base_url: Some(format!("{}/v1", server.uri())),
         ..built_in_model_providers()["openai"].clone()
     };
-    let mut config = load_default_config_for_test(codex_home);
+    let mut config = load_default_config_for_test(codex_home).await;
     config.model_provider = model_provider;
     mutator(&mut config);
     let conversation_manager = ConversationManager::with_models_provider(

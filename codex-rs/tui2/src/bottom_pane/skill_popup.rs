@@ -8,14 +8,15 @@ use ratatui::widgets::WidgetRef;
 use super::popup_consts::MAX_POPUP_ROWS;
 use super::scroll_state::ScrollState;
 use super::selection_popup_common::GenericDisplayRow;
-use super::selection_popup_common::measure_rows_height;
-use super::selection_popup_common::render_rows;
+use super::selection_popup_common::render_rows_single_line;
 use crate::key_hint;
 use crate::render::Insets;
 use crate::render::RectExt;
 use codex_common::fuzzy_match::fuzzy_match;
 use codex_core::skills::model::SkillMetadata;
 use crossterm::event::KeyCode;
+
+use crate::text_formatting::truncate_text;
 
 pub(crate) struct SkillPopup {
     query: String,
@@ -42,11 +43,10 @@ impl SkillPopup {
         self.clamp_selection();
     }
 
-    pub(crate) fn calculate_required_height(&self, width: u16) -> u16 {
+    pub(crate) fn calculate_required_height(&self, _width: u16) -> u16 {
         let rows = self.rows_from_matches(self.filtered());
-        const HEADER_ROWS: u16 = 1;
-        let content_width = width.saturating_sub(2).max(1);
-        HEADER_ROWS + measure_rows_height(&rows, &self.state, MAX_POPUP_ROWS, content_width)
+        let visible = rows.len().clamp(1, MAX_POPUP_ROWS);
+        visible as u16
     }
 
     pub(crate) fn move_up(&mut self) {
@@ -86,14 +86,12 @@ impl SkillPopup {
             .into_iter()
             .map(|(idx, indices, _score)| {
                 let skill = &self.skills[idx];
-                let slug = skill
-                    .path
-                    .parent()
-                    .and_then(|p| p.file_name())
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(&skill.name);
-                let name = format!("{} ({slug})", skill.name);
-                let description = skill.description.clone();
+                let name = truncate_text(&skill.name, 21);
+                let description = skill
+                    .short_description
+                    .as_ref()
+                    .unwrap_or(&skill.description)
+                    .clone();
                 GenericDisplayRow {
                     name,
                     match_indices: indices,
@@ -170,7 +168,7 @@ impl WidgetRef for SkillPopup {
         header.render_ref(header_area, buf);
 
         let rows = self.rows_from_matches(self.filtered());
-        render_rows(
+        render_rows_single_line(
             list_area,
             buf,
             &rows,

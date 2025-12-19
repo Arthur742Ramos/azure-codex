@@ -12,6 +12,8 @@ use crate::config::types::ShellEnvironmentPolicy;
 use crate::config::types::ShellEnvironmentPolicyToml;
 use crate::config::types::Tui;
 use crate::config::types::UriBasedFileOpener;
+use crate::config_loader::ConfigRequirements;
+use crate::config_loader::LoaderOverrides;
 use crate::config_loader::load_config_layers_state;
 use crate::features::Feature;
 use crate::features::FeatureOverrides;
@@ -112,7 +114,7 @@ pub struct Config {
     /// Approval policy for executing commands.
     pub approval_policy: Constrained<AskForApproval>,
 
-    pub sandbox_policy: SandboxPolicy,
+    pub sandbox_policy: Constrained<SandboxPolicy>,
 
     /// True if the user passed in an override or set a value in config.toml
     /// for either of approval_policy or sandbox_mode.
@@ -320,55 +322,113 @@ pub struct Config {
     pub azure_api_version: String,
 }
 
-impl Config {
-    pub async fn load_with_cli_overrides(
-        cli_overrides: Vec<(String, TomlValue)>,
-        overrides: ConfigOverrides,
-    ) -> std::io::Result<Self> {
-        let codex_home = find_codex_home()?;
+#[derive(Debug, Clone, Default)]
+pub struct ConfigBuilder {
+    codex_home: Option<PathBuf>,
+    cli_overrides: Option<Vec<(String, TomlValue)>>,
+    harness_overrides: Option<ConfigOverrides>,
+    loader_overrides: Option<LoaderOverrides>,
+}
 
-        let root_value = load_resolved_config(
-            &codex_home,
+impl ConfigBuilder {
+    pub fn codex_home(mut self, codex_home: PathBuf) -> Self {
+        self.codex_home = Some(codex_home);
+        self
+    }
+
+    pub fn cli_overrides(mut self, cli_overrides: Vec<(String, TomlValue)>) -> Self {
+        self.cli_overrides = Some(cli_overrides);
+        self
+    }
+
+    pub fn harness_overrides(mut self, harness_overrides: ConfigOverrides) -> Self {
+        self.harness_overrides = Some(harness_overrides);
+        self
+    }
+
+    pub fn loader_overrides(mut self, loader_overrides: LoaderOverrides) -> Self {
+        self.loader_overrides = Some(loader_overrides);
+        self
+    }
+
+    pub async fn build(self) -> std::io::Result<Config> {
+        let Self {
+            codex_home,
             cli_overrides,
-            crate::config_loader::LoaderOverrides::default(),
+            harness_overrides,
+            loader_overrides,
+        } = self;
+        let codex_home = codex_home.map_or_else(find_codex_home, std::io::Result::Ok)?;
+        let cli_overrides = cli_overrides.unwrap_or_default();
+        let harness_overrides = harness_overrides.unwrap_or_default();
+        let loader_overrides = loader_overrides.unwrap_or_default();
+        let config_layer_stack =
+            load_config_layers_state(&codex_home, &cli_overrides, loader_overrides).await?;
+        let merged_toml = config_layer_stack.effective_config();
+
+        // Note that each layer in ConfigLayerStack should have resolved
+        // relative paths to absolute paths based on the parent folder of the
+        // respective config file, so we should be safe to deserialize without
+        // AbsolutePathBufGuard here.
+        let config_toml: ConfigToml = merged_toml
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        Config::load_config_with_requirements(
+            config_toml,
+            harness_overrides,
+            codex_home,
+            config_layer_stack.requirements().clone(),
         )
-        .await?;
-
-        let cfg = deserialize_config_toml_with_base(root_value, &codex_home).map_err(|e| {
-            tracing::error!("Failed to deserialize overridden config: {e}");
-            e
-        })?;
-
-        Self::load_from_base_config_with_overrides(cfg, overrides, codex_home)
     }
 }
 
+impl Config {
+    /// This is the preferred way to create an instance of [Config].
+    pub async fn load_with_cli_overrides(
+        cli_overrides: Vec<(String, TomlValue)>,
+    ) -> std::io::Result<Self> {
+        ConfigBuilder::default()
+            .cli_overrides(cli_overrides)
+            .build()
+            .await
+    }
+
+    /// This is a secondary way of creating [Config], which is appropriate when
+    /// the harness is meant to be used with a specific configuration that
+    /// ignores user settings. For example, the `codex exec` subcommand is
+    /// designed to use [AskForApproval::Never] exclusively.
+    ///
+    /// Further, [ConfigOverrides] contains some options that are not supported
+    /// in [ConfigToml], such as `cwd` and `codex_linux_sandbox_exe`.
+    pub async fn load_with_cli_overrides_and_harness_overrides(
+        cli_overrides: Vec<(String, TomlValue)>,
+        harness_overrides: ConfigOverrides,
+    ) -> std::io::Result<Self> {
+        ConfigBuilder::default()
+            .cli_overrides(cli_overrides)
+            .harness_overrides(harness_overrides)
+            .build()
+            .await
+    }
+}
+
+/// DEPRECATED: Use [Config::load_with_cli_overrides()] instead because working
+/// with [ConfigToml] directly means that [ConfigRequirements] have not been
+/// applied yet, which risks failing to enforce required constraints.
 pub async fn load_config_as_toml_with_cli_overrides(
     codex_home: &Path,
     cli_overrides: Vec<(String, TomlValue)>,
 ) -> std::io::Result<ConfigToml> {
-    let root_value = load_resolved_config(
-        codex_home,
-        cli_overrides,
-        crate::config_loader::LoaderOverrides::default(),
-    )
-    .await?;
+    let config_layer_stack =
+        load_config_layers_state(codex_home, &cli_overrides, LoaderOverrides::default()).await?;
 
-    let cfg = deserialize_config_toml_with_base(root_value, codex_home).map_err(|e| {
+    let merged_toml = config_layer_stack.effective_config();
+    let cfg = deserialize_config_toml_with_base(merged_toml, codex_home).map_err(|e| {
         tracing::error!("Failed to deserialize overridden config: {e}");
         e
     })?;
 
     Ok(cfg)
-}
-
-async fn load_resolved_config(
-    codex_home: &Path,
-    cli_overrides: Vec<(String, TomlValue)>,
-    overrides: crate::config_loader::LoaderOverrides,
-) -> std::io::Result<TomlValue> {
-    let layers = load_config_layers_state(codex_home, &cli_overrides, overrides).await?;
-    Ok(layers.effective_config())
 }
 
 fn deserialize_config_toml_with_base(
@@ -386,13 +446,18 @@ fn deserialize_config_toml_with_base(
 pub async fn load_global_mcp_servers(
     codex_home: &Path,
 ) -> std::io::Result<BTreeMap<String, McpServerConfig>> {
-    let root_value = load_resolved_config(
-        codex_home,
-        Vec::new(),
-        crate::config_loader::LoaderOverrides::default(),
-    )
-    .await?;
-    let Some(servers_value) = root_value.get("mcp_servers") else {
+    // In general, Config::load_with_cli_overrides() should be used to load the
+    // full config with requirements.toml applied, but in this case, we need
+    // access to the raw TOML in order to warn the user about deprecated fields.
+    //
+    // Note that a more precise way to do this would be to audit the individual
+    // config layers for deprecated fields rather than reporting on the merged
+    // result.
+    let cli_overrides = Vec::<(String, TomlValue)>::new();
+    let config_layer_stack =
+        load_config_layers_state(codex_home, &cli_overrides, LoaderOverrides::default()).await?;
+    let merged_toml = config_layer_stack.effective_config();
+    let Some(servers_value) = merged_toml.get("mcp_servers") else {
         return Ok(BTreeMap::new());
     };
 
@@ -955,12 +1020,22 @@ pub fn resolve_oss_provider(
 }
 
 impl Config {
-    /// Meant to be used exclusively for tests: `load_with_overrides()` should
-    /// be used in all other cases.
-    pub fn load_from_base_config_with_overrides(
+    #[cfg(test)]
+    fn load_from_base_config_with_overrides(
         cfg: ConfigToml,
         overrides: ConfigOverrides,
         codex_home: PathBuf,
+    ) -> std::io::Result<Self> {
+        // Note this ignores requirements.toml enforcement for tests.
+        let requirements = ConfigRequirements::default();
+        Self::load_config_with_requirements(cfg, overrides, codex_home, requirements)
+    }
+
+    fn load_config_with_requirements(
+        cfg: ConfigToml,
+        overrides: ConfigOverrides,
+        codex_home: PathBuf,
+        requirements: ConfigRequirements,
     ) -> std::io::Result<Self> {
         let user_instructions = Self::load_instructions(Some(&codex_home));
 
@@ -1066,7 +1141,8 @@ impl Config {
                     AskForApproval::default()
                 }
             });
-        let approval_policy = Constrained::allow_any(approval_policy);
+        // TODO(dylan): We should be able to leverage ConfigLayerStack so that
+        // we can reliably check this at every config level.
         let did_user_set_custom_approval_policy_or_sandbox_mode = approval_policy_override
             .is_some()
             || config_profile.approval_policy.is_some()
@@ -1274,6 +1350,20 @@ impl Config {
 
         let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
 
+        // Ensure that every field of ConfigRequirements is applied to the final
+        // Config.
+        let ConfigRequirements {
+            approval_policy: mut constrained_approval_policy,
+            sandbox_policy: mut constrained_sandbox_policy,
+        } = requirements;
+
+        constrained_approval_policy
+            .set(approval_policy)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{e}")))?;
+        constrained_sandbox_policy
+            .set(sandbox_policy)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{e}")))?;
+
         let config = Self {
             model,
             review_model,
@@ -1282,8 +1372,8 @@ impl Config {
             model_provider_id,
             model_provider,
             cwd: resolved_cwd,
-            approval_policy,
-            sandbox_policy,
+            approval_policy: constrained_approval_policy,
+            sandbox_policy: constrained_sandbox_policy,
             did_user_set_custom_approval_policy_or_sandbox_mode,
             forced_auto_mode_downgraded_on_windows,
             shell_environment_policy,
@@ -1727,12 +1817,12 @@ trust_level = "trusted"
                 config.forced_auto_mode_downgraded_on_windows,
                 "expected workspace-write request to be downgraded on Windows"
             );
-            match config.sandbox_policy {
-                SandboxPolicy::ReadOnly => {}
+            match config.sandbox_policy.get() {
+                &SandboxPolicy::ReadOnly => {}
                 other => panic!("expected read-only policy on Windows, got {other:?}"),
             }
         } else {
-            match config.sandbox_policy {
+            match config.sandbox_policy.get() {
                 SandboxPolicy::WorkspaceWrite { writable_roots, .. } => {
                     assert_eq!(
                         writable_roots
@@ -1864,8 +1954,8 @@ trust_level = "trusted"
         )?;
 
         assert!(matches!(
-            config.sandbox_policy,
-            SandboxPolicy::DangerFullAccess
+            config.sandbox_policy.get(),
+            &SandboxPolicy::DangerFullAccess
         ));
         assert!(config.did_user_set_custom_approval_policy_or_sandbox_mode);
 
@@ -1901,11 +1991,14 @@ trust_level = "trusted"
         )?;
 
         if cfg!(target_os = "windows") {
-            assert!(matches!(config.sandbox_policy, SandboxPolicy::ReadOnly));
+            assert!(matches!(
+                config.sandbox_policy.get(),
+                SandboxPolicy::ReadOnly
+            ));
             assert!(config.forced_auto_mode_downgraded_on_windows);
         } else {
             assert!(matches!(
-                config.sandbox_policy,
+                config.sandbox_policy.get(),
                 SandboxPolicy::WorkspaceWrite { .. }
             ));
             assert!(!config.forced_auto_mode_downgraded_on_windows);
@@ -1995,18 +2088,22 @@ trust_level = "trusted"
         std::fs::write(&config_path, "mcp_oauth_credentials_store = \"file\"\n")?;
         std::fs::write(&managed_path, "mcp_oauth_credentials_store = \"keyring\"\n")?;
 
-        let overrides = crate::config_loader::LoaderOverrides {
+        let overrides = LoaderOverrides {
             managed_config_path: Some(managed_path.clone()),
             #[cfg(target_os = "macos")]
             managed_preferences_base64: None,
         };
 
-        let root_value = load_resolved_config(codex_home.path(), Vec::new(), overrides).await?;
-        let cfg =
-            deserialize_config_toml_with_base(root_value, codex_home.path()).map_err(|e| {
-                tracing::error!("Failed to deserialize overridden config: {e}");
-                e
-            })?;
+        let config_layer_stack =
+            load_config_layers_state(codex_home.path(), &Vec::new(), overrides).await?;
+        let cfg = deserialize_config_toml_with_base(
+            config_layer_stack.effective_config(),
+            codex_home.path(),
+        )
+        .map_err(|e| {
+            tracing::error!("Failed to deserialize overridden config: {e}");
+            e
+        })?;
         assert_eq!(
             cfg.mcp_oauth_credentials_store,
             Some(OAuthCredentialsStoreMode::Keyring),
@@ -2110,24 +2207,27 @@ trust_level = "trusted"
         )?;
         std::fs::write(&managed_path, "model = \"managed_config\"\n")?;
 
-        let overrides = crate::config_loader::LoaderOverrides {
+        let overrides = LoaderOverrides {
             managed_config_path: Some(managed_path),
             #[cfg(target_os = "macos")]
             managed_preferences_base64: None,
         };
 
-        let root_value = load_resolved_config(
+        let config_layer_stack = load_config_layers_state(
             codex_home.path(),
-            vec![("model".to_string(), TomlValue::String("cli".to_string()))],
+            &[("model".to_string(), TomlValue::String("cli".to_string()))],
             overrides,
         )
         .await?;
 
-        let cfg =
-            deserialize_config_toml_with_base(root_value, codex_home.path()).map_err(|e| {
-                tracing::error!("Failed to deserialize overridden config: {e}");
-                e
-            })?;
+        let cfg = deserialize_config_toml_with_base(
+            config_layer_stack.effective_config(),
+            codex_home.path(),
+        )
+        .map_err(|e| {
+            tracing::error!("Failed to deserialize overridden config: {e}");
+            e
+        })?;
 
         assert_eq!(cfg.model.as_deref(), Some("managed_config"));
         Ok(())
@@ -3099,7 +3199,7 @@ model_verbosity = "high"
                 model_provider_id: "openai".to_string(),
                 model_provider: fixture.openai_provider.clone(),
                 approval_policy: Constrained::allow_any(AskForApproval::Never),
-                sandbox_policy: SandboxPolicy::new_read_only_policy(),
+                sandbox_policy: Constrained::allow_any(SandboxPolicy::new_read_only_policy()),
                 did_user_set_custom_approval_policy_or_sandbox_mode: true,
                 forced_auto_mode_downgraded_on_windows: false,
                 shell_environment_policy: ShellEnvironmentPolicy::default(),
@@ -3178,7 +3278,7 @@ model_verbosity = "high"
             model_provider_id: "openai-chat-completions".to_string(),
             model_provider: fixture.openai_chat_completions_provider.clone(),
             approval_policy: Constrained::allow_any(AskForApproval::UnlessTrusted),
-            sandbox_policy: SandboxPolicy::new_read_only_policy(),
+            sandbox_policy: Constrained::allow_any(SandboxPolicy::new_read_only_policy()),
             did_user_set_custom_approval_policy_or_sandbox_mode: true,
             forced_auto_mode_downgraded_on_windows: false,
             shell_environment_policy: ShellEnvironmentPolicy::default(),
@@ -3272,7 +3372,7 @@ model_verbosity = "high"
             model_provider_id: "openai".to_string(),
             model_provider: fixture.openai_provider.clone(),
             approval_policy: Constrained::allow_any(AskForApproval::OnFailure),
-            sandbox_policy: SandboxPolicy::new_read_only_policy(),
+            sandbox_policy: Constrained::allow_any(SandboxPolicy::new_read_only_policy()),
             did_user_set_custom_approval_policy_or_sandbox_mode: true,
             forced_auto_mode_downgraded_on_windows: false,
             shell_environment_policy: ShellEnvironmentPolicy::default(),
@@ -3352,7 +3452,7 @@ model_verbosity = "high"
             model_provider_id: "openai".to_string(),
             model_provider: fixture.openai_provider.clone(),
             approval_policy: Constrained::allow_any(AskForApproval::OnFailure),
-            sandbox_policy: SandboxPolicy::new_read_only_policy(),
+            sandbox_policy: Constrained::allow_any(SandboxPolicy::new_read_only_policy()),
             did_user_set_custom_approval_policy_or_sandbox_mode: true,
             forced_auto_mode_downgraded_on_windows: false,
             shell_environment_policy: ShellEnvironmentPolicy::default(),
@@ -3701,12 +3801,15 @@ trust_level = "untrusted"
         // Verify that untrusted projects still get WorkspaceWrite sandbox (or ReadOnly on Windows)
         if cfg!(target_os = "windows") {
             assert!(
-                matches!(config.sandbox_policy, SandboxPolicy::ReadOnly),
+                matches!(config.sandbox_policy.get(), SandboxPolicy::ReadOnly),
                 "Expected ReadOnly on Windows"
             );
         } else {
             assert!(
-                matches!(config.sandbox_policy, SandboxPolicy::WorkspaceWrite { .. }),
+                matches!(
+                    config.sandbox_policy.get(),
+                    SandboxPolicy::WorkspaceWrite { .. }
+                ),
                 "Expected WorkspaceWrite sandbox for untrusted project"
             );
         }
