@@ -272,7 +272,7 @@ experimental_use_freeform_apply_patch = false
 # wire_api = "responses"                         # "responses" | "chat" (default varies)
 # # requires_openai_auth = true                    # built-in OpenAI defaults to true
 # # request_max_retries = 4                        # default 4; max 100
-# # stream_max_retries = 5                         # default 5;  max 100
+# # stream_max_retries = 10                        # default 10; max 100
 # # stream_idle_timeout_ms = 300000                # default 300_000 (5m)
 # # experimental_bearer_token = "sk-example"      # optional dev-only direct bearer token
 # # http_headers = { "X-Example" = "value" }

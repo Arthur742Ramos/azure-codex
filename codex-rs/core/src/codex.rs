@@ -2417,9 +2417,7 @@ pub(crate) async fn run_task(
                 state.history.replace_last_turn_images("Invalid image");
             }
             Err(e) => {
-                if let CodexErr::Stream(message, _) = &e
-                    && message == "response.failed event received"
-                {
+                if let CodexErr::Stream(_, _) = &e {
                     auto_resume_attempts += 1;
                     let message = format!(
                         "Stream disconnected before completion. Resuming with \"Keep going\" (attempt {auto_resume_attempts}).",
