@@ -2083,6 +2083,12 @@ mod handlers {
             {
                 warn!("failed to delete shell snapshot {path:?}: {err}");
             }
+            if let Some(parent) = path.parent()
+                && let Err(err) = tokio::fs::remove_dir_all(parent).await
+                && err.kind() != ErrorKind::NotFound
+            {
+                warn!("failed to delete shell snapshot dir {parent:?}: {err}");
+            }
         }
 
         // Gracefully flush and shutdown rollout recorder on session end so tests
