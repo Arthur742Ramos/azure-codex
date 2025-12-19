@@ -154,13 +154,13 @@ pub(crate) enum AppEvent {
     ConversationHistory(ConversationPathResponseEvent),
 
     /// Open the branch picker option from the review popup.
-    OpenReviewBranchPicker(PathBuf),
+    OpenReviewBranchPicker(PathBuf, bool),
 
     /// Open the commit picker option from the review popup.
-    OpenReviewCommitPicker(PathBuf),
+    OpenReviewCommitPicker(PathBuf, bool),
 
     /// Open the custom prompt option from the review popup.
-    OpenReviewCustomPrompt,
+    OpenReviewCustomPrompt(bool),
 
     /// Open the approval popup.
     FullScreenApprovalRequest(ApprovalRequest),

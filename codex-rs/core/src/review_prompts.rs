@@ -8,6 +8,7 @@ pub struct ResolvedReviewRequest {
     pub target: ReviewTarget,
     pub prompt: String,
     pub user_facing_hint: String,
+    pub auto_fix: bool,
 }
 
 const UNCOMMITTED_PROMPT: &str = "Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings.";
@@ -33,6 +34,7 @@ pub fn resolve_review_request(
         target,
         prompt,
         user_facing_hint,
+        auto_fix: request.auto_fix,
     })
 }
 
@@ -88,6 +90,7 @@ impl From<ResolvedReviewRequest> for ReviewRequest {
         ReviewRequest {
             target: resolved.target,
             user_facing_hint: Some(resolved.user_facing_hint),
+            auto_fix: resolved.auto_fix,
         }
     }
 }

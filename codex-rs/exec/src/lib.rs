@@ -585,6 +585,7 @@ fn build_review_request(args: ReviewArgs) -> anyhow::Result<ReviewRequest> {
     Ok(ReviewRequest {
         target,
         user_facing_hint: None,
+        auto_fix: args.fix,
     })
 }
 
@@ -601,12 +602,14 @@ mod tests {
             commit: None,
             commit_title: None,
             prompt: None,
+            fix: false,
         })
         .expect("builds uncommitted review request");
 
         let expected = ReviewRequest {
             target: ReviewTarget::UncommittedChanges,
             user_facing_hint: None,
+            auto_fix: false,
         };
 
         assert_eq!(request, expected);
@@ -620,6 +623,7 @@ mod tests {
             commit: Some("123456789".to_string()),
             commit_title: Some("Add review command".to_string()),
             prompt: None,
+            fix: false,
         })
         .expect("builds commit review request");
 
@@ -629,6 +633,7 @@ mod tests {
                 title: Some("Add review command".to_string()),
             },
             user_facing_hint: None,
+            auto_fix: false,
         };
 
         assert_eq!(request, expected);
@@ -642,6 +647,7 @@ mod tests {
             commit: None,
             commit_title: None,
             prompt: Some("  custom review instructions  ".to_string()),
+            fix: false,
         })
         .expect("builds custom review request");
 
@@ -650,6 +656,7 @@ mod tests {
                 instructions: "custom review instructions".to_string(),
             },
             user_facing_hint: None,
+            auto_fix: false,
         };
 
         assert_eq!(request, expected);

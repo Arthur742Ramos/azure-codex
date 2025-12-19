@@ -1578,7 +1578,10 @@ impl ChatWidget {
                 self.app_event_tx.send(AppEvent::CodexOp(Op::Compact));
             }
             SlashCommand::Review => {
-                self.open_review_popup();
+                self.open_review_popup(false);
+            }
+            SlashCommand::ReviewFix => {
+                self.open_review_popup(true);
             }
             SlashCommand::Model => {
                 self.open_model_popup();
@@ -1955,7 +1958,11 @@ impl ChatWidget {
         let hint = review
             .user_facing_hint
             .unwrap_or_else(|| codex_core::review_prompts::user_facing_hint(&review.target));
-        let banner = format!(">> Code review started: {hint} <<");
+        let banner = if review.auto_fix {
+            format!(">> Code review started (auto-fix): {hint} <<")
+        } else {
+            format!(">> Code review started: {hint} <<")
+        };
         self.add_to_history(history_cell::new_review_status_line(banner));
         self.request_redraw();
     }
@@ -3278,7 +3285,7 @@ impl ChatWidget {
         self.set_skills_from_response(&ev);
     }
 
-    pub(crate) fn open_review_popup(&mut self) {
+    pub(crate) fn open_review_popup(&mut self, auto_fix: bool) {
         let mut items: Vec<SelectionItem> = Vec::new();
 
         items.push(SelectionItem {
@@ -3287,7 +3294,7 @@ impl ChatWidget {
             actions: vec![Box::new({
                 let cwd = self.config.cwd.clone();
                 move |tx| {
-                    tx.send(AppEvent::OpenReviewBranchPicker(cwd.clone()));
+                    tx.send(AppEvent::OpenReviewBranchPicker(cwd.clone(), auto_fix));
                 }
             })],
             dismiss_on_select: false,
@@ -3301,6 +3308,7 @@ impl ChatWidget {
                     review_request: ReviewRequest {
                         target: ReviewTarget::UncommittedChanges,
                         user_facing_hint: None,
+                        auto_fix,
                     },
                 }));
             })],
@@ -3314,7 +3322,7 @@ impl ChatWidget {
             actions: vec![Box::new({
                 let cwd = self.config.cwd.clone();
                 move |tx| {
-                    tx.send(AppEvent::OpenReviewCommitPicker(cwd.clone()));
+                    tx.send(AppEvent::OpenReviewCommitPicker(cwd.clone(), auto_fix));
                 }
             })],
             dismiss_on_select: false,
@@ -3324,21 +3332,25 @@ impl ChatWidget {
         items.push(SelectionItem {
             name: "Custom review instructions".to_string(),
             actions: vec![Box::new(move |tx| {
-                tx.send(AppEvent::OpenReviewCustomPrompt);
+                tx.send(AppEvent::OpenReviewCustomPrompt(auto_fix));
             })],
             dismiss_on_select: false,
             ..Default::default()
         });
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Select a review preset".into()),
+            title: Some(if auto_fix {
+                "Select a review + fix preset".into()
+            } else {
+                "Select a review preset".into()
+            }),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             ..Default::default()
         });
     }
 
-    pub(crate) async fn show_review_branch_picker(&mut self, cwd: &Path) {
+    pub(crate) async fn show_review_branch_picker(&mut self, cwd: &Path, auto_fix: bool) {
         let branches = local_git_branches(cwd).await;
         let current_branch = current_branch_name(cwd)
             .await
@@ -3356,6 +3368,7 @@ impl ChatWidget {
                                 branch: branch.clone(),
                             },
                             user_facing_hint: None,
+                            auto_fix,
                         },
                     }));
                 })],
@@ -3375,7 +3388,7 @@ impl ChatWidget {
         });
     }
 
-    pub(crate) async fn show_review_commit_picker(&mut self, cwd: &Path) {
+    pub(crate) async fn show_review_commit_picker(&mut self, cwd: &Path, auto_fix: bool) {
         let commits = codex_core::git_info::recent_commits(cwd, 100).await;
 
         let mut items: Vec<SelectionItem> = Vec::with_capacity(commits.len());
@@ -3394,6 +3407,7 @@ impl ChatWidget {
                                 title: Some(subject.clone()),
                             },
                             user_facing_hint: None,
+                            auto_fix,
                         },
                     }));
                 })],
@@ -3413,7 +3427,7 @@ impl ChatWidget {
         });
     }
 
-    pub(crate) fn show_review_custom_prompt(&mut self) {
+    pub(crate) fn show_review_custom_prompt(&mut self, auto_fix: bool) {
         let tx = self.app_event_tx.clone();
         let view = CustomPromptView::new(
             "Custom review instructions".to_string(),
@@ -3430,6 +3444,7 @@ impl ChatWidget {
                             instructions: trimmed,
                         },
                         user_facing_hint: None,
+                        auto_fix,
                     },
                 }));
             }),
@@ -3694,6 +3709,7 @@ async fn fetch_rate_limits(base_url: String, auth: CodexAuth) -> Option<RateLimi
 pub(crate) fn show_review_commit_picker_with_entries(
     chat: &mut ChatWidget,
     entries: Vec<codex_core::git_info::CommitLogEntry>,
+    auto_fix: bool,
 ) {
     let mut items: Vec<SelectionItem> = Vec::with_capacity(entries.len());
     for entry in entries {
@@ -3711,6 +3727,7 @@ pub(crate) fn show_review_commit_picker_with_entries(
                             title: Some(subject.clone()),
                         },
                         user_facing_hint: None,
+                        auto_fix,
                     },
                 }));
             })],

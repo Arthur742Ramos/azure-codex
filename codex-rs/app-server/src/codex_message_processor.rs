@@ -293,6 +293,7 @@ impl CodexMessageProcessor {
 
     fn review_request_from_target(
         target: ApiReviewTarget,
+        auto_fix: bool,
     ) -> Result<(ReviewRequest, String), JSONRPCErrorError> {
         fn invalid_request(message: String) -> JSONRPCErrorError {
             JSONRPCErrorError {
@@ -345,6 +346,7 @@ impl CodexMessageProcessor {
         let review_request = ReviewRequest {
             target: core_target,
             user_facing_hint: Some(hint.clone()),
+            auto_fix,
         };
 
         Ok((review_request, hint))
@@ -2952,6 +2954,7 @@ impl CodexMessageProcessor {
             thread_id,
             target,
             delivery,
+            auto_fix,
         } = params;
         let (parent_conversation_id, parent_conversation) =
             match self.conversation_from_thread_id(&thread_id).await {
@@ -2962,13 +2965,14 @@ impl CodexMessageProcessor {
                 }
             };
 
-        let (review_request, display_text) = match Self::review_request_from_target(target) {
-            Ok(value) => value,
-            Err(err) => {
-                self.outgoing.send_error(request_id, err).await;
-                return;
-            }
-        };
+        let (review_request, display_text) =
+            match Self::review_request_from_target(target, auto_fix) {
+                Ok(value) => value,
+                Err(err) => {
+                    self.outgoing.send_error(request_id, err).await;
+                    return;
+                }
+            };
 
         let delivery = delivery.unwrap_or(ApiReviewDelivery::Inline).to_core();
         match delivery {

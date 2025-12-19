@@ -52,6 +52,7 @@ mod shell_serialization;
 mod shell_snapshot;
 mod skills;
 mod stream_error_allows_next_turn;
+mod stream_error_auto_keep_going;
 mod stream_no_completed;
 mod text_encoding_fix;
 mod tool_harness;

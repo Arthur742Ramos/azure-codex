@@ -65,6 +65,7 @@ async fn review_start_runs_review_turn_and_emits_code_review_item() -> Result<()
                 sha: "1234567deadbeef".to_string(),
                 title: Some("Tidy UI colors".to_string()),
             },
+            auto_fix: false,
         })
         .await?;
     let review_resp: JSONRPCResponse = timeout(
@@ -150,6 +151,7 @@ async fn review_start_rejects_empty_base_branch() -> Result<()> {
             target: ReviewTarget::BaseBranch {
                 branch: "   ".to_string(),
             },
+            auto_fix: false,
         })
         .await?;
     let error: JSONRPCError = timeout(
@@ -196,6 +198,7 @@ async fn review_start_with_detached_delivery_returns_new_thread_id() -> Result<(
             target: ReviewTarget::Custom {
                 instructions: "detached review".to_string(),
             },
+            auto_fix: false,
         })
         .await?;
     let review_resp: JSONRPCResponse = timeout(
@@ -235,6 +238,7 @@ async fn review_start_rejects_empty_commit_sha() -> Result<()> {
                 sha: "\t".to_string(),
                 title: None,
             },
+            auto_fix: false,
         })
         .await?;
     let error: JSONRPCError = timeout(
@@ -269,6 +273,7 @@ async fn review_start_rejects_empty_custom_instructions() -> Result<()> {
             target: ReviewTarget::Custom {
                 instructions: "\n\n".to_string(),
             },
+            auto_fix: false,
         })
         .await?;
     let error: JSONRPCError = timeout(

@@ -19,11 +19,17 @@ use codex_core::protocol::ReviewRequest;
 use codex_core::protocol::ReviewTarget;
 use codex_core::protocol::RolloutItem;
 use codex_core::protocol::RolloutLine;
+use codex_core::protocol::SandboxPolicy;
 use codex_core::review_format::render_review_output_text;
 use codex_protocol::user_input::UserInput;
 use core_test_support::load_default_config_for_test;
 use core_test_support::load_sse_fixture_with_id_from_str;
+use core_test_support::responses::ev_assistant_message;
+use core_test_support::responses::ev_completed;
+use core_test_support::responses::ev_response_created;
 use core_test_support::responses::get_responses_requests;
+use core_test_support::responses::mount_sse_sequence;
+use core_test_support::responses::sse;
 use core_test_support::skip_if_no_network;
 use core_test_support::wait_for_event;
 use pretty_assertions::assert_eq;
@@ -77,7 +83,11 @@ async fn review_op_emits_lifecycle_and_review_output() {
     let sse_raw = sse_template.replace("__REVIEW__", &review_json_escaped);
     let server = start_responses_server_with_sse(&sse_raw, 1).await;
     let codex_home = TempDir::new().unwrap();
-    let codex = new_conversation_for_server(&server, &codex_home, |_| {}).await;
+    let codex = new_conversation_for_server(&server, &codex_home, |cfg| {
+        cfg.sandbox_policy = SandboxPolicy::DangerFullAccess;
+        cfg.did_user_set_custom_approval_policy_or_sandbox_mode = true;
+    })
+    .await;
 
     // Submit review request.
     codex
@@ -87,13 +97,17 @@ async fn review_op_emits_lifecycle_and_review_output() {
                     instructions: "Please review my changes".to_string(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await
         .unwrap();
 
     // Verify lifecycle: Entered -> Exited(Some(review)) -> TaskComplete.
-    let _entered = wait_for_event(&codex, |ev| matches!(ev, EventMsg::EnteredReviewMode(_))).await;
+    let entered = wait_for_event(&codex, |ev| matches!(ev, EventMsg::EnteredReviewMode(_))).await;
+    if !matches!(entered, EventMsg::EnteredReviewMode(_)) {
+        unreachable!("expected EnteredReviewMode event");
+    }
     let closed = wait_for_event(&codex, |ev| matches!(ev, EventMsg::ExitedReviewMode(_))).await;
     let review = match closed {
         EventMsg::ExitedReviewMode(ev) => ev
@@ -180,6 +194,94 @@ async fn review_op_emits_lifecycle_and_review_output() {
     server.verify().await;
 }
 
+/// When auto_fix is enabled, the review loop should apply fixes and re-run
+/// review until findings are cleared or the iteration cap is hit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn review_op_auto_fix_retries_until_clean() {
+    skip_if_no_network!();
+
+    let first_review_json = serde_json::json!({
+        "findings": [
+            {
+                "title": "Fix the docs",
+                "body": "Update the documentation example.",
+                "confidence_score": 0.6,
+                "priority": 1,
+                "code_location": {
+                    "absolute_file_path": "/tmp/README.md",
+                    "line_range": {"start": 1, "end": 2}
+                }
+            }
+        ],
+        "overall_correctness": "ok",
+        "overall_explanation": "One issue found.",
+        "overall_confidence_score": 0.5
+    })
+    .to_string();
+    let followup_review_json = serde_json::json!({
+        "findings": [],
+        "overall_correctness": "good",
+        "overall_explanation": "No issues found.",
+        "overall_confidence_score": 0.9
+    })
+    .to_string();
+
+    let review_one = sse(vec![
+        ev_response_created("resp-1"),
+        ev_assistant_message("msg-1", &first_review_json),
+        ev_completed("resp-1"),
+    ]);
+    let fix_pass = sse(vec![ev_response_created("resp-2"), ev_completed("resp-2")]);
+    let review_two = sse(vec![
+        ev_response_created("resp-3"),
+        ev_assistant_message("msg-2", &followup_review_json),
+        ev_completed("resp-3"),
+    ]);
+
+    let server = MockServer::start().await;
+    let request_log = mount_sse_sequence(&server, vec![review_one, fix_pass, review_two]).await;
+    let codex_home = TempDir::new().unwrap();
+    let codex = new_conversation_for_server(&server, &codex_home, |_| {}).await;
+
+    codex
+        .submit(Op::Review {
+            review_request: ReviewRequest {
+                target: ReviewTarget::Custom {
+                    instructions: "Review and auto-fix.".to_string(),
+                },
+                user_facing_hint: None,
+                auto_fix: true,
+            },
+        })
+        .await
+        .unwrap();
+
+    let _entered = wait_for_event(&codex, |ev| matches!(ev, EventMsg::EnteredReviewMode(_))).await;
+    let closed = wait_for_event(&codex, |ev| matches!(ev, EventMsg::ExitedReviewMode(_))).await;
+    let review = match closed {
+        EventMsg::ExitedReviewMode(ev) => ev
+            .review_output
+            .expect("expected ExitedReviewMode with Some(review_output)"),
+        other => panic!("expected ExitedReviewMode(..), got {other:?}"),
+    };
+    assert!(
+        review.findings.is_empty(),
+        "expected findings to be cleared"
+    );
+
+    let _complete = wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+
+    let requests = request_log.requests();
+    assert_eq!(requests.len(), 3);
+    let fix_prompts = requests[1].message_input_texts("user");
+    assert!(
+        fix_prompts
+            .iter()
+            .any(|text| text.contains("Fix the issues described")),
+        "expected fix prompt to be sent in the second request"
+    );
+}
+
 /// When the model returns plain text that is not JSON, ensure the child
 /// lifecycle still occurs and the plain text is surfaced via
 /// ExitedReviewMode(Some(..)) as the overall_explanation.
@@ -207,6 +309,7 @@ async fn review_op_with_plain_text_emits_review_fallback() {
                     instructions: "Plain text review".to_string(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await
@@ -267,6 +370,7 @@ async fn review_filters_agent_message_related_events() {
                     instructions: "Filter streaming events".to_string(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await
@@ -348,6 +452,7 @@ async fn review_does_not_emit_agent_message_on_structured_output() {
                     instructions: "check structured".to_string(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await
@@ -407,6 +512,7 @@ async fn review_uses_custom_review_model_from_config() {
                     instructions: "use custom model".to_string(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await
@@ -529,6 +635,7 @@ async fn review_input_isolated_from_parent_history() {
                     instructions: review_prompt.clone(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await
@@ -645,6 +752,7 @@ async fn review_history_surfaces_in_parent_session() {
                     instructions: "Start a review".to_string(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await

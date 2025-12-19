@@ -2216,12 +2216,14 @@ async fn spawn_review_thread(
         text: review_prompt,
     }];
     let tc = Arc::new(review_turn_context);
-    sess.spawn_task(tc.clone(), input, ReviewTask::new()).await;
+    sess.spawn_task(tc.clone(), input, ReviewTask::new(resolved.auto_fix))
+        .await;
 
     // Announce entering review mode so UIs can switch modes.
     let review_request = ReviewRequest {
         target: resolved.target,
         user_facing_hint: Some(resolved.user_facing_hint),
+        auto_fix: resolved.auto_fix,
     };
     sess.send_event(&tc, EventMsg::EnteredReviewMode(review_request))
         .await;
@@ -2320,6 +2322,8 @@ pub(crate) async fn run_task(
     sess.maybe_start_ghost_snapshot(Arc::clone(&turn_context), cancellation_token.child_token())
         .await;
     let mut last_agent_message: Option<String> = None;
+    let mut auto_resume_attempts = 0;
+    const AUTO_KEEP_GOING_MAX: usize = 1;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -2399,6 +2403,26 @@ pub(crate) async fn run_task(
                 state.history.replace_last_turn_images("Invalid image");
             }
             Err(e) => {
+                if let CodexErr::Stream(message, _) = &e
+                    && message == "response.failed event received"
+                    && auto_resume_attempts < AUTO_KEEP_GOING_MAX
+                {
+                    auto_resume_attempts += 1;
+                    let message = format!(
+                        "Stream disconnected before completion. Resuming with \"Keep going\" ({auto_resume_attempts}/{AUTO_KEEP_GOING_MAX}).",
+                    );
+                    sess.send_event(&turn_context, EventMsg::Warning(WarningEvent { message }))
+                        .await;
+                    if sess
+                        .inject_input(vec![UserInput::Text {
+                            text: "Keep going".to_string(),
+                        }])
+                        .await
+                        .is_ok()
+                    {
+                        continue;
+                    }
+                }
                 info!("Turn error: {e:#}");
                 let event = EventMsg::Error(e.to_error_event(None));
                 sess.send_event(&turn_context, event).await;
@@ -3453,7 +3477,7 @@ mod tests {
         let input = vec![UserInput::Text {
             text: "start review".to_string(),
         }];
-        sess.spawn_task(Arc::clone(&tc), input, ReviewTask::new())
+        sess.spawn_task(Arc::clone(&tc), input, ReviewTask::new(false))
             .await;
 
         sess.abort_all_tasks(TurnAbortReason::Interrupted).await;

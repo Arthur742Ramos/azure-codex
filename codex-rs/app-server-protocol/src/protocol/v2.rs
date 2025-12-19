@@ -1225,6 +1225,10 @@ pub struct ReviewStartParams {
     /// detached on a new thread (returned in `reviewThreadId`).
     #[serde(default)]
     pub delivery: Option<ReviewDelivery>,
+
+    /// When true, automatically apply fixes based on review findings.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_fix: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

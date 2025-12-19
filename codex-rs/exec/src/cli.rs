@@ -145,6 +145,10 @@ pub struct ReviewArgs {
     /// Custom review instructions. If `-` is used, read from stdin.
     #[arg(value_name = "PROMPT", value_hint = clap::ValueHint::Other)]
     pub prompt: Option<String>,
+
+    /// Automatically apply fixes based on review findings.
+    #[arg(long = "fix", default_value_t = false)]
+    pub fix: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]

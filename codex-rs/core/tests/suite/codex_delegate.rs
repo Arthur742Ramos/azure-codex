@@ -75,6 +75,7 @@ async fn codex_delegate_forwards_exec_approval_and_proceeds_on_approval() {
                     instructions: "Please review".to_string(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await
@@ -152,6 +153,7 @@ async fn codex_delegate_forwards_patch_approval_and_proceeds_on_decision() {
                     instructions: "Please review".to_string(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await
@@ -208,6 +210,7 @@ async fn codex_delegate_ignores_legacy_deltas() {
                     instructions: "Please review".to_string(),
                 },
                 user_facing_hint: None,
+                auto_fix: false,
             },
         })
         .await

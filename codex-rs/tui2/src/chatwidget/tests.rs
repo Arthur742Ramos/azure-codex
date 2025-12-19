@@ -164,6 +164,7 @@ fn entered_review_mode_uses_request_hint() {
                 branch: "feature".to_string(),
             },
             user_facing_hint: Some("feature branch".to_string()),
+            auto_fix: false,
         }),
     });
 
@@ -183,6 +184,7 @@ fn entered_review_mode_defaults_to_current_changes_banner() {
         msg: EventMsg::EnteredReviewMode(ReviewRequest {
             target: ReviewTarget::UncommittedChanges,
             user_facing_hint: None,
+            auto_fix: false,
         }),
     });
 
@@ -217,6 +219,7 @@ fn review_restores_context_window_indicator() {
                 branch: "feature".to_string(),
             },
             user_facing_hint: Some("feature branch".to_string()),
+            auto_fix: false,
         }),
     });
 
@@ -1217,7 +1220,7 @@ fn review_popup_custom_prompt_action_sends_event() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None);
 
     // Open the preset selection popup
-    chat.open_review_popup();
+    chat.open_review_popup(false);
 
     // Move selection down to the fourth item: "Custom review instructions"
     chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
@@ -1229,7 +1232,7 @@ fn review_popup_custom_prompt_action_sends_event() {
     // Drain events and ensure we saw the OpenReviewCustomPrompt request
     let mut found = false;
     while let Ok(ev) = rx.try_recv() {
-        if let AppEvent::OpenReviewCustomPrompt = ev {
+        if let AppEvent::OpenReviewCustomPrompt(false) = ev {
             found = true;
             break;
         }
@@ -1441,7 +1444,7 @@ fn review_commit_picker_shows_subjects_without_timestamps() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(None);
 
     // Open the Review presets parent popup.
-    chat.open_review_popup();
+    chat.open_review_popup(false);
 
     // Show commit picker with synthetic entries.
     let entries = vec![
@@ -1456,7 +1459,7 @@ fn review_commit_picker_shows_subjects_without_timestamps() {
             subject: "Fix bug Y".to_string(),
         },
     ];
-    super::show_review_commit_picker_with_entries(&mut chat, entries);
+    super::show_review_commit_picker_with_entries(&mut chat, entries, false);
 
     // Render the bottom pane and inspect the lines for subjects and absence of time words.
     let width = 72;
@@ -1502,7 +1505,7 @@ fn review_commit_picker_shows_subjects_without_timestamps() {
 fn custom_prompt_submit_sends_review_op() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None);
 
-    chat.show_review_custom_prompt();
+    chat.show_review_custom_prompt(false);
     // Paste prompt text via ChatWidget handler, then submit
     chat.handle_paste("  please audit dependencies  ".to_string());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -1518,6 +1521,7 @@ fn custom_prompt_submit_sends_review_op() {
                         instructions: "please audit dependencies".to_string(),
                     },
                     user_facing_hint: None,
+                    auto_fix: false,
                 }
             );
         }
@@ -1530,7 +1534,7 @@ fn custom_prompt_submit_sends_review_op() {
 fn custom_prompt_enter_empty_does_not_send() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None);
 
-    chat.show_review_custom_prompt();
+    chat.show_review_custom_prompt(false);
     // Enter without any text
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -1624,10 +1628,10 @@ fn review_custom_prompt_escape_navigates_back_then_dismisses() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(None);
 
     // Open the Review presets parent popup.
-    chat.open_review_popup();
+    chat.open_review_popup(false);
 
     // Open the custom prompt submenu (child view) directly.
-    chat.show_review_custom_prompt();
+    chat.show_review_custom_prompt(false);
 
     // Verify child view is on top.
     let header = render_bottom_first_row(&chat, 60);
@@ -1659,11 +1663,11 @@ async fn review_branch_picker_escape_navigates_back_then_dismisses() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(None);
 
     // Open the Review presets parent popup.
-    chat.open_review_popup();
+    chat.open_review_popup(false);
 
     // Open the branch picker submenu (child view). Using a temp cwd with no git repo is fine.
     let cwd = std::env::temp_dir();
-    chat.show_review_branch_picker(&cwd).await;
+    chat.show_review_branch_picker(&cwd, false).await;
 
     // Verify child view header.
     let header = render_bottom_first_row(&chat, 60);

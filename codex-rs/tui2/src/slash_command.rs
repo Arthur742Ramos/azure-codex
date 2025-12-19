@@ -17,6 +17,7 @@ pub enum SlashCommand {
     Approvals,
     Skills,
     Review,
+    ReviewFix,
     New,
     Resume,
     Init,
@@ -44,6 +45,7 @@ impl SlashCommand {
             SlashCommand::Init => "create an AGENTS.md file with instructions for Codex",
             SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
             SlashCommand::Review => "review my current changes and find issues",
+            SlashCommand::ReviewFix => "review my changes, fix issues, and re-check until clean",
             SlashCommand::Resume => "resume a saved chat",
             SlashCommand::Undo => "ask Codex to undo a turn",
             SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
@@ -80,6 +82,7 @@ impl SlashCommand {
             | SlashCommand::Endpoint
             | SlashCommand::Approvals
             | SlashCommand::Review
+            | SlashCommand::ReviewFix
             | SlashCommand::Logout => false,
             SlashCommand::Diff
             | SlashCommand::Mention

@@ -1912,14 +1912,18 @@ impl App {
             AppEvent::OpenApprovalsPopup => {
                 self.chat_widget.open_approvals_popup();
             }
-            AppEvent::OpenReviewBranchPicker(cwd) => {
-                self.chat_widget.show_review_branch_picker(&cwd).await;
+            AppEvent::OpenReviewBranchPicker(cwd, auto_fix) => {
+                self.chat_widget
+                    .show_review_branch_picker(&cwd, auto_fix)
+                    .await;
             }
-            AppEvent::OpenReviewCommitPicker(cwd) => {
-                self.chat_widget.show_review_commit_picker(&cwd).await;
+            AppEvent::OpenReviewCommitPicker(cwd, auto_fix) => {
+                self.chat_widget
+                    .show_review_commit_picker(&cwd, auto_fix)
+                    .await;
             }
-            AppEvent::OpenReviewCustomPrompt => {
-                self.chat_widget.show_review_custom_prompt();
+            AppEvent::OpenReviewCustomPrompt(auto_fix) => {
+                self.chat_widget.show_review_custom_prompt(auto_fix);
             }
             AppEvent::FullScreenApprovalRequest(request) => match request {
                 ApprovalRequest::ApplyPatch { cwd, changes, .. } => {

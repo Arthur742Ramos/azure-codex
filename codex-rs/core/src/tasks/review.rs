@@ -6,30 +6,37 @@ use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::AgentMessageContentDeltaEvent;
 use codex_protocol::protocol::AgentMessageDeltaEvent;
+use codex_protocol::protocol::BackgroundEventEvent;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::ExitedReviewModeEvent;
 use codex_protocol::protocol::ItemCompletedEvent;
 use codex_protocol::protocol::ReviewOutputEvent;
+use codex_protocol::protocol::WarningEvent;
 use tokio_util::sync::CancellationToken;
 
 use crate::codex::Session;
 use crate::codex::TurnContext;
 use crate::codex_delegate::run_codex_conversation_one_shot;
+use crate::config::Constrained;
 use crate::review_format::format_review_findings_block;
 use crate::review_format::render_review_output_text;
 use crate::state::TaskKind;
+use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::user_input::UserInput;
 
 use super::SessionTask;
 use super::SessionTaskContext;
 
 #[derive(Clone, Copy)]
-pub(crate) struct ReviewTask;
+pub(crate) struct ReviewTask {
+    auto_fix: bool,
+}
 
 impl ReviewTask {
-    pub(crate) fn new() -> Self {
-        Self
+    pub(crate) fn new(auto_fix: bool) -> Self {
+        Self { auto_fix }
     }
 }
 
@@ -46,17 +53,22 @@ impl SessionTask for ReviewTask {
         input: Vec<UserInput>,
         cancellation_token: CancellationToken,
     ) -> Option<String> {
-        // Start sub-codex conversation and get the receiver for events.
-        let output = match start_review_conversation(
-            session.clone(),
-            ctx.clone(),
-            input,
-            cancellation_token.clone(),
-        )
-        .await
-        {
-            Some(receiver) => process_review_events(session.clone(), ctx.clone(), receiver).await,
-            None => None,
+        let output = if self.auto_fix {
+            review_with_auto_fix(
+                session.clone(),
+                ctx.clone(),
+                input,
+                cancellation_token.clone(),
+            )
+            .await
+        } else {
+            run_review_once(
+                session.clone(),
+                ctx.clone(),
+                input,
+                cancellation_token.clone(),
+            )
+            .await
         };
         if !cancellation_token.is_cancelled() {
             exit_review_mode(session.clone_session(), output.clone(), ctx.clone()).await;
@@ -67,6 +79,163 @@ impl SessionTask for ReviewTask {
     async fn abort(&self, session: Arc<SessionTaskContext>, ctx: Arc<TurnContext>) {
         exit_review_mode(session.clone_session(), None, ctx).await;
     }
+}
+
+const MAX_REVIEW_FIX_ROUNDS: usize = 5;
+
+async fn review_with_auto_fix(
+    session: Arc<SessionTaskContext>,
+    ctx: Arc<TurnContext>,
+    input: Vec<UserInput>,
+    cancellation_token: CancellationToken,
+) -> Option<ReviewOutputEvent> {
+    let mut last_review: Option<ReviewOutputEvent> = None;
+    let mut previous_review: Option<ReviewOutputEvent> = None;
+    let mut stopped_due_to_limit = true;
+
+    for round in 1..=MAX_REVIEW_FIX_ROUNDS {
+        emit_background(
+            session.clone_session().as_ref(),
+            ctx.as_ref(),
+            format!("Reviewing changes ({round}/{MAX_REVIEW_FIX_ROUNDS})..."),
+        )
+        .await;
+        let review_output = run_review_once(
+            session.clone(),
+            ctx.clone(),
+            input.clone(),
+            cancellation_token.clone(),
+        )
+        .await?;
+        let has_findings = !review_output.findings.is_empty();
+        let unchanged = previous_review
+            .as_ref()
+            .is_some_and(|prev| prev == &review_output);
+        last_review = Some(review_output.clone());
+
+        if !has_findings || unchanged {
+            stopped_due_to_limit = false;
+            break;
+        }
+
+        if !can_auto_fix(ctx.as_ref()) {
+            emit_warning(
+                session.clone_session().as_ref(),
+                ctx.as_ref(),
+                "Auto-fix may not apply because the current sandbox policy is read-only.",
+            )
+            .await;
+        }
+
+        emit_background(
+            session.clone_session().as_ref(),
+            ctx.as_ref(),
+            format!("Applying fixes ({round}/{MAX_REVIEW_FIX_ROUNDS})..."),
+        )
+        .await;
+        run_fix_once(
+            session.clone(),
+            ctx.clone(),
+            &review_output,
+            cancellation_token.clone(),
+        )
+        .await;
+        previous_review = Some(review_output);
+    }
+
+    if stopped_due_to_limit
+        && last_review
+            .as_ref()
+            .is_some_and(|review_output| !review_output.findings.is_empty())
+    {
+        emit_warning(
+            session.clone_session().as_ref(),
+            ctx.as_ref(),
+            "Auto-fix stopped after the maximum number of attempts; remaining findings need attention.",
+        )
+        .await;
+    }
+
+    last_review
+}
+
+fn can_auto_fix(ctx: &TurnContext) -> bool {
+    !matches!(ctx.sandbox_policy, SandboxPolicy::ReadOnly)
+}
+
+async fn emit_background(session: &Session, ctx: &TurnContext, message: String) {
+    session
+        .send_event(
+            ctx,
+            EventMsg::BackgroundEvent(BackgroundEventEvent { message }),
+        )
+        .await;
+}
+
+async fn emit_warning(session: &Session, ctx: &TurnContext, message: &str) {
+    session
+        .send_event(
+            ctx,
+            EventMsg::Warning(WarningEvent {
+                message: message.to_string(),
+            }),
+        )
+        .await;
+}
+
+async fn run_review_once(
+    session: Arc<SessionTaskContext>,
+    ctx: Arc<TurnContext>,
+    input: Vec<UserInput>,
+    cancellation_token: CancellationToken,
+) -> Option<ReviewOutputEvent> {
+    // Start sub-codex conversation and get the receiver for events.
+    match start_review_conversation(
+        session.clone(),
+        ctx.clone(),
+        input,
+        cancellation_token.clone(),
+    )
+    .await
+    {
+        Some(receiver) => process_review_events(session, ctx, receiver).await,
+        None => None,
+    }
+}
+
+async fn run_fix_once(
+    session: Arc<SessionTaskContext>,
+    ctx: Arc<TurnContext>,
+    review_output: &ReviewOutputEvent,
+    cancellation_token: CancellationToken,
+) {
+    let prompt = build_fix_prompt(review_output);
+    let input = vec![UserInput::Text { text: prompt }];
+    let mut config = (*ctx.client.config()).clone();
+    config.approval_policy = Constrained::allow_any(AskForApproval::Never);
+
+    let output = run_codex_conversation_one_shot(
+        config,
+        session.auth_manager(),
+        session.models_manager(),
+        input,
+        session.clone_session(),
+        ctx.clone(),
+        cancellation_token,
+        None,
+    )
+    .await;
+
+    if let Ok(receiver) = output.map(|io| io.rx_event) {
+        process_fix_events(session, ctx, receiver).await;
+    }
+}
+
+fn build_fix_prompt(review_output: &ReviewOutputEvent) -> String {
+    let findings = format_review_findings_block(&review_output.findings, None);
+    format!(
+        "Fix the issues described in the review findings below. Apply the minimal changes needed, use apply_patch for edits, and avoid unrelated refactors.\n{findings}\n\nAfter applying fixes, briefly summarize what changed."
+    )
 }
 
 async fn start_review_conversation(
@@ -155,6 +324,33 @@ async fn process_review_events(
     }
     // Channel closed without TaskComplete: treat as interrupted.
     None
+}
+
+async fn process_fix_events(
+    session: Arc<SessionTaskContext>,
+    ctx: Arc<TurnContext>,
+    receiver: async_channel::Receiver<Event>,
+) {
+    while let Ok(event) = receiver.recv().await {
+        match event.msg {
+            EventMsg::AgentMessage(_)
+            | EventMsg::AgentMessageDelta(_)
+            | EventMsg::AgentMessageContentDelta(_)
+            | EventMsg::ReasoningContentDelta(_)
+            | EventMsg::ReasoningRawContentDelta(_) => {}
+            EventMsg::ItemCompleted(ItemCompletedEvent {
+                item: TurnItem::AgentMessage(_),
+                ..
+            }) => {}
+            EventMsg::TaskComplete(_) | EventMsg::TurnAborted(_) => break,
+            other => {
+                session
+                    .clone_session()
+                    .send_event(ctx.as_ref(), other)
+                    .await;
+            }
+        }
+    }
 }
 
 /// Parse a ReviewOutputEvent from a text blob returned by the reviewer model.
