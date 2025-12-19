@@ -1,6 +1,5 @@
 ---
 source: tui2/src/chatwidget/tests.rs
-assertion_line: 1624
 expression: exec_blob
 ---
 ● Ran sleep 1

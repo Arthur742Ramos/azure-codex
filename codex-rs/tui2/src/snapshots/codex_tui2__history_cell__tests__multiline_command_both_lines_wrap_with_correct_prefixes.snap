@@ -1,6 +1,5 @@
 ---
 source: tui2/src/history_cell.rs
-assertion_line: 2241
 expression: rendered
 ---
 ● Ran first_token_is_long_en

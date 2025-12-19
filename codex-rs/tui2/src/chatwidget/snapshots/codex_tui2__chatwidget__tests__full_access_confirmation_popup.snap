@@ -1,6 +1,5 @@
 ---
 source: tui2/src/chatwidget/tests.rs
-assertion_line: 1812
 expression: popup
 ---
   Enable full access?

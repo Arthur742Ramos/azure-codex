@@ -1,6 +1,5 @@
 ---
 source: tui2/src/history_cell.rs
-assertion_line: 2148
 expression: rendered
 ---
 ● Ran set -o pipefail

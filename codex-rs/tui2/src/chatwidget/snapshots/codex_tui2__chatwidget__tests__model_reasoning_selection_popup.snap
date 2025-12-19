@@ -1,6 +1,5 @@
 ---
 source: tui2/src/chatwidget/tests.rs
-assertion_line: 1867
 expression: popup
 ---
   Select Reasoning Level for gpt-5.1-codex-max

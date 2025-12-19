@@ -1,6 +1,5 @@
 ---
 source: tui2/src/history_cell.rs
-assertion_line: 2194
 expression: rendered
 ---
 ● Ran a_very_long_token_
