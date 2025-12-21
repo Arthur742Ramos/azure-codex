@@ -43,6 +43,8 @@ pub struct SuspendContext {
     resume_pending: Arc<Mutex<Option<ResumeAction>>>,
     /// Inline viewport cursor row used to place the cursor before yielding during suspend.
     suspend_cursor_y: Arc<AtomicU16>,
+    /// Whether mouse capture should be enabled when resuming.
+    mouse_capture_enabled: Arc<AtomicBool>,
 }
 
 impl SuspendContext {
@@ -50,7 +52,12 @@ impl SuspendContext {
         Self {
             resume_pending: Arc::new(Mutex::new(None)),
             suspend_cursor_y: Arc::new(AtomicU16::new(0)),
+            mouse_capture_enabled: Arc::new(AtomicBool::new(true)),
         }
+    }
+
+    pub(crate) fn set_mouse_capture_enabled(&self, enabled: bool) {
+        self.mouse_capture_enabled.store(enabled, Ordering::Relaxed);
     }
 
     /// Capture how to resume, stash cursor position, and temporarily yield during SIGTSTP.
@@ -69,7 +76,8 @@ impl SuspendContext {
         }
         let y = self.suspend_cursor_y.load(Ordering::Relaxed);
         let _ = execute!(stdout(), MoveTo(0, y), Show);
-        suspend_process()
+        let disable_mouse_capture = !self.mouse_capture_enabled.load(Ordering::Relaxed);
+        suspend_process(disable_mouse_capture)
     }
 
     /// Consume the pending resume intent and precompute any viewport changes needed post-resume.
@@ -169,11 +177,10 @@ impl PreparedResumeAction {
 }
 
 /// Deliver SIGTSTP after restoring terminal state, then re-applies terminal modes once resumed.
-fn suspend_process() -> Result<()> {
+fn suspend_process(disable_mouse_capture: bool) -> Result<()> {
     super::restore()?;
     unsafe { libc::kill(0, libc::SIGTSTP) };
     // After the process resumes, reapply terminal modes so drawing can continue.
-    // Use default mouse capture (false = mouse events captured by application).
-    super::set_modes(false)?;
+    super::set_modes(disable_mouse_capture)?;
     Ok(())
 }

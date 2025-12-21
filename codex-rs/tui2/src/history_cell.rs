@@ -1469,10 +1469,16 @@ impl HistoryCell for PlanUpdateCell {
         };
 
         let render_step = |status: &StepStatus, text: &str| -> Vec<Line<'static>> {
-            let (box_str, step_style) = match status {
-                StepStatus::Completed => ("✔ ", Style::default().crossed_out().dim()),
-                StepStatus::InProgress => ("□ ", Style::default().cyan().bold()),
-                StepStatus::Pending => ("□ ", Style::default().dim()),
+            let (box_str, box_prefix, step_style) = match status {
+                StepStatus::Completed => (
+                    "✔ ",
+                    "✔ ".green().dim(),
+                    Style::default().crossed_out().dim(),
+                ),
+                StepStatus::InProgress => {
+                    ("▣ ", "▣ ".cyan().bold(), Style::default().cyan().bold())
+                }
+                StepStatus::Pending => ("□ ", "□ ".dim(), Style::default().dim()),
             };
             let wrap_width = (width as usize)
                 .saturating_sub(4)
@@ -1483,11 +1489,24 @@ impl HistoryCell for PlanUpdateCell {
                 .into_iter()
                 .map(|s| s.to_string().set_style(step_style).into())
                 .collect();
-            prefix_lines(step_text, box_str.into(), "  ".into())
+            prefix_lines(step_text, box_prefix, "  ".into())
         };
 
+        let completed = self
+            .plan
+            .iter()
+            .filter(|item| matches!(&item.status, StepStatus::Completed))
+            .count();
+        let total = self.plan.len();
+
+        let mut header: Vec<Span<'static>> = vec!["• ".dim(), "Updated Plan".bold()];
+        if total > 0 {
+            header.push(" ".into());
+            header.push(format!("({completed}/{total})").dim());
+        }
+
         let mut lines: Vec<Line<'static>> = vec![];
-        lines.push(vec!["• ".dim(), "Updated Plan".bold()].into());
+        lines.push(header.into());
 
         let mut indented_lines = vec![];
         let note = self

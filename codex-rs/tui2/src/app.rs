@@ -597,7 +597,11 @@ impl App {
         let session_lines = if width == 0 {
             Vec::new()
         } else {
-            let (lines, line_meta) = Self::build_transcript_lines(&app.transcript_cells, width);
+            let (lines, line_meta) = Self::build_transcript_lines(
+                &app.transcript_cells,
+                app.chat_widget.active_cell(),
+                width,
+            );
             let is_user_cell: Vec<bool> = app
                 .transcript_cells
                 .iter()
@@ -650,10 +654,9 @@ impl App {
                     {
                         return Ok(true);
                     }
-                    let cells = self.transcript_cells.clone();
                     tui.draw(tui.terminal.size()?.height, |frame| {
                         let chat_height = self.chat_widget.desired_height(frame.area().width);
-                        let chat_top = self.render_transcript_cells(frame, &cells, chat_height);
+                        let chat_top = self.render_transcript_cells(frame, chat_height);
                         let chat_area = Rect {
                             x: frame.area().x,
                             y: chat_top,
@@ -707,12 +710,7 @@ impl App {
         Ok(true)
     }
 
-    pub(crate) fn render_transcript_cells(
-        &mut self,
-        frame: &mut Frame,
-        cells: &[Arc<dyn HistoryCell>],
-        chat_height: u16,
-    ) -> u16 {
+    pub(crate) fn render_transcript_cells(&mut self, frame: &mut Frame, chat_height: u16) -> u16 {
         let area = frame.area();
         if area.width == 0 || area.height == 0 {
             self.transcript_scroll = TranscriptScroll::default();
@@ -737,7 +735,11 @@ impl App {
             height: max_transcript_height,
         };
 
-        let (lines, line_meta) = Self::build_transcript_lines(cells, transcript_area.width);
+        let (lines, line_meta) = Self::build_transcript_lines(
+            &self.transcript_cells,
+            self.chat_widget.active_cell(),
+            transcript_area.width,
+        );
         if lines.is_empty() {
             Clear.render_ref(transcript_area, frame.buffer);
             self.transcript_scroll = TranscriptScroll::default();
@@ -754,7 +756,8 @@ impl App {
             return area.y;
         }
 
-        let is_user_cell: Vec<bool> = cells
+        let is_user_cell: Vec<bool> = self
+            .transcript_cells
             .iter()
             .map(|c| c.as_any().is::<UserHistoryCell>())
             .collect();
@@ -1123,7 +1126,11 @@ impl App {
             return;
         }
 
-        let (lines, line_meta) = Self::build_transcript_lines(&self.transcript_cells, width);
+        let (lines, line_meta) = Self::build_transcript_lines(
+            &self.transcript_cells,
+            self.chat_widget.active_cell(),
+            width,
+        );
         if lines.is_empty() || line_meta.is_empty() {
             return;
         }
@@ -1189,11 +1196,18 @@ impl App {
     /// a concrete position corresponding to the current top row, and switches into a scroll
     /// mode that keeps that position stable until the user scrolls again.
     fn lock_transcript_scroll_to_current_view(&mut self, visible_lines: usize, width: u16) {
-        if self.transcript_cells.is_empty() || visible_lines == 0 || width == 0 {
+        if (self.transcript_cells.is_empty() && self.chat_widget.active_cell().is_none())
+            || visible_lines == 0
+            || width == 0
+        {
             return;
         }
 
-        let (lines, line_meta) = Self::build_transcript_lines(&self.transcript_cells, width);
+        let (lines, line_meta) = Self::build_transcript_lines(
+            &self.transcript_cells,
+            self.chat_widget.active_cell(),
+            width,
+        );
         if lines.is_empty() || line_meta.is_empty() {
             return;
         }
@@ -1229,16 +1243,17 @@ impl App {
     /// to style user rows differently from agent rows.
     fn build_transcript_lines(
         cells: &[Arc<dyn HistoryCell>],
+        active_cell: Option<&dyn HistoryCell>,
         width: u16,
     ) -> (Vec<Line<'static>>, Vec<TranscriptLineMeta>) {
         let mut lines: Vec<Line<'static>> = Vec::new();
         let mut line_meta: Vec<TranscriptLineMeta> = Vec::new();
         let mut has_emitted_lines = false;
 
-        for (cell_index, cell) in cells.iter().enumerate() {
+        let mut push_cell = |cell_index: usize, cell: &dyn HistoryCell| {
             let cell_lines = cell.display_lines(width);
             if cell_lines.is_empty() {
-                continue;
+                return;
             }
 
             if !cell.is_stream_continuation() {
@@ -1258,6 +1273,14 @@ impl App {
                 });
                 lines.push(line);
             }
+        };
+
+        for (cell_index, cell) in cells.iter().enumerate() {
+            push_cell(cell_index, cell.as_ref());
+        }
+
+        if let Some(active) = active_cell {
+            push_cell(cells.len(), active);
         }
 
         (lines, line_meta)
@@ -1462,7 +1485,11 @@ impl App {
         };
 
         let cells = self.transcript_cells.clone();
-        let (lines, _) = Self::build_transcript_lines(&cells, transcript_area.width);
+        let (lines, _) = Self::build_transcript_lines(
+            &cells,
+            self.chat_widget.active_cell(),
+            transcript_area.width,
+        );
         if lines.is_empty() {
             return;
         }

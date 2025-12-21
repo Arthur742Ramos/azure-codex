@@ -878,6 +878,13 @@ notifications = [ "agent-turn-complete", "approval-requested" ]
 # Defaults to true.
 animations = false
 
+# Disable mouse capture so your terminal can handle mouse wheel scrolling and native
+# text selection/copy.
+#
+# When unset, defaults to true in Windows Terminal (to preserve scrollback), and
+# false elsewhere.
+disable_mouse_capture = true
+
 # TUI2 mouse scrolling (wheel + trackpad)
 #
 # Terminals emit different numbers of raw scroll events per physical wheel notch (commonly 1, 3,
@@ -999,6 +1006,7 @@ Valid values:
 | `sandbox_workspace_write.exclude_slash_tmp`      | boolean                                                           | Exclude `/tmp` from writable roots (default: false).                                                                            |
 | `notify`                                         | array<string>                                                     | External program for notifications.                                                                                             |
 | `tui.animations`                                 | boolean                                                           | Enable terminal animations (welcome screen, shimmer, spinner). Defaults to true; set to `false` to disable visual motion.       |
+| `tui.disable_mouse_capture`                      | boolean                                                           | Disable mouse capture so the terminal can handle scrollback scrolling/selection (default: auto; true on Windows Terminal).      |
 | `instructions`                                   | string                                                            | Currently ignored; use `experimental_instructions_file` or `AGENTS.md`.                                                         |
 | `features.<feature-flag>`                        | boolean                                                           | See [feature flags](#feature-flags) for details                                                                                 |
 | `ghost_snapshot.disable_warnings`                | boolean                                                           | Disable every warnings around ghost snapshot (large files, directory, ...)                                                      |

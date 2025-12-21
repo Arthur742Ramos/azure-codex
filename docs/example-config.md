@@ -142,6 +142,10 @@ notifications = false
 # Enables welcome/status/spinner animations. Default: true
 animations = true
 
+# Disable mouse capture so your terminal can handle scrollback scrolling and native
+# text selection/copy. Default: unset (auto; true on Windows Terminal).
+# disable_mouse_capture = true
+
 # Suppress internal reasoning events from output. Default: false
 hide_agent_reasoning = false
 

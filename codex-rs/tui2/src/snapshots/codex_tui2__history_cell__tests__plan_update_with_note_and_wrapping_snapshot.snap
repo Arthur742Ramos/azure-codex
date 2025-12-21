@@ -2,7 +2,7 @@
 source: tui2/src/history_cell.rs
 expression: rendered
 ---
-• Updated Plan
+• Updated Plan (1/3)
   └ I’ll update Grafana call
     error handling by adding
     retries and clearer
@@ -11,7 +11,7 @@ expression: rendered
     ✔ Investigate existing error
       paths and logging around
       HTTP timeouts
-    □ Harden Grafana client
+    ▣ Harden Grafana client
       error handling with retry/
       backoff and user‑friendly
       messages

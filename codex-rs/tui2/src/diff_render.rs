@@ -119,7 +119,7 @@ fn collect_rows(changes: &HashMap<PathBuf, FileChange>) -> Vec<Row> {
             change: change.clone(),
         });
     }
-    rows.sort_by_key(|r| r.path.clone());
+    rows.sort_by(|a, b| a.path.cmp(&b.path));
     rows
 }
 
@@ -136,11 +136,18 @@ fn render_line_count_summary(added: usize, removed: usize) -> Vec<RtSpan<'static
 fn render_changes_block(rows: Vec<Row>, wrap_cols: usize, cwd: &Path) -> Vec<RtLine<'static>> {
     let mut out: Vec<RtLine<'static>> = Vec::new();
 
-    let render_path = |row: &Row| -> Vec<RtSpan<'static>> {
+    let render_path = |row: &Row, dim_path: bool| -> Vec<RtSpan<'static>> {
         let mut spans = Vec::new();
-        spans.push(display_path_for(&row.path, cwd).into());
+        let path = display_path_for(&row.path, cwd);
+        spans.push(if dim_path { path.dim() } else { path.into() });
         if let Some(move_path) = &row.move_path {
-            spans.push(format!(" → {}", display_path_for(move_path, cwd)).into());
+            spans.push(if dim_path {
+                " → ".dim()
+            } else {
+                " → ".into()
+            });
+            let moved = display_path_for(move_path, cwd);
+            spans.push(if dim_path { moved.dim() } else { moved.into() });
         }
         spans
     };
@@ -155,11 +162,14 @@ fn render_changes_block(rows: Vec<Row>, wrap_cols: usize, cwd: &Path) -> Vec<RtL
         let verb = match &row.change {
             FileChange::Add { .. } => "Added",
             FileChange::Delete { .. } => "Deleted",
+            FileChange::Update {
+                move_path: Some(_), ..
+            } => "Renamed",
             _ => "Edited",
         };
         header_spans.push(verb.bold());
         header_spans.push(" ".into());
-        header_spans.extend(render_path(row));
+        header_spans.extend(render_path(row, false));
         header_spans.push(" ".into());
         header_spans.extend(render_line_count_summary(row.added, row.removed));
     } else {
@@ -177,9 +187,19 @@ fn render_changes_block(rows: Vec<Row>, wrap_cols: usize, cwd: &Path) -> Vec<RtL
         // File header line (skip when single-file header already shows the name)
         let skip_file_header = file_count == 1;
         if !skip_file_header {
+            let status: RtSpan<'static> = match &r.change {
+                FileChange::Add { .. } => "A".green(),
+                FileChange::Delete { .. } => "D".red(),
+                FileChange::Update {
+                    move_path: Some(_), ..
+                } => "R".cyan(),
+                FileChange::Update { .. } => "M".dim(),
+            };
             let mut header: Vec<RtSpan<'static>> = Vec::new();
             header.push("  └ ".dim());
-            header.extend(render_path(&r));
+            header.push(status);
+            header.push(" ".dim());
+            header.extend(render_path(&r, true));
             header.push(" ".into());
             header.extend(render_line_count_summary(r.added, r.removed));
             out.push(RtLine::from(header));

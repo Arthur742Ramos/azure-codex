@@ -146,21 +146,23 @@ pub fn disable_mouse_capture() -> io::Result<()> {
             return Err(io::Error::last_os_error());
         }
 
-        // Get the original mode to preserve ENABLE_VIRTUAL_TERMINAL_INPUT.
-        let original_vti = ORIGINAL_MODE
-            .lock()
-            .ok()
-            .and_then(|g| *g)
+        let original_mode = ORIGINAL_MODE.lock().ok().and_then(|g| *g);
+        let original_vti = original_mode
             .map(|m| m & ENABLE_VIRTUAL_TERMINAL_INPUT)
             .unwrap_or(ENABLE_VIRTUAL_TERMINAL_INPUT);
+        let original_quick_edit = original_mode
+            .map(|m| (m & ENABLE_QUICK_EDIT_MODE) != 0)
+            .unwrap_or(true);
 
-        // Explicitly disable mouse input and restore quick edit mode for native text selection.
+        // Explicitly disable mouse input and restore quick edit mode to its original state.
         // We keep ENABLE_EXTENDED_FLAGS set as it's needed for the quick edit flag to take effect.
         // Preserve virtual terminal input for ANSI escape processing.
-        let new_mode = (mode & !ENABLE_MOUSE_INPUT)
-            | ENABLE_QUICK_EDIT_MODE
-            | ENABLE_EXTENDED_FLAGS
-            | original_vti;
+        let mut new_mode = (mode & !ENABLE_MOUSE_INPUT) | ENABLE_EXTENDED_FLAGS | original_vti;
+        if original_quick_edit {
+            new_mode |= ENABLE_QUICK_EDIT_MODE;
+        } else {
+            new_mode &= !ENABLE_QUICK_EDIT_MODE;
+        }
 
         if SetConsoleMode(handle, new_mode) == 0 {
             return Err(io::Error::last_os_error());

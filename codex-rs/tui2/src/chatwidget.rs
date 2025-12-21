@@ -113,7 +113,6 @@ use crate::key_hint;
 use crate::markdown::append_markdown;
 use crate::render::Insets;
 use crate::render::renderable::ColumnRenderable;
-use crate::render::renderable::FlexRenderable;
 use crate::render::renderable::Renderable;
 use crate::render::renderable::RenderableExt;
 use crate::render::renderable::RenderableItem;
@@ -3474,22 +3473,16 @@ impl ChatWidget {
         &self.config
     }
 
+    pub(crate) fn active_cell(&self) -> Option<&dyn HistoryCell> {
+        self.active_cell.as_deref()
+    }
+
     pub(crate) fn clear_token_usage(&mut self) {
         self.token_info = None;
     }
 
     fn as_renderable(&self) -> RenderableItem<'_> {
-        let active_cell_renderable = match &self.active_cell {
-            Some(cell) => RenderableItem::Borrowed(cell).inset(Insets::tlbr(1, 0, 0, 0)),
-            None => RenderableItem::Owned(Box::new(())),
-        };
-        let mut flex = FlexRenderable::new();
-        flex.push(1, active_cell_renderable);
-        flex.push(
-            0,
-            RenderableItem::Borrowed(&self.bottom_pane).inset(Insets::tlbr(1, 0, 0, 0)),
-        );
-        RenderableItem::Owned(Box::new(flex))
+        RenderableItem::Borrowed(&self.bottom_pane).inset(Insets::tlbr(1, 0, 0, 0))
     }
 }
 
@@ -3506,7 +3499,7 @@ impl Renderable for ChatWidget {
         }
 
         // Top chrome row (brand/model + key hints), intentionally rendered into the
-        // row left empty by the active cell's top inset.
+        // row left empty by the bottom pane's top inset.
         let header_area = Rect::new(area.x, area.y, area.width, 1);
         let (model, reasoning_effort) = self.model_state.get();
 

@@ -29,13 +29,13 @@ expression: term.backend().vt100().screen().contents()
 
 
 
+
+
+
+
 • I’m going to search the repo for where “Change Approved” is rendered to update
   that view.
 >_ Azure Codex  ·  gpt-5.2-codex               ctrl + k commands  ·  ? shortcuts
-● Explored
-  └ Search Change Approved
-    Read diff_render.rs
-
 • Investigating rendering code (0s • esc to interrupt)
 
 

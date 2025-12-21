@@ -5,7 +5,7 @@ expression: sanitized
 /status
 
 ╭───────────────────────────────────────────────────────────────────────╮
-│  >_ Azure Codex (v0.1.8)                                              │
+│  >_ Azure Codex (v0.2.0)                                              │
 │                                                                       │
 │  Model:            gpt-5.1-codex-max (reasoning none, summaries auto) │
 │  Directory: [[workspace]]                                             │

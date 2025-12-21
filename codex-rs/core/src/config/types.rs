@@ -406,9 +406,10 @@ pub struct Tui {
     /// Disable mouse capture to allow native terminal text selection/copy/paste.
     /// When `true`, mouse scrolling and app-based text selection are disabled,
     /// but you can use your terminal's native mouse selection.
-    /// Defaults to `false`.
-    #[serde(default)]
-    pub disable_mouse_capture: bool,
+    ///
+    /// When unset, defaults to `false` except on Windows Terminal, where it defaults to `true`
+    /// to preserve native scrollback scrolling.
+    pub disable_mouse_capture: Option<bool>,
 
     /// Override the *wheel* event density used to normalize TUI2 scrolling.
     ///

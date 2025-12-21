@@ -156,8 +156,9 @@ where
     O: Into<RtOptions<'a>>,
 {
     // Flatten the line and record span byte ranges.
-    let mut flat = String::new();
-    let mut span_bounds = Vec::new();
+    let flat_capacity: usize = line.spans.iter().map(|s| s.content.as_ref().len()).sum();
+    let mut flat = String::with_capacity(flat_capacity);
+    let mut span_bounds = Vec::with_capacity(line.spans.len());
     let mut acc = 0usize;
     for s in &line.spans {
         let text = s.content.as_ref();
@@ -192,13 +193,7 @@ where
     {
         let sliced = slice_line_spans(line, &span_bounds, first_line_range);
         let mut spans = first_line.spans;
-        spans.append(
-            &mut sliced
-                .spans
-                .into_iter()
-                .map(|s| s.patch_style(line.style))
-                .collect(),
-        );
+        spans.extend(sliced.spans.into_iter().map(|s| s.patch_style(line.style)));
         first_line.spans = spans;
         out.push(first_line);
     }
@@ -220,13 +215,7 @@ where
         let offset_range = (r.start + base)..(r.end + base);
         let sliced = slice_line_spans(line, &span_bounds, &offset_range);
         let mut spans = subsequent_line.spans;
-        spans.append(
-            &mut sliced
-                .spans
-                .into_iter()
-                .map(|s| s.patch_style(line.style))
-                .collect(),
-        );
+        spans.extend(sliced.spans.into_iter().map(|s| s.patch_style(line.style)));
         subsequent_line.spans = spans;
         out.push(subsequent_line);
     }

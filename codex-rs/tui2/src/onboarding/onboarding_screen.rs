@@ -555,10 +555,8 @@ pub(crate) async fn run_onboarding_app(
         ratatui::crossterm::style::SetBackgroundColor(ratatui::crossterm::style::Color::Reset),
         // Move cursor to top-left
         ratatui::crossterm::cursor::MoveTo(0, 0),
-        // Clear the entire screen
-        ratatui::crossterm::terminal::Clear(ratatui::crossterm::terminal::ClearType::All),
-        // Also clear scrollback buffer to prevent artifacts
-        ratatui::crossterm::terminal::Clear(ratatui::crossterm::terminal::ClearType::Purge)
+        // Clear the entire screen (but preserve scrollback)
+        ratatui::crossterm::terminal::Clear(ratatui::crossterm::terminal::ClearType::All)
     );
     let _ = tui.terminal.clear();
 

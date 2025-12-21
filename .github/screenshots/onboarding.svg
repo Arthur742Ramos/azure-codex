@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <style>
+      .bg { fill: #0b0f14; }
+      .panel { fill: #0f1623; stroke: #2b3a55; stroke-width: 2; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      .title { font-size: 26px; fill: #9bd3ff; font-weight: 700; }
+      .text { font-size: 18px; fill: #cbd5e1; }
+      .dim { font-size: 18px; fill: #94a3b8; }
+      .hint { font-size: 16px; fill: #94a3b8; }
+      .accent { fill: #22c55e; font-weight: 700; }
+      .warn { fill: #fbbf24; font-weight: 700; }
+      .input { fill: #0b1220; stroke: #4f46e5; stroke-width: 2; }
+      .caret { fill: #e2e8f0; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="960" height="540" rx="16" />
+  <rect class="panel" x="48" y="48" width="864" height="444" rx="14" />
+
+  <g class="mono">
+    <text class="title" x="84" y="100">Welcome to Azure Codex!</text>
+
+    <text class="text" x="84" y="150">Enter your Azure OpenAI resource name or endpoint.</text>
+    <text class="dim" x="84" y="184">Examples:</text>
+    <text class="dim" x="120" y="212"><tspan class="accent">my-resource</tspan></text>
+    <text class="dim" x="120" y="240">https://<tspan class="accent">my-resource</tspan>.openai.azure.com</text>
+
+    <text class="dim" x="84" y="290">You can find your resource name in the Azure Portal under your Azure OpenAI resource.</text>
+
+    <text class="text" x="84" y="340">Azure OpenAI Resource Name or Endpoint</text>
+    <rect class="input" x="84" y="360" width="792" height="56" rx="10" />
+    <text class="text" x="108" y="396"><tspan class="accent">my-resource</tspan><tspan class="caret">█</tspan></text>
+
+    <text class="hint" x="84" y="456"><tspan class="warn">Enter</tspan> to continue · <tspan class="warn">Esc</tspan> to skip and configure manually</text>
+  </g>
+</svg>

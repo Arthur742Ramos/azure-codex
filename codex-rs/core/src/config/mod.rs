@@ -1514,8 +1514,8 @@ impl Config {
             disable_mouse_capture: cfg
                 .tui
                 .as_ref()
-                .map(|t| t.disable_mouse_capture)
-                .unwrap_or(false),
+                .and_then(|t| t.disable_mouse_capture)
+                .unwrap_or_else(default_disable_mouse_capture),
             tui_scroll_events_per_tick: cfg.tui.as_ref().and_then(|t| t.scroll_events_per_tick),
             tui_scroll_wheel_lines: cfg.tui.as_ref().and_then(|t| t.scroll_wheel_lines),
             tui_scroll_trackpad_lines: cfg.tui.as_ref().and_then(|t| t.scroll_trackpad_lines),
@@ -1626,6 +1626,28 @@ fn default_review_model() -> String {
     OPENAI_DEFAULT_REVIEW_MODEL.to_string()
 }
 
+fn default_disable_mouse_capture() -> bool {
+    #[cfg(windows)]
+    {
+        // Default to native terminal scrolling/selection in Windows Terminal.
+        // Users can opt back into in-app mouse scrolling via `tui.disable_mouse_capture = false`
+        // or `/toggle-mouse-mode`.
+        if std::env::var_os("WT_SESSION").is_some() {
+            return true;
+        }
+
+        matches!(
+            std::env::var("TERM_PROGRAM").ok().as_deref(),
+            Some("Windows_Terminal")
+        )
+    }
+
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 /// Returns the path to the Azure Codex configuration directory, which can be
 /// specified by the `AZURE_CODEX_HOME` environment variable. If not set, defaults to
 /// `~/.azure-codex`.
@@ -1732,7 +1754,7 @@ persistence = "none"
                 notifications: Notifications::Enabled(true),
                 animations: true,
                 show_tooltips: true,
-                disable_mouse_capture: false,
+                disable_mouse_capture: None,
                 scroll_events_per_tick: None,
                 scroll_wheel_lines: None,
                 scroll_trackpad_lines: None,
@@ -3342,7 +3364,7 @@ model_verbosity = "high"
                 tui_notifications: Default::default(),
                 animations: true,
                 show_tooltips: true,
-                disable_mouse_capture: false,
+                disable_mouse_capture: default_disable_mouse_capture(),
                 tui_scroll_events_per_tick: None,
                 tui_scroll_wheel_lines: None,
                 tui_scroll_trackpad_lines: None,
@@ -3429,7 +3451,7 @@ model_verbosity = "high"
             tui_notifications: Default::default(),
             animations: true,
             show_tooltips: true,
-            disable_mouse_capture: false,
+            disable_mouse_capture: default_disable_mouse_capture(),
             tui_scroll_events_per_tick: None,
             tui_scroll_wheel_lines: None,
             tui_scroll_trackpad_lines: None,
@@ -3531,7 +3553,7 @@ model_verbosity = "high"
             tui_notifications: Default::default(),
             animations: true,
             show_tooltips: true,
-            disable_mouse_capture: false,
+            disable_mouse_capture: default_disable_mouse_capture(),
             tui_scroll_events_per_tick: None,
             tui_scroll_wheel_lines: None,
             tui_scroll_trackpad_lines: None,
@@ -3619,7 +3641,7 @@ model_verbosity = "high"
             tui_notifications: Default::default(),
             animations: true,
             show_tooltips: true,
-            disable_mouse_capture: false,
+            disable_mouse_capture: default_disable_mouse_capture(),
             tui_scroll_events_per_tick: None,
             tui_scroll_wheel_lines: None,
             tui_scroll_trackpad_lines: None,

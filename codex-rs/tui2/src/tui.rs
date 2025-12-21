@@ -90,15 +90,11 @@ pub fn set_modes(disable_mouse_capture: bool) -> Result<()> {
 
     let _ = execute!(stdout(), EnableFocusChange);
 
-    // Enable application mouse mode so scroll events are delivered as
-    // Mouse events instead of arrow keys - unless disabled by config.
-    // Always do a disable->enable cycle to normalize console state; without this,
-    // mouse capture can be stuck until the user toggles it manually.
+    // Normalize mouse capture state. We always disable first to avoid "stuck"
+    // capture and to ensure we start from a known baseline.
     disable_mouse_capture_internal();
-    enable_mouse_capture_internal();
-
-    if disable_mouse_capture {
-        disable_mouse_capture_internal();
+    if !disable_mouse_capture {
+        enable_mouse_capture_internal();
     }
 
     Ok(())
@@ -137,15 +133,7 @@ fn disable_mouse_capture_internal() {
 pub fn restore() -> Result<()> {
     // Pop may fail on platforms that didn't support the push; ignore errors.
     let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
-    let _ = execute!(stdout(), DisableMouseCapture);
-
-    // On Windows, restore the original console mode (disables Win32 mouse capture).
-    #[cfg(windows)]
-    {
-        if let Err(e) = crate::windows_mouse::disable_mouse_capture() {
-            tracing::warn!("Failed to disable Windows mouse capture via Win32 API: {e}");
-        }
-    }
+    disable_mouse_capture_internal();
 
     execute!(stdout(), DisableBracketedPaste)?;
     let _ = execute!(stdout(), DisableFocusChange);
@@ -277,6 +265,13 @@ impl Tui {
         supports_color::on_cached(supports_color::Stream::Stdout);
         let _ = crate::terminal_palette::default_colors();
 
+        #[cfg(unix)]
+        let suspend_context = {
+            let ctx = SuspendContext::new();
+            ctx.set_mouse_capture_enabled(mouse_capture_enabled);
+            ctx
+        };
+
         Self {
             frame_requester,
             draw_tx,
@@ -284,7 +279,7 @@ impl Tui {
             pending_history_lines: vec![],
             alt_saved_viewport: None,
             #[cfg(unix)]
-            suspend_context: SuspendContext::new(),
+            suspend_context,
             alt_screen_active: Arc::new(AtomicBool::new(false)),
             terminal_focused: Arc::new(AtomicBool::new(true)),
             enhanced_keys_supported,
@@ -314,6 +309,9 @@ impl Tui {
             enable_mouse_capture_internal();
             self.mouse_capture_enabled = true;
         }
+        #[cfg(unix)]
+        self.suspend_context
+            .set_mouse_capture_enabled(self.mouse_capture_enabled);
         self.mouse_capture_enabled
     }
 
@@ -327,6 +325,8 @@ impl Tui {
                 disable_mouse_capture_internal();
             }
             self.mouse_capture_enabled = enabled;
+            #[cfg(unix)]
+            self.suspend_context.set_mouse_capture_enabled(enabled);
         }
     }
 
@@ -452,12 +452,6 @@ impl Tui {
                     result = draw_rx.recv() => {
                         match result {
                             Ok(_) => {
-                                // Re-enable mouse capture on Windows before draw.
-                                // ANSI sequences during rendering can reset console mode.
-                                #[cfg(windows)]
-                                {
-                                    let _ = crate::windows_mouse::enable_mouse_capture();
-                                }
                                 yield TuiEvent::Draw;
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
@@ -525,6 +519,7 @@ impl Tui {
         // Precompute any viewport updates that need a cursor-position query before entering
         // the synchronized update, to avoid racing with the event reader.
         let mut pending_viewport_area = self.pending_viewport_area()?;
+        let mouse_capture_enabled = self.mouse_capture_enabled;
 
         stdout().sync_update(|_| {
             #[cfg(unix)]
@@ -570,6 +565,13 @@ impl Tui {
                     area.bottom().saturating_sub(1)
                 };
                 self.suspend_context.set_cursor_y(inline_area_bottom);
+            }
+
+            // On Windows, ANSI rendering can reset console mode; re-assert Win32 mouse
+            // capture just before drawing when enabled.
+            #[cfg(windows)]
+            if mouse_capture_enabled {
+                let _ = crate::windows_mouse::enable_mouse_capture();
             }
 
             terminal.draw(|frame| {
