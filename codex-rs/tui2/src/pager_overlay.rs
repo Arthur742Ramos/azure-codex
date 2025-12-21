@@ -12,7 +12,6 @@ use crate::render::renderable::Renderable;
 use crate::style::user_message_style;
 use crate::tui;
 use crate::tui::TuiEvent;
-use crate::tui::scrolling::mouse_scroll_lines;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::MouseEvent;
@@ -287,11 +286,7 @@ impl PagerView {
     }
 
     fn handle_mouse_scroll(&mut self, tui: &mut tui::Tui, event: MouseEvent) -> Result<()> {
-        let content_area = self.content_area(tui.terminal.viewport_area);
-        let step = mouse_scroll_lines(event.modifiers, content_area.height as usize);
-        if step == 0 {
-            return Ok(());
-        }
+        let step: usize = 3;
         match event.kind {
             MouseEventKind::ScrollUp => {
                 self.scroll_offset = self.scroll_offset.saturating_sub(step);
