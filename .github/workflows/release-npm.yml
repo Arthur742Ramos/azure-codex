@@ -10,6 +10,11 @@ on:
         description: 'Version to release (e.g., 0.1.0)'
         required: true
         type: string
+      publish_npm:
+        description: 'Publish to npm (default: false)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -93,6 +98,8 @@ jobs:
   package:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -138,15 +145,17 @@ jobs:
           cd npm && npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to NPM
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish_npm == 'true' }}
         working-directory: npm
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: v${{ env.VERSION }}
+          tag_name: v${{ env.VERSION }}
           files: |
             artifacts/binary-*/codex*
           generate_release_notes: true
