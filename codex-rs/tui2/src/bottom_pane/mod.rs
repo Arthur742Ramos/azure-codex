@@ -250,6 +250,11 @@ impl BottomPane {
         self.request_redraw();
     }
 
+    pub(crate) fn open_skill_popup(&mut self) {
+        self.composer.open_skill_popup();
+        self.request_redraw();
+    }
+
     /// Replace the composer text with `text`.
     pub(crate) fn set_composer_text(&mut self, text: String) {
         self.composer.set_text_content(text);

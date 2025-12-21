@@ -1,5 +1,5 @@
 set working-directory := "codex-rs"
-set positional-arguments
+set windows-shell := ["powershell.exe", "-NoProfile", "-Command"]
 
 # Display help
 help:
@@ -32,7 +32,7 @@ fmt:
     cargo fmt -- --config imports_granularity=Item
 
 fix *args:
-    cargo clippy --fix --all-features --tests --allow-dirty "$@"
+    cargo clippy --fix --all-features --tests --allow-dirty {{args}}
 
 clippy:
     cargo clippy --all-features --tests "$@"

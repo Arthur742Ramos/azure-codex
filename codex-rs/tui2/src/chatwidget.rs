@@ -1626,7 +1626,8 @@ impl ChatWidget {
                 self.insert_str("@");
             }
             SlashCommand::Skills => {
-                self.insert_str("$");
+                self.bottom_pane.open_skill_popup();
+                self.request_redraw();
             }
             SlashCommand::Status => {
                 self.add_status_output();

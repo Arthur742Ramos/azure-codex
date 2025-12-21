@@ -397,6 +397,21 @@ impl ChatComposer {
         self.sync_popups();
     }
 
+    pub(crate) fn open_skill_popup(&mut self) {
+        if !self.skills_enabled() {
+            return;
+        }
+
+        self.dismissed_skill_popup_token = None;
+        if let Some(token) = self.current_skill_token() {
+            self.sync_skill_popup(token);
+            return;
+        }
+
+        self.textarea.insert_str("$");
+        self.sync_popups();
+    }
+
     /// Handle a key event coming from the main UI.
     pub fn handle_key_event(&mut self, key_event: KeyEvent) -> (InputResult, bool) {
         let result = match &mut self.active_popup {

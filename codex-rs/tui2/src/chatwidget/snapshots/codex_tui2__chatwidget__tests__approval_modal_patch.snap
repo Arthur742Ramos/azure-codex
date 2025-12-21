@@ -2,7 +2,7 @@
 source: tui2/src/chatwidget/tests.rs
 expression: terminal.backend().vt100().screen().contents()
 ---
->_ Azure Codex  ·  caribou                     ctrl + k commands  ·  ? shortcuts
+>_ Azure Codex  ·  gpt-5.2-codex               ctrl + k commands  ·  ? shortcuts
 
   Would you like to make the following edits?
 

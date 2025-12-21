@@ -115,8 +115,24 @@ impl SkillPopup {
         }
 
         for (idx, skill) in self.skills.iter().enumerate() {
+            let mut best: Option<(Option<Vec<usize>>, i32)> = None;
             if let Some((indices, score)) = fuzzy_match(&skill.name, filter) {
-                out.push((idx, Some(indices), score));
+                best = Some((Some(indices), score));
+            }
+
+            let description = skill
+                .short_description
+                .as_ref()
+                .unwrap_or(&skill.description);
+            if let Some((_indices, score)) = fuzzy_match(description, filter) {
+                match best {
+                    Some((_, best_score)) if best_score <= score => {}
+                    _ => best = Some((None, score)),
+                }
+            }
+
+            if let Some((indices, score)) = best {
+                out.push((idx, indices, score));
             }
         }
 
