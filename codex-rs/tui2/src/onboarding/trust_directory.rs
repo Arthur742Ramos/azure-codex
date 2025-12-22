@@ -57,11 +57,23 @@ impl WidgetRef for &TrustDirectoryWidget {
         };
 
         column.push(
-            Paragraph::new(guidance.to_string())
+            Paragraph::new(guidance)
                 .wrap(Wrap { trim: true })
                 .inset(Insets::tlbr(0, 2, 0, 0)),
         );
         column.push("");
+
+        if !self.is_git_repo {
+            column.push(
+                Paragraph::new(
+                    "Tip: Consider running `git init` so you can review and revert Codex changes easily.",
+                )
+                .cyan()
+                .wrap(Wrap { trim: true })
+                .inset(Insets::tlbr(0, 2, 0, 0)),
+            );
+            column.push("");
+        }
 
         let mut options: Vec<(&str, TrustDirectorySelection)> = Vec::new();
         if self.is_git_repo {

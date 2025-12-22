@@ -94,7 +94,7 @@ const PAGER_KEY_HINTS: &[(&[KeyBinding], &str)] = &[
 ];
 
 // Render a single line of key hints from (key(s), description) pairs.
-fn render_key_hints(area: Rect, buf: &mut Buffer, pairs: &[(&[KeyBinding], &str)]) {
+fn render_key_hints(area: Rect, buf: &mut Buffer, pairs: &[(&[KeyBinding], &'static str)]) {
     let mut spans: Vec<Span<'static>> = vec![" ".into()];
     let mut first = true;
     for (keys, desc) in pairs {
@@ -108,7 +108,7 @@ fn render_key_hints(area: Rect, buf: &mut Buffer, pairs: &[(&[KeyBinding], &str)
             spans.push(Span::from(key));
         }
         spans.push(" ".into());
-        spans.push(Span::from(desc.to_string()));
+        spans.push(Span::from(*desc));
         first = false;
     }
     Paragraph::new(vec![Line::from(spans).dim()]).render_ref(area, buf);
@@ -499,7 +499,7 @@ impl TranscriptOverlay {
         let line2 = Rect::new(area.x, area.y.saturating_add(1), area.width, 1);
         render_key_hints(line1, buf, PAGER_KEY_HINTS);
 
-        let mut pairs: Vec<(&[KeyBinding], &str)> =
+        let mut pairs: Vec<(&[KeyBinding], &'static str)> =
             vec![(&[KEY_Q], "to quit"), (&[KEY_ESC], "to edit prev")];
         if self.highlight_cell.is_some() {
             pairs.push((&[KEY_ENTER], "to edit message"));
@@ -563,7 +563,8 @@ impl StaticOverlay {
         let line1 = Rect::new(area.x, area.y, area.width, 1);
         let line2 = Rect::new(area.x, area.y.saturating_add(1), area.width, 1);
         render_key_hints(line1, buf, PAGER_KEY_HINTS);
-        let pairs: Vec<(&[KeyBinding], &str)> = vec![(&[KEY_Q], "to quit")];
+        let quit_keys = [KEY_Q, KEY_ESC];
+        let pairs: Vec<(&[KeyBinding], &'static str)> = vec![(&quit_keys, "to quit")];
         render_key_hints(line2, buf, &pairs);
     }
 
@@ -580,7 +581,7 @@ impl StaticOverlay {
     pub(crate) fn handle_event(&mut self, tui: &mut tui::Tui, event: TuiEvent) -> Result<()> {
         match event {
             TuiEvent::Key(key_event) => match key_event {
-                e if KEY_Q.is_press(e) || KEY_CTRL_C.is_press(e) => {
+                e if KEY_Q.is_press(e) || KEY_CTRL_C.is_press(e) || KEY_ESC.is_press(e) => {
                     self.is_done = true;
                     Ok(())
                 }

@@ -676,7 +676,7 @@ async fn compact_resume_after_second_compaction_preserves_history() {
     // Build expected final request input: initial context + forked user message +
     // compacted summary + post-compact user message + resumed user message.
     let summary_after_second_compact =
-        extract_summary_message(&requests[requests.len() - 3], SUMMARY_TEXT);
+        extract_summary_message(&requests[requests.len() - 2], SUMMARY_TEXT);
 
     let mut expected = json!([
       {
@@ -838,18 +838,26 @@ async fn mount_second_compact_flow(server: &MockServer) {
         ev_completed("r6"),
     ]);
     let sse7 = sse(vec![ev_completed("r7")]);
+    let sse8 = sse(vec![ev_completed("r8")]);
 
     let match_second_compact = |req: &wiremock::Request| {
         let body = std::str::from_utf8(&req.body).unwrap_or("");
-        body.contains("AFTER_FORK")
+        body_contains_text(body, SUMMARIZATION_PROMPT) && body.contains("\"text\":\"AFTER_FORK\"")
     };
     mount_sse_once_match(server, match_second_compact, sse6).await;
+
+    let match_after_second_compact = |req: &wiremock::Request| {
+        let body = std::str::from_utf8(&req.body).unwrap_or("");
+        body.contains("\"text\":\"AFTER_COMPACT_2\"")
+            && !body.contains(&format!("\"text\":\"{AFTER_SECOND_RESUME}\""))
+    };
+    mount_sse_once_match(server, match_after_second_compact, sse7).await;
 
     let match_after_second_resume = |req: &wiremock::Request| {
         let body = std::str::from_utf8(&req.body).unwrap_or("");
         body.contains(&format!("\"text\":\"{AFTER_SECOND_RESUME}\""))
     };
-    mount_sse_once_match(server, match_after_second_resume, sse7).await;
+    mount_sse_once_match(server, match_after_second_resume, sse8).await;
 }
 
 async fn start_test_conversation(

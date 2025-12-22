@@ -1824,10 +1824,26 @@ impl App {
                 self.chat_widget.on_diff_complete();
                 // Enter alternate screen using TUI helper and build pager lines
                 let _ = tui.enter_alt_screen();
+                const MAX_DIFF_OVERLAY_LINES: usize = 20_000;
+
                 let pager_lines: Vec<ratatui::text::Line<'static>> = if text.trim().is_empty() {
                     vec!["No changes detected.".italic().into()]
                 } else {
-                    text.lines().map(ansi_escape_line).collect()
+                    let mut lines = Vec::new();
+                    for (idx, line) in text.lines().enumerate() {
+                        if idx >= MAX_DIFF_OVERLAY_LINES {
+                            lines.push(
+                                format!(
+                                    "... (diff output truncated; showing first {MAX_DIFF_OVERLAY_LINES} lines)"
+                                )
+                                .dim()
+                                .into(),
+                            );
+                            break;
+                        }
+                        lines.push(ansi_escape_line(line));
+                    }
+                    lines
                 };
                 self.overlay = Some(Overlay::new_static_with_lines(
                     pager_lines,

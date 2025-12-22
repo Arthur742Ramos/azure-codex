@@ -50,6 +50,14 @@ pub fn fmt_elapsed_compact(elapsed_secs: u64) -> String {
     format!("{hours}h {minutes:02}m {seconds:02}s")
 }
 
+fn time_until_next_second(elapsed: Duration) -> Duration {
+    let nanos = elapsed.subsec_nanos();
+    if nanos == 0 {
+        return Duration::from_secs(1);
+    }
+    Duration::from_nanos(1_000_000_000 - nanos as u64)
+}
+
 impl StatusIndicatorWidget {
     pub(crate) fn new(
         app_event_tx: AppEventSender,
@@ -106,6 +114,7 @@ impl StatusIndicatorWidget {
         }
         self.elapsed_running += now.saturating_duration_since(self.last_resume_at);
         self.is_paused = true;
+        self.frame_requester.schedule_frame();
     }
 
     pub(crate) fn resume_timer_at(&mut self, now: Instant) {
@@ -144,17 +153,25 @@ impl Renderable for StatusIndicatorWidget {
             return;
         }
 
-        // Schedule next animation frame.
-        self.frame_requester
-            .schedule_frame_in(Duration::from_millis(32));
         let now = Instant::now();
         let elapsed_duration = self.elapsed_duration_at(now);
+
+        if !self.is_paused {
+            let delay = if self.animations_enabled {
+                Duration::from_millis(50)
+            } else {
+                time_until_next_second(elapsed_duration)
+            };
+            self.frame_requester.schedule_frame_in(delay);
+        }
+
         let pretty_elapsed = fmt_elapsed_compact(elapsed_duration.as_secs());
+        let animations_enabled = self.animations_enabled && !self.is_paused;
 
         let mut spans = Vec::with_capacity(5);
-        spans.push(spinner(Some(self.last_resume_at), self.animations_enabled));
+        spans.push(spinner(Some(self.last_resume_at), animations_enabled));
         spans.push(" ".into());
-        if self.animations_enabled {
+        if animations_enabled {
             spans.extend(shimmer_spans(&self.header));
         } else if !self.header.is_empty() {
             spans.push(self.header.clone().into());

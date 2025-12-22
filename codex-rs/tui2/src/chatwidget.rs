@@ -334,6 +334,8 @@ pub(crate) struct ChatWidget {
     pre_review_token_info: Option<Option<TokenUsageInfo>>,
     // Whether to add a final message separator after the last message
     needs_final_message_separator: bool,
+    // Whether a `/diff` computation is currently running (used to show/hide a transient status).
+    diff_in_progress: bool,
 
     last_rendered_width: std::cell::Cell<Option<usize>>,
     // Feedback sink for /feedback
@@ -1346,6 +1348,7 @@ impl ChatWidget {
             is_review_mode: false,
             pre_review_token_info: None,
             needs_final_message_separator: false,
+            diff_in_progress: false,
             last_rendered_width: std::cell::Cell::new(None),
             feedback,
             current_rollout_path: None,
@@ -1433,6 +1436,7 @@ impl ChatWidget {
             is_review_mode: false,
             pre_review_token_info: None,
             needs_final_message_separator: false,
+            diff_in_progress: false,
             last_rendered_width: std::cell::Cell::new(None),
             feedback,
             current_rollout_path: None,
@@ -1613,7 +1617,7 @@ impl ChatWidget {
                             if is_git_repo {
                                 diff_text
                             } else {
-                                "`/diff` — _not inside a git repository_".to_string()
+                                "/diff: not inside a git repository.".to_string()
                             }
                         }
                         Err(e) => format!("Failed to compute diff: {e}"),
@@ -2065,10 +2069,22 @@ impl ChatWidget {
     }
 
     pub(crate) fn add_diff_in_progress(&mut self) {
+        self.diff_in_progress = true;
+        if !self.bottom_pane.is_task_running() {
+            self.bottom_pane.ensure_status_indicator();
+            self.bottom_pane.set_interrupt_hint_visible(false);
+            self.set_status_header("Computing diff...".to_string());
+        }
         self.request_redraw();
     }
 
     pub(crate) fn on_diff_complete(&mut self) {
+        if self.diff_in_progress {
+            self.diff_in_progress = false;
+            if !self.bottom_pane.is_task_running() {
+                self.bottom_pane.hide_status_indicator();
+            }
+        }
         self.request_redraw();
     }
 
