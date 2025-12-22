@@ -14,23 +14,20 @@ State:
   - Created initial `CONTINUITY.md`.
   - Improved `codex-rs/tui2` status indicator redraw scheduling (lower idle CPU when animations are off; no redraw loop while paused).
   - Improved onboarding trust screen UX for non-git folders (added a Git tip) and removed the related TODO.
-  - Ran `just fmt` (warnings about `imports_granularity=Item` needing nightly, but succeeded).
-  - Ran `cargo test -p codex-tui2` (passed).
   - Improved `/diff` performance and resilience (bounded output size, capped untracked diffs, limited git process concurrency) in `codex-rs/tui2/src/get_git_diff.rs`.
-  - Improved `/diff` UX (shows transient “Computing diff...” status, avoids markdown-in-overlay message, caps overlay lines) in `codex-rs/tui2/src/chatwidget.rs` and `codex-rs/tui2/src/app.rs`.
+  - Improved `/diff` UX (shows transient "Computing diff..." status, avoids markdown-in-overlay message, caps overlay lines) in `codex-rs/tui2/src/chatwidget.rs` and `codex-rs/tui2/src/app.rs`.
   - Improved overlay UX/perf (Esc closes static overlays; removed per-render string allocation in key hints) in `codex-rs/tui2/src/pager_overlay.rs`.
   - Updated TUI2 snapshots for static overlay footer hints.
-  - Ran `just fmt` and `cargo test -p codex-tui2` (passed).
+  - Fixed failing `codex-core` tests in `codex-rs/core/tests/suite/otel.rs` and `codex-rs/core/tests/suite/compact_resume_fork.rs`.
+  - Validation: `just fmt`, `just fix -p codex-tui2`, `just fix -p codex-core`, `cargo test -p codex-tui2`, `cargo test -p codex-core --test all --all-features`, `cargo test --all-features` (all passed; `just fmt` warns about `imports_granularity=Item` needing nightly).
+  - Committed and pushed to `origin/main`: `6ea071550` ("tui2: perf/ux improvements").
 - Now:
-  - Running final checks (lint/tests) before committing and pushing changes.
+  - Waiting for the next perf/UI/UX target area.
 - Next:
-  - Run `just fix -p codex-tui2` (lint autofix), then re-run relevant tests.
-  - Commit changes with an appropriate message.
-  - Push to the current branch's remote.
+  - Pick a priority surface (`codex-rs/tui2`, `codex-rs/tui`, `codex-rs/core`, or `codex-cli`) and repeat the perf/UX pass.
 
 Open questions (UNCONFIRMED if needed):
 - Which surface should be prioritized: Rust TUI (`codex-rs/tui`), Rust core, or JS CLI (`codex-cli`)?
-- What commit message style is preferred (single combined commit vs split commits)?
 
 Working set (files/ids/commands):
 - `AGENTS.md`
@@ -47,5 +44,7 @@ Working set (files/ids/commands):
 - `codex-rs/tui2/src/pager_overlay.rs`
 - `codex-rs/tui2/src/snapshots/codex_tui2__pager_overlay__tests__static_overlay_snapshot_basic.snap`
 - `codex-rs/tui2/src/snapshots/codex_tui2__pager_overlay__tests__static_overlay_wraps_long_lines.snap`
+- `codex-rs/core/tests/suite/otel.rs`
+- `codex-rs/core/tests/suite/compact_resume_fork.rs`
 - `codex-rs/justfile`
-- Commands: `just fmt` (in `codex-rs`), `cargo test -p codex-tui2` (in `codex-rs`)
+- Commands: `just fmt` / `just fix -p codex-tui2` / `just fix -p codex-core` / `cargo test --all-features` (in `codex-rs`)
