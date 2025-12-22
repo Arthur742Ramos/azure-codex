@@ -1,6 +1,7 @@
 Goal (incl. success criteria):
 - Maintain a compaction-safe session briefing in this repo via this ledger; success = entries stay current and the assistant uses it each turn.
 - Identify and implement perf/UI/UX improvements; success = concrete improvements merged with basic validation (fmt/build/tests where practical).
+- Keep the fork current with upstream (`openai/codex`); success = `upstream/main` merged into `main` and pushed.
 
 Constraints/Assumptions:
 - Follow `AGENTS.md` instructions; for `codex-rs/` changes, obey Rust formatting/lint/test rules and avoid `CODEX_SANDBOX_*` env var code changes.
@@ -21,10 +22,13 @@ State:
   - Fixed failing `codex-core` tests in `codex-rs/core/tests/suite/otel.rs` and `codex-rs/core/tests/suite/compact_resume_fork.rs`.
   - Validation: `just fmt`, `just fix -p codex-tui2`, `just fix -p codex-core`, `cargo test -p codex-tui2`, `cargo test -p codex-core --test all --all-features`, `cargo test --all-features` (all passed; `just fmt` warns about `imports_granularity=Item` needing nightly).
   - Committed and pushed to `origin/main`: `6ea071550` ("tui2: perf/ux improvements").
+  - Merged `upstream/main` into `main`: `3f92e7179` (resolved delete/modify conflicts by keeping upstream `codex-rs/tui` files).
+  - Post-merge checks: `cargo test -p codex-core --test all --all-features` and `cargo test -p codex-tui2` (passed).
 - Now:
-  - Waiting for the next perf/UI/UX target area.
+  - Ready to push the upstream merge to `origin/main`.
 - Next:
-  - Pick a priority surface (`codex-rs/tui2`, `codex-rs/tui`, `codex-rs/core`, or `codex-cli`) and repeat the perf/UX pass.
+  - `git push origin main`
+  - After upstream merge lands, pick next perf/UI/UX target surface.
 
 Open questions (UNCONFIRMED if needed):
 - Which surface should be prioritized: Rust TUI (`codex-rs/tui`), Rust core, or JS CLI (`codex-cli`)?
@@ -48,3 +52,4 @@ Working set (files/ids/commands):
 - `codex-rs/core/tests/suite/compact_resume_fork.rs`
 - `codex-rs/justfile`
 - Commands: `just fmt` / `just fix -p codex-tui2` / `just fix -p codex-core` / `cargo test --all-features` (in `codex-rs`)
+  - Merge: `git fetch upstream`, `git merge upstream/main`
