@@ -24,10 +24,10 @@ State:
   - Committed and pushed to `origin/main`: `6ea071550` ("tui2: perf/ux improvements").
   - Merged `upstream/main` into `main`: `3f92e7179` (resolved delete/modify conflicts by keeping upstream `codex-rs/tui` files).
   - Post-merge checks: `cargo test -p codex-core --test all --all-features` and `cargo test -p codex-tui2` (passed).
+  - Pushed upstream merge to `origin/main`: `4e5278a1c`.
 - Now:
-  - Ready to push the upstream merge to `origin/main`.
+  - Waiting for the next task.
 - Next:
-  - `git push origin main`
   - After upstream merge lands, pick next perf/UI/UX target surface.
 
 Open questions (UNCONFIRMED if needed):
