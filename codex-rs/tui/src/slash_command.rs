@@ -13,11 +13,10 @@ pub enum SlashCommand {
     // DO NOT ALPHA-SORT! Enum order is presentation order in the popup, so
     // more frequently used commands should be listed first.
     Model,
-    Endpoint,
     Approvals,
+    Experimental,
     Skills,
     Review,
-    ReviewFix,
     New,
     Resume,
     Init,
@@ -27,12 +26,12 @@ pub enum SlashCommand {
     Mention,
     Status,
     Mcp,
-    ToggleMouseMode,
     Logout,
     Quit,
     Exit,
     Feedback,
     Rollout,
+    Ps,
     TestApproval,
 }
 
@@ -45,7 +44,6 @@ impl SlashCommand {
             SlashCommand::Init => "create an AGENTS.md file with instructions for Codex",
             SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
             SlashCommand::Review => "review my current changes and find issues",
-            SlashCommand::ReviewFix => "review my changes, fix issues, and re-check until clean",
             SlashCommand::Resume => "resume a saved chat",
             // SlashCommand::Undo => "ask Codex to undo a turn",
             SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
@@ -53,11 +51,11 @@ impl SlashCommand {
             SlashCommand::Mention => "mention a file",
             SlashCommand::Skills => "use skills to improve how Codex performs specific tasks",
             SlashCommand::Status => "show current session configuration and token usage",
+            SlashCommand::Ps => "list background terminals",
             SlashCommand::Model => "choose what model and reasoning effort to use",
-            SlashCommand::Endpoint => "show or change the Azure OpenAI endpoint",
             SlashCommand::Approvals => "choose what Codex can do without approval",
+            SlashCommand::Experimental => "toggle beta features",
             SlashCommand::Mcp => "list configured MCP tools",
-            SlashCommand::ToggleMouseMode => "toggle mouse capture for native text selection",
             SlashCommand::Logout => "log out of Codex",
             SlashCommand::Rollout => "print the rollout file path",
             SlashCommand::TestApproval => "test approval request",
@@ -79,17 +77,16 @@ impl SlashCommand {
             | SlashCommand::Compact
             // | SlashCommand::Undo
             | SlashCommand::Model
-            | SlashCommand::Endpoint
             | SlashCommand::Approvals
+            | SlashCommand::Experimental
             | SlashCommand::Review
-            | SlashCommand::ReviewFix
             | SlashCommand::Logout => false,
             SlashCommand::Diff
             | SlashCommand::Mention
             | SlashCommand::Skills
             | SlashCommand::Status
+            | SlashCommand::Ps
             | SlashCommand::Mcp
-            | SlashCommand::ToggleMouseMode
             | SlashCommand::Feedback
             | SlashCommand::Quit
             | SlashCommand::Exit => true,
