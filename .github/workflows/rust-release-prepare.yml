@@ -14,8 +14,6 @@ permissions:
 
 jobs:
   prepare:
-    # This workflow requires an OpenAI API key; skip instead of failing when the secret isn't set.
-    if: ${{ secrets.CODEX_OPENAI_API_KEY != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -26,8 +24,13 @@ jobs:
       - name: Update models.json
         env:
           OPENAI_API_KEY: ${{ secrets.CODEX_OPENAI_API_KEY }}
+        shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "${OPENAI_API_KEY}" ]]; then
+            echo "CODEX_OPENAI_API_KEY is not set; skipping models.json update."
+            exit 0
+          fi
 
           client_version="99.99.99"
           terminal_info="github-actions"

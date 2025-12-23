@@ -27,11 +27,12 @@ State:
   - Post-merge checks: `cargo test -p codex-core --test all --all-features` and `cargo test -p codex-tui2` (passed).
   - Pushed upstream merge to `origin/main`: `4e5278a1c`.
   - Fixed `rust-ci` clippy failure on non-Windows (gate `mouse_capture_enabled` capture behind `#[cfg(windows)]`) and validated `cargo test -p codex-tui2` (pass).
+  - Committed and pushed CI fixes to `origin/main`: `185931b5f` ("ci: fix tui2 clippy and release workflows").
 - Now:
-  - Triaging fork CI noise: `rust-release-prepare` schedule fails on forks (curl 401); `Release NPM Package` dispatch failed uploading duplicate asset names.
+  - Fixing GitHub Actions “workflow file issue” failures for `.github/workflows/release-npm.yml` and `.github/workflows/rust-release-prepare.yml` (avoid `secrets.*` in `if:`; skip at runtime instead).
 - Next:
-  - Commit/push the clippy fix and confirm `rust-ci` is green on `origin/main`.
-  - Make fork-incompatible release workflows skip (or no-op) when required secrets/permissions aren’t available.
+  - Confirm `rust-ci` is green on `origin/main` (new run after `185931b5f`).
+  - Confirm `rust-release-prepare` no-ops when `CODEX_OPENAI_API_KEY` is unset, and `Release NPM Package` upload is collision-free (unique tarballs).
   - After CI is green, pick next perf/UI/UX target surface.
 
 Open questions (UNCONFIRMED if needed):
