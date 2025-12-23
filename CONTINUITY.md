@@ -2,6 +2,7 @@ Goal (incl. success criteria):
 - Maintain a compaction-safe session briefing in this repo via this ledger; success = entries stay current and the assistant uses it each turn.
 - Identify and implement perf/UI/UX improvements; success = concrete improvements merged with basic validation (fmt/build/tests where practical).
 - Keep the fork current with upstream (`openai/codex`); success = `upstream/main` merged into `main` and pushed.
+- Keep CI green; success = all GitHub Actions checks pass on `origin/main`.
 
 Constraints/Assumptions:
 - Follow `AGENTS.md` instructions; for `codex-rs/` changes, obey Rust formatting/lint/test rules and avoid `CODEX_SANDBOX_*` env var code changes.
@@ -25,10 +26,13 @@ State:
   - Merged `upstream/main` into `main`: `3f92e7179` (resolved delete/modify conflicts by keeping upstream `codex-rs/tui` files).
   - Post-merge checks: `cargo test -p codex-core --test all --all-features` and `cargo test -p codex-tui2` (passed).
   - Pushed upstream merge to `origin/main`: `4e5278a1c`.
+  - Fixed `rust-ci` clippy failure on non-Windows (gate `mouse_capture_enabled` capture behind `#[cfg(windows)]`) and validated `cargo test -p codex-tui2` (pass).
 - Now:
-  - Waiting for the next task.
+  - Triaging fork CI noise: `rust-release-prepare` schedule fails on forks (curl 401); `Release NPM Package` dispatch failed uploading duplicate asset names.
 - Next:
-  - After upstream merge lands, pick next perf/UI/UX target surface.
+  - Commit/push the clippy fix and confirm `rust-ci` is green on `origin/main`.
+  - Make fork-incompatible release workflows skip (or no-op) when required secrets/permissions aren’t available.
+  - After CI is green, pick next perf/UI/UX target surface.
 
 Open questions (UNCONFIRMED if needed):
 - Which surface should be prioritized: Rust TUI (`codex-rs/tui`), Rust core, or JS CLI (`codex-cli`)?
@@ -36,6 +40,9 @@ Open questions (UNCONFIRMED if needed):
 Working set (files/ids/commands):
 - `AGENTS.md`
 - `CONTINUITY.md`
+- `codex-rs/tui2/src/tui.rs`
+- `.github/workflows/rust-release-prepare.yml`
+- `.github/workflows/release-npm.yml`
 - `codex-rs/`
 - `codex-cli/`
 - `codex-rs/tui2/src/status_indicator_widget.rs`
@@ -53,3 +60,4 @@ Working set (files/ids/commands):
 - `codex-rs/justfile`
 - Commands: `just fmt` / `just fix -p codex-tui2` / `just fix -p codex-core` / `cargo test --all-features` (in `codex-rs`)
   - Merge: `git fetch upstream`, `git merge upstream/main`
+- CI: `gh run list`, `gh run view --log-failed`

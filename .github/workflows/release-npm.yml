@@ -135,6 +135,18 @@ jobs:
           echo "Package structure:"
           find npm -type f | head -50
 
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+
+          for dir in artifacts/binary-*; do
+            target=$(basename "$dir" | sed 's/binary-//')
+            tar -C "$dir" -czf "release-assets/codex-${target}.tar.gz" .
+          done
+
+          echo "Release assets:"
+          ls -lah release-assets
+
       - name: Set version
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
@@ -146,7 +158,7 @@ jobs:
           cd npm && npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to NPM
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish_npm == 'true' }}
+        if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.publish_npm == 'true') && secrets.NPM_TOKEN != '' }}
         working-directory: npm
         run: npm publish --access public
         env:
@@ -158,5 +170,5 @@ jobs:
           name: v${{ env.VERSION }}
           tag_name: v${{ env.VERSION }}
           files: |
-            artifacts/binary-*/codex*
+            release-assets/codex-*.tar.gz
           generate_release_notes: true

@@ -519,6 +519,7 @@ impl Tui {
         // Precompute any viewport updates that need a cursor-position query before entering
         // the synchronized update, to avoid racing with the event reader.
         let mut pending_viewport_area = self.pending_viewport_area()?;
+        #[cfg(windows)]
         let mouse_capture_enabled = self.mouse_capture_enabled;
 
         stdout().sync_update(|_| {
