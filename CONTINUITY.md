@@ -31,10 +31,12 @@ State:
   - Fixed release workflow validation issues and pushed: `eaa9387aa` ("ci: fix release workflow validation").
   - Fixed `rust-ci` install-action version pinning warnings and pushed: `bacc9e5ce` ("ci: fix install-action version pinning").
   - CI status (latest): `rust-ci` run success on `origin/main`; `rust-release-prepare` workflow_dispatch run success (no-ops when `CODEX_OPENAI_API_KEY` is unset).
+  - Fixed `Release NPM Package` release asset collisions and pushed: `6134b6d3d` ("ci: fix release asset name collisions").
+  - Re-ran `Release NPM Package` for `v0.2.1` (workflow_dispatch) and confirmed GitHub release now includes per-target assets (e.g., `codex-x86_64-unknown-linux-musl`, `codex-x86_64-pc-windows-msvc.exe`).
 - Now:
-  - Fixing `Release NPM Package` GitHub release uploads (avoid duplicate `codex` asset names causing `action-gh-release` 404 on update-asset).
+  - CI is green on `origin/main`; ready to take the next perf/UI/UX improvement target.
 - Next:
-  - Update `.github/workflows/release-npm.yml` to upload uniquely named per-target binaries and rerun the workflow for `v0.2.1` to populate all assets.
+  - Decide next improvement surface (TUI, core, or JS CLI).
   - (Optional) Investigate/flakiness-reduce non-blocking CI test failures on Linux/macOS.
   - After CI is green, pick next perf/UI/UX target surface.
 
