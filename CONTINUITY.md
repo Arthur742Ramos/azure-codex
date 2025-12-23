@@ -29,11 +29,12 @@ State:
   - Fixed `rust-ci` clippy failure on non-Windows (gate `mouse_capture_enabled` capture behind `#[cfg(windows)]`) and validated `cargo test -p codex-tui2` (pass).
   - Committed and pushed CI fixes to `origin/main`: `185931b5f` ("ci: fix tui2 clippy and release workflows").
   - Fixed release workflow validation issues and pushed: `eaa9387aa` ("ci: fix release workflow validation").
+  - Fixed `rust-ci` install-action version pinning warnings and pushed: `bacc9e5ce` ("ci: fix install-action version pinning").
   - CI status (latest): `rust-ci` run success on `origin/main`; `rust-release-prepare` workflow_dispatch run success (no-ops when `CODEX_OPENAI_API_KEY` is unset).
 - Now:
-  - CI is green on `origin/main`; ready to take the next perf/UI/UX improvement target.
+  - Fixing `Release NPM Package` GitHub release uploads (avoid duplicate `codex` asset names causing `action-gh-release` 404 on update-asset).
 - Next:
-  - Decide next improvement surface (TUI, core, or JS CLI).
+  - Update `.github/workflows/release-npm.yml` to upload uniquely named per-target binaries and rerun the workflow for `v0.2.1` to populate all assets.
   - (Optional) Investigate/flakiness-reduce non-blocking CI test failures on Linux/macOS.
   - After CI is green, pick next perf/UI/UX target surface.
 

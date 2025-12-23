@@ -141,7 +141,12 @@ jobs:
 
           for dir in artifacts/binary-*; do
             target=$(basename "$dir" | sed 's/binary-//')
-            tar -C "$dir" -czf "release-assets/codex-${target}.tar.gz" .
+            if [ -f "$dir/codex.exe" ]; then
+              cp "$dir/codex.exe" "release-assets/codex-${target}.exe"
+            else
+              cp "$dir/codex" "release-assets/codex-${target}"
+              chmod +x "release-assets/codex-${target}"
+            fi
           done
 
           echo "Release assets:"
@@ -175,5 +180,5 @@ jobs:
           name: v${{ env.VERSION }}
           tag_name: v${{ env.VERSION }}
           files: |
-            release-assets/codex-*.tar.gz
+            release-assets/codex-*
           generate_release_notes: true
