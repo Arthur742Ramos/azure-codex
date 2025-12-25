@@ -23,6 +23,8 @@ State:
   - Restored `auto_fix` review wiring in `codex-core` and updated ModelClient test call sites after upstream API changes.
   - Ran `just fix -p codex-core` (success).
   - Ran `just fmt` after the latest Rust changes (imports_granularity warning on stable).
+  - Fixed tui2 merge fallout (review auto_fix wiring, wrap_segment transcript metadata, mouse capture toggle handling, azure model refresh handling, and dead_code allowances).
+  - Completed upstream merge commit and pushed to `origin/main`: `1fe038a60`.
   - Re-applied tui2 scrollback fixes on top of upstream app.rs + history_cell changes.
   - Fetched upstream and began merge of upstream/main into main; resolved conflicts (kept upstream codex-rs/tui).
   - Added Continuity Ledger instructions to `AGENTS.md`.
@@ -55,9 +57,8 @@ State:
   - Changed scrollback transcript mode to write transcript lines into the terminal's real scrollback (full-screen scroll) instead of internal viewport scrolling; rebuilt `codex-cli` debug binary.
   - Checked upstream (`openai/codex`): `codex-rs/tui2/src/lib.rs` still enters alternate screen unconditionally for the main session (no config toggle upstream), so native scrollbar/scrollback behavior depends on terminal settings (e.g., "scrollback in alternate screen" support).
   - Now:
-  - Commit the upstream merge result and push to `origin/main`.
+  - Confirm whether to run post-merge tests or just finalize.
   - Next:
-  - Decide whether to run project-specific tests after merge.
   - Confirm scrollback transcript behavior still holds after upstream merge.
 
 Open questions (UNCONFIRMED if needed):
