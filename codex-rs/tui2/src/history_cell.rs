@@ -214,7 +214,7 @@ impl HistoryCell for UserHistoryCell {
         let opts = RtOptions::new(width)
             .initial_indent(prefix.into())
             .subsequent_indent(subsequent.into());
-        let lines = self.message.lines().map(|line| line.to_string());
+        let lines = self.message.lines().map(std::string::ToString::to_string);
         word_wrap_lines(lines, opts)
     }
 }
