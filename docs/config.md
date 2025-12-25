@@ -881,9 +881,20 @@ animations = false
 # Disable mouse capture so your terminal can handle mouse wheel scrolling and native
 # text selection/copy.
 #
-# When unset, defaults to true in Windows Terminal (to preserve scrollback), and
-# false elsewhere.
+# When unset, defaults to true.
+#
+# When mouse capture is disabled and `use_alternate_screen` is false, Codex emits transcript
+# history into the terminal's native scrollback above the bottom pane (no in-app transcript
+# scrolling).
 disable_mouse_capture = true
+
+# Use the terminal's alternate screen for the main interactive TUI session.
+#
+# When false, Codex runs inline so your terminal's native scrollbar and scrollback remain
+# available while Codex is running.
+#
+# When unset, defaults to false.
+use_alternate_screen = false
 
 # TUI2 mouse scrolling (wheel + trackpad)
 #
@@ -1006,7 +1017,8 @@ Valid values:
 | `sandbox_workspace_write.exclude_slash_tmp`      | boolean                                                           | Exclude `/tmp` from writable roots (default: false).                                                                            |
 | `notify`                                         | array<string>                                                     | External program for notifications.                                                                                             |
 | `tui.animations`                                 | boolean                                                           | Enable terminal animations (welcome screen, shimmer, spinner). Defaults to true; set to `false` to disable visual motion.       |
-| `tui.disable_mouse_capture`                      | boolean                                                           | Disable mouse capture so the terminal can handle scrollback scrolling/selection (default: auto; true on Windows Terminal).      |
+| `tui.disable_mouse_capture`                      | boolean                                                           | Disable mouse capture so the terminal can handle scrollback scrolling/selection; enables terminal scrollback transcript mode in inline UI (default: true). |
+| `tui.use_alternate_screen`                       | boolean                                                           | Run the main TUI in the terminal's alternate screen buffer (default: false).                                                    |
 | `instructions`                                   | string                                                            | Currently ignored; use `experimental_instructions_file` or `AGENTS.md`.                                                         |
 | `features.<feature-flag>`                        | boolean                                                           | See [feature flags](#feature-flags) for details                                                                                 |
 | `ghost_snapshot.disable_warnings`                | boolean                                                           | Disable every warnings around ghost snapshot (large files, directory, ...)                                                      |

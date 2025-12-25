@@ -1,14 +1,32 @@
 # TUI2 Viewport, Transcript, and History – Design Notes
 
 This document describes the viewport and history model we are implementing in the new
-`codex-rs/tui2` crate. It builds on lessons from the legacy TUI and explains why we moved away
-from directly writing history into terminal scrollback.
+`codex-rs/tui2` crate. It builds on lessons from the legacy TUI and explains how TUI2 balances an
+internal transcript viewport with an optional terminal-scrollback transcript mode.
 
 The target audience is Codex developers and curious contributors who want to understand or
 critique how TUI2 owns its viewport, scrollback, and suspend behavior.
 
-Unless stated otherwise, references to “the TUI” in this document mean the TUI2 implementation;
+Unless stated otherwise, references to "the TUI" in this document mean the TUI2 implementation;
 when we mean the legacy TUI specifically, we call it out explicitly.
+
+---
+
+## 0. Transcript Modes
+
+TUI2 supports two ways to present the transcript during an interactive session:
+
+- **Internal (viewport) transcript.**
+
+  - The transcript is rendered inside the TUI viewport and can be scrolled/selected in-app.
+
+- **Terminal scrollback transcript.**
+
+  - When running inline on the normal screen with mouse capture disabled, history cells are
+    emitted into the terminal's native scrollback above a small bottom-pane viewport.
+  - In this mode, there is no in-app transcript scrolling; use the terminal scrollbar/scrollback.
+
+Unless stated otherwise, the details below describe the internal (viewport) transcript mode.
 
 ---
 
@@ -115,7 +133,8 @@ viewport, and how it should be wrapped and styled on screen.
 
 ### 3.2 Building viewport lines from the transcript
 
-To render the main transcript area above the composer, the TUI:
+In internal (viewport) transcript mode, to render the main transcript area above the composer,
+the TUI:
 
 1. Defines a “transcript region” as the full frame minus the height of the bottom input area.
 2. Flattens all cells into a list of visual lines, remembering for each visual line which cell it
@@ -127,17 +146,21 @@ To render the main transcript area above the composer, the TUI:
    stands out even when it does not fill the whole width.
 6. Applies selection styling and other overlays on top of the rendered lines.
 
-Scrolling (mouse wheel, PgUp/PgDn, Home/End) operates entirely in terms of these flattened lines
-and the current scroll anchor. The terminal’s own scrollback is not part of this calculation; it
-only ever sees fully rendered frames.
+In internal (viewport) transcript mode, scrolling (mouse wheel, PgUp/PgDn, Home/End) operates
+entirely in terms of these flattened lines and the current scroll anchor. The terminal's own
+scrollback is not part of this calculation; it only ever sees fully rendered frames.
 
 ### 3.3 Alternate screen, overlays, and redraw guarantees
 
-The TUI uses the terminal’s alternate screen for:
+The TUI uses the terminal's alternate screen for:
 
-- The main interactive chat session (so the viewport can cover the full terminal).
-- Full‑screen overlays such as the transcript pager, diff view, model migration screen, and
+- Full-screen overlays such as the transcript pager, diff view, model migration screen, and
   onboarding.
+- Optionally, the main interactive chat session when `tui.use_alternate_screen = true` (so the
+  viewport can cover the full terminal without polluting normal scrollback).
+
+By default, the main interactive chat session runs inline on the normal screen so the terminal's
+native scrollbar and scrollback remain available.
 
 Conceptually:
 

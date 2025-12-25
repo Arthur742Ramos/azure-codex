@@ -389,6 +389,18 @@ impl App {
         }
     }
 
+    pub(crate) fn use_terminal_scrollback_transcript(&self, tui: &tui::Tui) -> bool {
+        !self.config.use_alternate_screen && !tui.is_mouse_capture_enabled()
+    }
+
+    fn scrollback_viewport_height(terminal_height: u16, desired_height: u16) -> u16 {
+        if terminal_height <= 1 {
+            return 1;
+        }
+
+        desired_height.max(1).min(terminal_height - 1)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn run(
         tui: &mut tui::Tui,
@@ -624,7 +636,7 @@ impl App {
         tui: &mut tui::Tui,
         event: TuiEvent,
     ) -> Result<bool> {
-        if matches!(&event, TuiEvent::Draw) {
+        if matches!(&event, TuiEvent::Draw) && !self.use_terminal_scrollback_transcript(tui) {
             self.handle_scroll_tick(tui);
         }
 
@@ -654,60 +666,150 @@ impl App {
                     {
                         return Ok(true);
                     }
-                    tui.draw(tui.terminal.size()?.height, |frame| {
-                        let chat_height = self.chat_widget.desired_height(frame.area().width);
-                        let chat_top = self.render_transcript_cells(frame, chat_height);
-                        let chat_area = Rect {
-                            x: frame.area().x,
-                            y: chat_top,
-                            width: frame.area().width,
-                            height: chat_height.min(
-                                frame
-                                    .area()
-                                    .height
-                                    .saturating_sub(chat_top.saturating_sub(frame.area().y)),
-                            ),
-                        };
-                        self.chat_widget.render(chat_area, frame.buffer);
-                        let chat_bottom = chat_area.y.saturating_add(chat_area.height);
-                        if chat_bottom < frame.area().bottom() {
-                            Clear.render_ref(
-                                Rect {
-                                    x: frame.area().x,
-                                    y: chat_bottom,
-                                    width: frame.area().width,
-                                    height: frame.area().bottom().saturating_sub(chat_bottom),
-                                },
-                                frame.buffer,
-                            );
+                    if self.use_terminal_scrollback_transcript(tui) {
+                        let terminal_size = tui.terminal.size()?;
+                        let desired_height = self.chat_widget.desired_height(terminal_size.width);
+                        let viewport_height =
+                            Self::scrollback_viewport_height(terminal_size.height, desired_height);
+                        tui.draw(viewport_height, |frame| {
+                            Clear.render_ref(frame.area(), frame.buffer);
+                            self.chat_widget.render(frame.area(), frame.buffer);
+                            if let Some((x, y)) = self.chat_widget.cursor_pos(frame.area())
+                                && x < frame.area().right()
+                                && y < frame.area().bottom()
+                            {
+                                frame.set_cursor_position((x, y));
+                            }
+                        })?;
+                        if !self.deferred_history_lines.is_empty()
+                            && tui.terminal.viewport_area.height > 0
+                            && tui.terminal.viewport_area.width > 0
+                        {
+                            let lines = std::mem::take(&mut self.deferred_history_lines);
+                            tui.insert_history_lines(lines);
                         }
-                        if let Some((x, y)) = self.chat_widget.cursor_pos(chat_area) {
-                            frame.set_cursor_position((x, y));
-                        }
-                    })?;
-                    let transcript_scrolled =
-                        !matches!(self.transcript_scroll, TranscriptScroll::ToBottom);
-                    let selection_active = matches!(
-                        (self.transcript_selection.anchor, self.transcript_selection.head),
-                        (Some(a), Some(b)) if a != b
-                    );
-                    let scroll_position = if self.transcript_total_lines == 0 {
-                        None
+                        self.chat_widget.set_transcript_ui_state(false, false, None);
                     } else {
-                        Some((
-                            self.transcript_view_top.saturating_add(1),
-                            self.transcript_total_lines,
-                        ))
-                    };
-                    self.chat_widget.set_transcript_ui_state(
-                        transcript_scrolled,
-                        selection_active,
-                        scroll_position,
-                    );
+                        tui.draw(tui.terminal.size()?.height, |frame| {
+                            let chat_height = self.chat_widget.desired_height(frame.area().width);
+                            let chat_top = self.render_transcript_cells(frame, chat_height);
+                            let chat_area = Rect {
+                                x: frame.area().x,
+                                y: chat_top,
+                                width: frame.area().width,
+                                height: chat_height.min(
+                                    frame
+                                        .area()
+                                        .height
+                                        .saturating_sub(chat_top.saturating_sub(frame.area().y)),
+                                ),
+                            };
+                            self.chat_widget.render(chat_area, frame.buffer);
+                            let chat_bottom = chat_area.y.saturating_add(chat_area.height);
+                            if chat_bottom < frame.area().bottom() {
+                                Clear.render_ref(
+                                    Rect {
+                                        x: frame.area().x,
+                                        y: chat_bottom,
+                                        width: frame.area().width,
+                                        height: frame.area().bottom().saturating_sub(chat_bottom),
+                                    },
+                                    frame.buffer,
+                                );
+                            }
+                            if let Some((x, y)) = self.chat_widget.cursor_pos(chat_area) {
+                                frame.set_cursor_position((x, y));
+                            }
+                        })?;
+                        let transcript_scrolled =
+                            !matches!(self.transcript_scroll, TranscriptScroll::ToBottom);
+                        let selection_active = matches!(
+                            (self.transcript_selection.anchor, self.transcript_selection.head),
+                            (Some(a), Some(b)) if a != b
+                        );
+                        let scroll_position = if self.transcript_total_lines == 0 {
+                            None
+                        } else {
+                            Some((
+                                self.transcript_view_top.saturating_add(1),
+                                self.transcript_total_lines,
+                            ))
+                        };
+                        self.chat_widget.set_transcript_ui_state(
+                            transcript_scrolled,
+                            selection_active,
+                            scroll_position,
+                        );
+                    }
                 }
             }
         }
         Ok(true)
+    }
+
+    fn transcript_content_width(full_width: u16) -> u16 {
+        if full_width <= 1 {
+            full_width
+        } else {
+            full_width - 1
+        }
+    }
+
+    fn render_vertical_scrollbar(
+        area: Rect,
+        buf: &mut Buffer,
+        top_offset: usize,
+        total_lines: usize,
+        visible_lines: usize,
+    ) {
+        if area.width == 0 || area.height == 0 || total_lines == 0 || visible_lines == 0 {
+            return;
+        }
+
+        if total_lines <= visible_lines {
+            return;
+        }
+
+        let track_height = usize::from(area.height);
+        if track_height == 0 {
+            return;
+        }
+
+        let thumb_height = (track_height.saturating_mul(visible_lines))
+            .div_ceil(total_lines)
+            .max(1)
+            .min(track_height);
+        let max_thumb_top = track_height.saturating_sub(thumb_height);
+        let max_scroll = total_lines.saturating_sub(visible_lines);
+        if max_scroll == 0 {
+            return;
+        }
+
+        let clamped_top_offset = top_offset.min(max_scroll);
+        let thumb_top = if max_thumb_top == 0 {
+            0
+        } else {
+            max_thumb_top.saturating_mul(clamped_top_offset) / max_scroll
+        };
+        let thumb_bottom = thumb_top.saturating_add(thumb_height);
+
+        let track_style =
+            ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::DIM);
+        let thumb_style =
+            ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::BOLD);
+        let x = area.x;
+
+        for row_index in 0..track_height {
+            let y = area.y.saturating_add(row_index as u16);
+            let cell = &mut buf[(x, y)];
+            let (symbol, style) = if row_index >= thumb_top && row_index < thumb_bottom {
+                ("█", thumb_style)
+            } else {
+                ("│", track_style)
+            };
+            cell.set_symbol(symbol);
+            cell.set_style(cell.style().patch(style));
+        }
     }
 
     pub(crate) fn render_transcript_cells(&mut self, frame: &mut Frame, chat_height: u16) -> u16 {
@@ -734,11 +836,12 @@ impl App {
             width: area.width,
             height: max_transcript_height,
         };
+        let transcript_content_width = Self::transcript_content_width(transcript_area.width);
 
         let (lines, line_meta) = Self::build_transcript_lines(
             &self.transcript_cells,
             self.chat_widget.active_cell(),
-            transcript_area.width,
+            transcript_content_width,
         );
         if lines.is_empty() {
             Clear.render_ref(transcript_area, frame.buffer);
@@ -748,7 +851,7 @@ impl App {
             return area.y;
         }
 
-        let wrapped = word_wrap_lines_borrowed(&lines, transcript_area.width.max(1) as usize);
+        let wrapped = word_wrap_lines_borrowed(&lines, transcript_content_width.max(1) as usize);
         if wrapped.is_empty() {
             self.transcript_scroll = TranscriptScroll::default();
             self.transcript_view_top = 0;
@@ -761,7 +864,7 @@ impl App {
             .iter()
             .map(|c| c.as_any().is::<UserHistoryCell>())
             .collect();
-        let base_opts: RtOptions<'_> = RtOptions::new(transcript_area.width.max(1) as usize);
+        let base_opts: RtOptions<'_> = RtOptions::new(transcript_content_width.max(1) as usize);
         let mut wrapped_is_user_row: Vec<bool> = Vec::with_capacity(wrapped.len());
         let mut wrapped_line_meta: Vec<TranscriptLineMeta> = Vec::with_capacity(wrapped.len());
         let mut first = true;
@@ -845,17 +948,29 @@ impl App {
             width: area.width,
             height: transcript_visible_height,
         };
+        let transcript_content_area = Rect {
+            x: transcript_area.x,
+            y: transcript_area.y,
+            width: transcript_content_width,
+            height: transcript_area.height,
+        };
 
         for (row_index, line_index) in (top_offset..total_lines).enumerate() {
             if row_index >= max_visible {
                 break;
             }
 
-            let y = transcript_area.y + row_index as u16;
-            let row_area = Rect {
+            let y = transcript_area.y.saturating_add(row_index as u16);
+            let row_area_full = Rect {
                 x: transcript_area.x,
                 y,
                 width: transcript_area.width,
+                height: 1,
+            };
+            let row_area_content = Rect {
+                x: transcript_content_area.x,
+                y: transcript_content_area.y.saturating_add(row_index as u16),
+                width: transcript_content_area.width,
                 height: 1,
             };
 
@@ -865,17 +980,31 @@ impl App {
                 .unwrap_or(false)
             {
                 let base_style = crate::style::user_message_style();
-                for x in row_area.x..row_area.right() {
+                for x in row_area_full.x..row_area_full.right() {
                     let cell = &mut frame.buffer[(x, y)];
                     let style = cell.style().patch(base_style);
                     cell.set_style(style);
                 }
             }
 
-            wrapped[line_index].render_ref(row_area, frame.buffer);
+            wrapped[line_index].render_ref(row_area_content, frame.buffer);
         }
 
-        self.apply_transcript_selection(transcript_area, frame.buffer);
+        self.apply_transcript_selection(transcript_content_area, frame.buffer);
+        if transcript_area.width > transcript_content_area.width && total_lines > max_visible {
+            Self::render_vertical_scrollbar(
+                Rect {
+                    x: transcript_area.right().saturating_sub(1),
+                    y: transcript_area.y,
+                    width: 1,
+                    height: transcript_area.height,
+                },
+                frame.buffer,
+                top_offset,
+                total_lines,
+                max_visible,
+            );
+        }
         chat_top
     }
 
@@ -902,7 +1031,7 @@ impl App {
     ) {
         use crossterm::event::MouseEventKind;
 
-        if self.overlay.is_some() {
+        if self.overlay.is_some() || self.use_terminal_scrollback_transcript(tui) {
             return;
         }
 
@@ -930,8 +1059,15 @@ impl App {
             width,
             height: transcript_height,
         };
-        let base_x = transcript_area.x.saturating_add(2);
-        let max_x = transcript_area.right().saturating_sub(1);
+        let transcript_content_width = Self::transcript_content_width(transcript_area.width);
+        let transcript_content_area = Rect {
+            x: transcript_area.x,
+            y: transcript_area.y,
+            width: transcript_content_width,
+            height: transcript_area.height,
+        };
+        let base_x = transcript_content_area.x.saturating_add(2);
+        let max_x = transcript_content_area.right().saturating_sub(1);
 
         // Treat the transcript as the only interactive region for transcript selection.
         //
@@ -971,7 +1107,7 @@ impl App {
                     tui,
                     scroll_update,
                     transcript_area.height as usize,
-                    transcript_area.width,
+                    transcript_content_width,
                     true,
                 );
             }
@@ -981,7 +1117,7 @@ impl App {
                     tui,
                     scroll_update,
                     transcript_area.height as usize,
-                    transcript_area.width,
+                    transcript_content_width,
                     true,
                 );
             }
@@ -1013,7 +1149,7 @@ impl App {
                     {
                         self.lock_transcript_scroll_to_current_view(
                             transcript_area.height as usize,
-                            transcript_area.width,
+                            transcript_content_width,
                         );
                     }
                     self.transcript_selection.head = Some(point);
@@ -1124,7 +1260,10 @@ impl App {
             return None;
         }
 
-        Some((transcript_height as usize, width))
+        Some((
+            transcript_height as usize,
+            Self::transcript_content_width(width),
+        ))
     }
 
     /// Scroll the transcript by a number of visual lines.
@@ -1499,10 +1638,11 @@ impl App {
             return;
         }
 
+        let transcript_content_width = Self::transcript_content_width(width);
         let transcript_area = Rect {
             x: 0,
             y: 0,
-            width,
+            width: transcript_content_width,
             height: transcript_height,
         };
 
@@ -1510,7 +1650,7 @@ impl App {
         let (lines, _) = Self::build_transcript_lines(
             &cells,
             self.chat_widget.active_cell(),
-            transcript_area.width,
+            transcript_content_width,
         );
         if lines.is_empty() {
             return;
@@ -1518,7 +1658,7 @@ impl App {
 
         let wrapped = crate::wrapping::word_wrap_lines_borrowed(
             &lines,
-            transcript_area.width.max(1) as usize,
+            transcript_content_width.max(1) as usize,
         );
         let total_lines = wrapped.len();
         if total_lines == 0 {
@@ -1781,20 +1921,29 @@ impl App {
                     tui.frame_requester().schedule_frame();
                 }
                 self.transcript_cells.push(cell.clone());
-                let mut display = cell.display_lines(tui.terminal.last_known_screen_size.width);
-                if !display.is_empty() {
-                    // Only insert a separating blank line for new cells that are not
-                    // part of an ongoing stream. Streaming continuations should not
-                    // accrue extra blank lines between chunks.
-                    if !cell.is_stream_continuation() {
-                        if self.has_emitted_history_lines {
-                            display.insert(0, Line::from(""));
-                        } else {
-                            self.has_emitted_history_lines = true;
+
+                if self.use_terminal_scrollback_transcript(tui) {
+                    let mut display =
+                        cell.transcript_lines(tui.terminal.last_known_screen_size.width);
+                    if !display.is_empty() {
+                        // Only insert a separating blank line for new cells that are not
+                        // part of an ongoing stream. Streaming continuations should not
+                        // accrue extra blank lines between chunks.
+                        if !cell.is_stream_continuation() {
+                            if self.has_emitted_history_lines {
+                                display.insert(0, Line::from(""));
+                            } else {
+                                self.has_emitted_history_lines = true;
+                            }
                         }
-                    }
-                    if self.overlay.is_some() {
-                        self.deferred_history_lines.extend(display);
+                        if self.overlay.is_some()
+                            || tui.terminal.viewport_area.height == 0
+                            || tui.terminal.viewport_area.width == 0
+                        {
+                            self.deferred_history_lines.extend(display);
+                        } else {
+                            tui.insert_history_lines(display);
+                        }
                     }
                 }
             }
@@ -2268,6 +2417,7 @@ impl App {
     }
 
     async fn handle_key_event(&mut self, tui: &mut tui::Tui, key_event: KeyEvent) {
+        let use_terminal_scrollback_transcript = self.use_terminal_scrollback_transcript(tui);
         match key_event {
             KeyEvent {
                 code: KeyCode::Char('t'),
@@ -2309,7 +2459,7 @@ impl App {
                 code: KeyCode::PageUp,
                 kind: KeyEventKind::Press | KeyEventKind::Repeat,
                 ..
-            } => {
+            } if !use_terminal_scrollback_transcript => {
                 let size = tui.terminal.last_known_screen_size;
                 let width = size.width;
                 let height = size.height;
@@ -2319,11 +2469,12 @@ impl App {
                         let transcript_height = height.saturating_sub(chat_height);
                         if transcript_height > 0 {
                             let delta = -i32::from(transcript_height);
+                            let transcript_content_width = Self::transcript_content_width(width);
                             self.scroll_transcript(
                                 tui,
                                 delta,
                                 usize::from(transcript_height),
-                                width,
+                                transcript_content_width,
                                 true,
                             );
                         }
@@ -2334,7 +2485,7 @@ impl App {
                 code: KeyCode::PageDown,
                 kind: KeyEventKind::Press | KeyEventKind::Repeat,
                 ..
-            } => {
+            } if !use_terminal_scrollback_transcript => {
                 let size = tui.terminal.last_known_screen_size;
                 let width = size.width;
                 let height = size.height;
@@ -2344,11 +2495,12 @@ impl App {
                         let transcript_height = height.saturating_sub(chat_height);
                         if transcript_height > 0 {
                             let delta = i32::from(transcript_height);
+                            let transcript_content_width = Self::transcript_content_width(width);
                             self.scroll_transcript(
                                 tui,
                                 delta,
                                 usize::from(transcript_height),
-                                width,
+                                transcript_content_width,
                                 true,
                             );
                         }
@@ -2359,7 +2511,7 @@ impl App {
                 code: KeyCode::Home,
                 kind: KeyEventKind::Press | KeyEventKind::Repeat,
                 ..
-            } => {
+            } if !use_terminal_scrollback_transcript => {
                 if !self.transcript_cells.is_empty() {
                     self.transcript_scroll = TranscriptScroll::Scrolled {
                         cell_index: 0,
@@ -2373,7 +2525,7 @@ impl App {
                 code: KeyCode::End,
                 kind: KeyEventKind::Press | KeyEventKind::Repeat,
                 ..
-            } => {
+            } if !use_terminal_scrollback_transcript => {
                 self.transcript_scroll = TranscriptScroll::ToBottom;
                 tui.frame_requester().schedule_frame();
             }
@@ -2462,6 +2614,15 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn scrollback_viewport_height_reserves_one_row() {
+        assert_eq!(App::scrollback_viewport_height(10, 10), 9);
+        assert_eq!(App::scrollback_viewport_height(10, 9), 9);
+        assert_eq!(App::scrollback_viewport_height(10, 0), 1);
+        assert_eq!(App::scrollback_viewport_height(1, 10), 1);
+        assert_eq!(App::scrollback_viewport_height(0, 10), 1);
+    }
 
     async fn make_test_app() -> App {
         let (chat_widget, app_event_tx, _rx, _op_rx) = make_chatwidget_manual_with_sender().await;

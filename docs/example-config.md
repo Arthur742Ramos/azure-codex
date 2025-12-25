@@ -143,8 +143,15 @@ notifications = false
 animations = true
 
 # Disable mouse capture so your terminal can handle scrollback scrolling and native
-# text selection/copy. Default: unset (auto; true on Windows Terminal).
+# text selection/copy. Default: unset (defaults to true).
+# When enabled (and use_alternate_screen is false), transcript history is emitted into terminal
+# scrollback and Codex does not provide in-app transcript scrolling.
 # disable_mouse_capture = true
+
+# Use the terminal's alternate screen for the main interactive TUI session.
+# When false, Codex runs inline so the terminal's native scrollbar/scrollback remain available.
+# Default: unset (defaults to false).
+# use_alternate_screen = false
 
 # Suppress internal reasoning events from output. Default: false
 hide_agent_reasoning = false

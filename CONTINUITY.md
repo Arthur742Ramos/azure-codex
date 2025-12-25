@@ -1,6 +1,9 @@
 Goal (incl. success criteria):
 - Maintain a compaction-safe session briefing in this repo via this ledger; success = entries stay current and the assistant uses it each turn.
 - Identify and implement perf/UI/UX improvements; success = concrete improvements merged with basic validation (fmt/build/tests where practical).
+- Make terminal native scrollbar/scrollback available by default; success = inline TUI default (no alternate screen) with documented opt-in behavior.
+- Remove in-app transcript scrolling; success = transcript is emitted into terminal scrollback and the main UI no longer has internal scrolling/scrollbars.
+- Ensure transcript is lossless; success = no user/assistant messages are dropped/hidden after scrollback/flush changes.
 - Keep the fork current with upstream (`openai/codex`); success = `upstream/main` merged into `main` and pushed.
 - Keep CI green; success = all GitHub Actions checks pass on `origin/main`.
 
@@ -9,6 +12,10 @@ Constraints/Assumptions:
 
 Key decisions:
 - Use `CONTINUITY.md` as the canonical session briefing; begin assistant replies with a brief Ledger Snapshot.
+- Default UX: run TUI inline (avoid alternate screen) unless users opt in.
+- Default `tui.disable_mouse_capture` to `true` so mouse wheel scroll uses the terminal's native scrollback by default.
+- When mouse capture is disabled (inline mode), emit transcript into terminal scrollback and render only the bottom pane.
+- Avoid a fixed bottom pane height; auto-size the bottom pane viewport when possible (terminal scrollback transcript mode).
 
 State:
 - Done:
@@ -33,15 +40,29 @@ State:
   - CI status (latest): `rust-ci` run success on `origin/main`; `rust-release-prepare` workflow_dispatch run success (no-ops when `CODEX_OPENAI_API_KEY` is unset).
   - Fixed `Release NPM Package` release asset collisions and pushed: `6134b6d3d` ("ci: fix release asset name collisions").
   - Re-ran `Release NPM Package` for `v0.2.1` (workflow_dispatch) and confirmed GitHub release now includes per-target assets (e.g., `codex-x86_64-unknown-linux-musl`, `codex-x86_64-pc-windows-msvc.exe`).
+  - Added an in-app vertical scrollbar for the main transcript viewport (and aligned selection/copy with the reserved column) in `codex-rs/tui2/src/app.rs`; validated with `just fmt` and `cargo test -p codex-tui2`.
+  - Added `tui.use_alternate_screen` config (defaults to `false` / inline) and wired `codex-rs/tui2` to skip entering the alternate screen for the main session; updated docs and ran `just fmt` + `cargo check -p codex-core -p codex-tui2`.
+  - Built a debug CLI binary for local testing: `cargo build -p codex-cli` (outputs `codex-rs/target/debug/codex.exe` on Windows).
+  - Implemented terminal-scrollback transcript mode when running inline with mouse capture disabled (flushes history lines into terminal scrollback; main UI renders only bottom pane; disables in-app scrolling inputs); rebuilt debug binary.
+  - Removed the fixed 12-line bottom viewport in scrollback mode (auto-sizes to `ChatWidget::desired_height`); ran `just fmt` and rebuilt `codex-cli` debug binary.
+  - Defaulted `tui.disable_mouse_capture` to `true` (all terminals) so mouse wheel scrolling uses terminal scrollback by default; updated docs and rebuilt `codex-cli` debug binary.
+  - Changed scrollback transcript mode to write transcript lines into the terminal's real scrollback (full-screen scroll) instead of internal viewport scrolling; rebuilt `codex-cli` debug binary.
+  - Checked upstream (`openai/codex`): `codex-rs/tui2/src/lib.rs` still enters alternate screen unconditionally for the main session (no config toggle upstream), so native scrollbar/scrollback behavior depends on terminal settings (e.g., "scrollback in alternate screen" support).
 - Now:
-  - CI is green on `origin/main`; ready to take the next perf/UI/UX improvement target.
+  - Investigate report that scrollback-mode transcript is "eating" recent messages (user can't see their last question).
 - Next:
-  - Decide next improvement surface (TUI, core, or JS CLI).
-  - (Optional) Investigate/flakiness-reduce non-blocking CI test failures on Linux/macOS.
-  - After CI is green, pick next perf/UI/UX target surface.
+  - User validates that the default inline TUI restores terminal native scrollbar/scrollback.
+  - User validates that transcript history is scrollable via terminal scrollback (no in-app scrolling).
+  - Fix any transcript loss/visibility bugs in scrollback transcript mode; add focused coverage if feasible; re-validate.
+  - (Optional) Decide whether overlays (diff/transcript) should also respect `tui.use_alternate_screen`.
+  - Ask user before running `cargo test -p codex-tui2` / `cargo test -p codex-core` for additional validation if desired.
+  - Consider whether overlays should also default inline (or stay alternate-screen only for full-screen views).
 
 Open questions (UNCONFIRMED if needed):
 - Which surface should be prioritized: Rust TUI (`codex-rs/tui`), Rust core, or JS CLI (`codex-cli`)?
+- Should overlays (diff/transcript) also respect `tui.use_alternate_screen`, or just the main session?
+- Should overlays also default to inline (no alternate screen), or keep alternate screen for full-screen views?
+- Should scrollback-mode bottom viewport be capped (min/max), or fully auto-size to `desired_height`?
 
 Working set (files/ids/commands):
 - `AGENTS.md`
@@ -58,6 +79,16 @@ Working set (files/ids/commands):
 - `codex-rs/tui2/src/chatwidget.rs`
 - `codex-rs/tui2/src/chatwidget/tests.rs`
 - `codex-rs/tui2/src/app.rs`
+- `codex-rs/tui2/src/app_backtrack.rs`
+- `codex-rs/tui2/src/lib.rs`
+- `codex-rs/tui2/src/tui.rs`
+- `codex-rs/tui2/docs/tui_viewport_and_history.md`
+- `codex-rs/core/src/config/types.rs`
+- `codex-rs/core/src/config/mod.rs`
+- `docs/config.md`
+- `docs/example-config.md`
+- Commands: `just fmt`, `cargo test -p codex-tui2` (in `codex-rs`)
+- Commands: `cargo build` (debug; in `codex-rs`)
 - `codex-rs/tui2/src/pager_overlay.rs`
 - `codex-rs/tui2/src/snapshots/codex_tui2__pager_overlay__tests__static_overlay_snapshot_basic.snap`
 - `codex-rs/tui2/src/snapshots/codex_tui2__pager_overlay__tests__static_overlay_wraps_long_lines.snap`

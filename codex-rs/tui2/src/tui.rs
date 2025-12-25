@@ -21,16 +21,25 @@ use crossterm::event::KeyEvent;
 use crossterm::event::KeyboardEnhancementFlags;
 use crossterm::event::PopKeyboardEnhancementFlags;
 use crossterm::event::PushKeyboardEnhancementFlags;
+use crossterm::queue;
+use crossterm::style::Color as CColor;
+use crossterm::style::Colors;
+use crossterm::style::Print;
+use crossterm::style::SetColors;
+use crossterm::terminal::Clear;
+use crossterm::terminal::ClearType;
 use crossterm::terminal::EnterAlternateScreen;
 use crossterm::terminal::LeaveAlternateScreen;
 use crossterm::terminal::supports_keyboard_enhancement;
 use ratatui::backend::CrosstermBackend;
+use ratatui::crossterm::cursor::MoveTo;
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::disable_raw_mode;
 use ratatui::crossterm::terminal::enable_raw_mode;
 use ratatui::layout::Offset;
 use ratatui::layout::Rect;
 use ratatui::text::Line;
+use ratatui::text::Span;
 use tokio::select;
 use tokio::sync::broadcast;
 use tokio_stream::Stream;
@@ -38,6 +47,7 @@ use tokio_stream::Stream;
 pub use self::frame_requester::FrameRequester;
 use crate::custom_terminal;
 use crate::custom_terminal::Terminal as CustomTerminal;
+use crate::insert_history;
 use crate::notifications::DesktopNotificationBackend;
 use crate::notifications::NotificationBackendKind;
 use crate::notifications::detect_backend;
@@ -45,6 +55,7 @@ use crate::notifications::detect_backend;
 use crate::tui::job_control::SUSPEND_KEY;
 #[cfg(unix)]
 use crate::tui::job_control::SuspendContext;
+use crate::wrapping::word_wrap_lines_borrowed;
 
 mod frame_requester;
 #[cfg(unix)]
@@ -58,7 +69,7 @@ pub type Terminal = CustomTerminal<CrosstermBackend<Stdout>>;
 ///
 /// # Arguments
 /// * `disable_mouse_capture` - When `true`, mouse capture is disabled, allowing native
-///   terminal text selection/copy/paste. When `false` (default), mouse events are captured
+///   terminal text selection/copy/paste. When `false`, mouse events are captured
 ///   by the application for scrolling and selection.
 pub fn set_modes(disable_mouse_capture: bool) -> Result<()> {
     // On Windows, save the original console mode before any ANSI escapes are sent.
@@ -146,7 +157,7 @@ pub fn restore() -> Result<()> {
 ///
 /// # Arguments
 /// * `disable_mouse_capture` - When `true`, mouse capture is disabled to allow native
-///   terminal text selection. Pass `false` for the default behavior.
+///   terminal text selection. Pass `false` to enable app-handled mouse events.
 pub fn init(disable_mouse_capture: bool) -> Result<Terminal> {
     use crossterm::terminal::size;
     use ratatui::layout::Position;
@@ -521,6 +532,14 @@ impl Tui {
         let mut pending_viewport_area = self.pending_viewport_area()?;
         #[cfg(windows)]
         let mouse_capture_enabled = self.mouse_capture_enabled;
+        let alt_screen_active = self.alt_screen_active.load(Ordering::Relaxed);
+        #[cfg(not(windows))]
+        let mouse_capture_enabled = self.mouse_capture_enabled;
+        let pending_history_lines = if alt_screen_active {
+            Vec::new()
+        } else {
+            std::mem::take(&mut self.pending_history_lines)
+        };
 
         stdout().sync_update(|_| {
             #[cfg(unix)]
@@ -539,20 +558,85 @@ impl Tui {
 
             let size = terminal.size()?;
 
-            // Match original tui behavior: modify existing viewport_area in place
-            // to preserve the y position (inline mode keeps scrollback).
             let mut area = terminal.viewport_area;
             area.height = height.min(size.height);
             area.width = size.width;
-            // If the viewport has expanded past the screen bottom, adjust y position.
-            if area.bottom() > size.height {
+            if alt_screen_active {
+                // If the viewport has expanded past the screen bottom, adjust y position.
+                if area.bottom() > size.height {
+                    area.y = size.height.saturating_sub(area.height);
+                }
+                if area != terminal.viewport_area {
+                    terminal.set_viewport_area(area);
+                    // When the viewport size changes, the new region may contain preexisting terminal
+                    // output. Clear it so rendering doesn't "blend" with whatever was there before.
+                    terminal.clear()?;
+                }
+            } else {
+                let old_area = terminal.viewport_area;
                 area.y = size.height.saturating_sub(area.height);
+                if area != old_area {
+                    let clear_y = old_area.y.min(area.y);
+                    terminal.set_viewport_area(area);
+                    terminal.clear_from(ratatui::layout::Position { x: 0, y: clear_y })?;
+                }
             }
-            if area != terminal.viewport_area {
-                terminal.set_viewport_area(area);
-                // When the viewport size changes, the new region may contain preexisting terminal
-                // output. Clear it so rendering doesn't "blend" with whatever was there before.
-                terminal.clear()?;
+
+            if !alt_screen_active && !pending_history_lines.is_empty() {
+                if mouse_capture_enabled {
+                    insert_history::insert_history_lines(terminal, pending_history_lines)?;
+                } else {
+                    {
+                        let writer = terminal.backend_mut();
+                        // Clear the viewport so UI chrome doesn't end up in scrollback.
+                        queue!(
+                            writer,
+                            MoveTo(0, area.top()),
+                            Clear(ClearType::FromCursorDown)
+                        )?;
+
+                        // Insert lines by scrolling the full screen (real scrollback), then
+                        // writing into the line just above the viewport.
+                        let wrapped = word_wrap_lines_borrowed(
+                            &pending_history_lines,
+                            area.width.max(1) as usize,
+                        );
+                        let bottom_row = size.height.saturating_sub(1);
+                        let insert_row = size.height.saturating_sub(area.height).saturating_sub(1);
+
+                        for line in wrapped {
+                            if size.height == 0 {
+                                break;
+                            }
+
+                            // Scroll the terminal by one line.
+                            queue!(writer, MoveTo(0, bottom_row), Print("\r\n"))?;
+                            queue!(writer, MoveTo(0, insert_row))?;
+
+                            queue!(
+                                writer,
+                                SetColors(Colors::new(
+                                    line.style.fg.map(Into::into).unwrap_or(CColor::Reset),
+                                    line.style.bg.map(Into::into).unwrap_or(CColor::Reset),
+                                )),
+                                Clear(ClearType::UntilNewLine),
+                            )?;
+
+                            let merged_spans: Vec<Span> = line
+                                .spans
+                                .iter()
+                                .map(|s| Span {
+                                    style: s.style.patch(line.style),
+                                    content: s.content.clone(),
+                                })
+                                .collect();
+                            insert_history::write_spans(writer, merged_spans.iter())?;
+                        }
+                    }
+
+                    // We cleared/wrote outside ratatui, so force a full redraw of the viewport.
+                    terminal.clear()?;
+                }
             }
 
             // Update the y position for suspending so Ctrl-Z can place the cursor correctly.

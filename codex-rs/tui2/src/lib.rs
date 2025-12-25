@@ -520,11 +520,13 @@ async fn run_ratatui_app(
 
     let Cli { prompt, images, .. } = cli;
 
-    // Run the main chat + transcript UI on the terminal's alternate screen so
-    // the entire viewport can be used without polluting normal scrollback. This
-    // mirrors the behavior of the legacy TUI but keeps inline mode available
-    // for smaller prompts like onboarding and model migration.
-    let _ = tui.enter_alt_screen();
+    let use_alternate_screen = config.use_alternate_screen;
+
+    // When enabled, run the main chat + transcript UI on the terminal's alternate screen so
+    // the entire viewport can be used without polluting normal scrollback.
+    if use_alternate_screen {
+        let _ = tui.enter_alt_screen();
+    }
 
     // Show loading screen while app initializes
     show_loading_screen(&mut tui);
@@ -542,7 +544,9 @@ async fn run_ratatui_app(
     )
     .await;
 
-    let _ = tui.leave_alt_screen();
+    if use_alternate_screen {
+        let _ = tui.leave_alt_screen();
+    }
     restore();
     if let Ok(exit_info) = &app_result {
         let mut stdout = std::io::stdout();
@@ -564,7 +568,7 @@ async fn run_ratatui_app(
 pub fn render_loading_frame(tui: &mut Tui) {
     let loading_text = "Starting Azure Codex...";
 
-    let _ = tui.terminal.draw(|frame| {
+    let _ = tui.draw(u16::MAX, |frame| {
         let area = frame.area();
 
         // Clear the screen

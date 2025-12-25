@@ -407,9 +407,20 @@ pub struct Tui {
     /// When `true`, mouse scrolling and app-based text selection are disabled,
     /// but you can use your terminal's native mouse selection.
     ///
-    /// When unset, defaults to `false` except on Windows Terminal, where it defaults to `true`
-    /// to preserve native scrollback scrolling.
+    /// When unset, defaults to `true` to preserve native terminal scrolling/selection.
     pub disable_mouse_capture: Option<bool>,
+
+    /// Use the terminal's alternate screen for the main interactive TUI session.
+    ///
+    /// When `true`, the UI runs in the alternate screen buffer so it won't affect your normal
+    /// scrollback. Many terminals do not show the native scrollbar / scrollback while an app is
+    /// in the alternate screen.
+    ///
+    /// When `false`, the UI runs inline on the normal screen so your terminal's scrollbar and
+    /// scrollback remain available.
+    ///
+    /// When unset, defaults to `false`.
+    pub use_alternate_screen: Option<bool>,
 
     /// Override the *wheel* event density used to normalize TUI2 scrolling.
     ///

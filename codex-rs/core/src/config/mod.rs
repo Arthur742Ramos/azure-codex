@@ -184,6 +184,12 @@ pub struct Config {
     /// When `true`, mouse scrolling and app-based text selection are disabled.
     pub disable_mouse_capture: bool,
 
+    /// Use the terminal's alternate screen for the main interactive TUI session.
+    ///
+    /// When `false`, the UI runs inline so the terminal's native scrollbar and scrollback remain
+    /// available.
+    pub use_alternate_screen: bool,
+
     /// Override the events-per-wheel-tick factor for TUI2 scroll normalization.
     ///
     /// This is the same `tui.scroll_events_per_tick` value from `config.toml`, plumbed through the
@@ -1426,6 +1432,17 @@ impl Config {
             .set(sandbox_policy)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{e}")))?;
 
+        let disable_mouse_capture = cfg
+            .tui
+            .as_ref()
+            .and_then(|t| t.disable_mouse_capture)
+            .unwrap_or_else(default_disable_mouse_capture);
+        let use_alternate_screen = cfg
+            .tui
+            .as_ref()
+            .and_then(|t| t.use_alternate_screen)
+            .unwrap_or_else(default_use_alternate_screen);
+
         let config = Self {
             model,
             review_model,
@@ -1511,11 +1528,8 @@ impl Config {
                 .unwrap_or_default(),
             animations: cfg.tui.as_ref().map(|t| t.animations).unwrap_or(true),
             show_tooltips: cfg.tui.as_ref().map(|t| t.show_tooltips).unwrap_or(true),
-            disable_mouse_capture: cfg
-                .tui
-                .as_ref()
-                .and_then(|t| t.disable_mouse_capture)
-                .unwrap_or_else(default_disable_mouse_capture),
+            disable_mouse_capture,
+            use_alternate_screen,
             tui_scroll_events_per_tick: cfg.tui.as_ref().and_then(|t| t.scroll_events_per_tick),
             tui_scroll_wheel_lines: cfg.tui.as_ref().and_then(|t| t.scroll_wheel_lines),
             tui_scroll_trackpad_lines: cfg.tui.as_ref().and_then(|t| t.scroll_trackpad_lines),
@@ -1627,25 +1641,17 @@ fn default_review_model() -> String {
 }
 
 fn default_disable_mouse_capture() -> bool {
-    #[cfg(windows)]
-    {
-        // Default to native terminal scrolling/selection in Windows Terminal.
-        // Users can opt back into in-app mouse scrolling via `tui.disable_mouse_capture = false`
-        // or `/toggle-mouse-mode`.
-        if std::env::var_os("WT_SESSION").is_some() {
-            return true;
-        }
+    // Default to native terminal scrolling/selection.
+    //
+    // Users can opt back into in-app mouse scrolling via `tui.disable_mouse_capture = false`
+    // or `/toggle-mouse-mode`.
+    true
+}
 
-        matches!(
-            std::env::var("TERM_PROGRAM").ok().as_deref(),
-            Some("Windows_Terminal")
-        )
-    }
-
-    #[cfg(not(windows))]
-    {
-        false
-    }
+fn default_use_alternate_screen() -> bool {
+    // Default to inline rendering so the terminal's native scrollbar and scrollback remain
+    // available. Users can opt into alternate screen via `tui.use_alternate_screen = true`.
+    false
 }
 
 /// Returns the path to the Azure Codex configuration directory, which can be
@@ -1755,6 +1761,7 @@ persistence = "none"
                 animations: true,
                 show_tooltips: true,
                 disable_mouse_capture: None,
+                use_alternate_screen: None,
                 scroll_events_per_tick: None,
                 scroll_wheel_lines: None,
                 scroll_trackpad_lines: None,
@@ -3365,6 +3372,7 @@ model_verbosity = "high"
                 animations: true,
                 show_tooltips: true,
                 disable_mouse_capture: default_disable_mouse_capture(),
+                use_alternate_screen: default_use_alternate_screen(),
                 tui_scroll_events_per_tick: None,
                 tui_scroll_wheel_lines: None,
                 tui_scroll_trackpad_lines: None,
@@ -3452,6 +3460,7 @@ model_verbosity = "high"
             animations: true,
             show_tooltips: true,
             disable_mouse_capture: default_disable_mouse_capture(),
+            use_alternate_screen: default_use_alternate_screen(),
             tui_scroll_events_per_tick: None,
             tui_scroll_wheel_lines: None,
             tui_scroll_trackpad_lines: None,
@@ -3554,6 +3563,7 @@ model_verbosity = "high"
             animations: true,
             show_tooltips: true,
             disable_mouse_capture: default_disable_mouse_capture(),
+            use_alternate_screen: default_use_alternate_screen(),
             tui_scroll_events_per_tick: None,
             tui_scroll_wheel_lines: None,
             tui_scroll_trackpad_lines: None,
@@ -3642,6 +3652,7 @@ model_verbosity = "high"
             animations: true,
             show_tooltips: true,
             disable_mouse_capture: default_disable_mouse_capture(),
+            use_alternate_screen: default_use_alternate_screen(),
             tui_scroll_events_per_tick: None,
             tui_scroll_wheel_lines: None,
             tui_scroll_trackpad_lines: None,

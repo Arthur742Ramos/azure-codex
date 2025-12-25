@@ -406,6 +406,15 @@ where
         Ok(())
     }
 
+    /// Clear the terminal from an arbitrary cursor position and force a full redraw on the next
+    /// draw call.
+    pub fn clear_from(&mut self, position: Position) -> io::Result<()> {
+        self.backend.set_cursor_position(position)?;
+        self.backend.clear_region(ClearType::AfterCursor)?;
+        self.previous_buffer_mut().reset();
+        Ok(())
+    }
+
     /// Clears the inactive buffer and swaps it with the current buffer
     pub fn swap_buffers(&mut self) {
         self.previous_buffer_mut().reset();

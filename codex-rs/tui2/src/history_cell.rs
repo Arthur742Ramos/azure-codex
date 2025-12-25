@@ -206,6 +206,17 @@ impl HistoryCell for UserHistoryCell {
 
         lines
     }
+
+    fn transcript_lines(&self, width: u16) -> Vec<Line<'static>> {
+        let width = usize::from(width.max(1));
+        let prefix = "You: ";
+        let subsequent = " ".repeat(prefix.len());
+        let opts = RtOptions::new(width)
+            .initial_indent(prefix.into())
+            .subsequent_indent(subsequent.into());
+        let lines = self.message.lines().map(|line| line.to_string());
+        word_wrap_lines(lines, opts)
+    }
 }
 
 #[derive(Debug)]
