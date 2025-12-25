@@ -24,6 +24,12 @@ State:
   - Ran `just fix -p codex-core` (success).
   - Ran `just fmt` after the latest Rust changes (imports_granularity warning on stable).
   - Fixed tui2 merge fallout (review auto_fix wiring, wrap_segment transcript metadata, mouse capture toggle handling, azure model refresh handling, and dead_code allowances).
+  - Accepted updated history_cell snapshot via `cargo insta accept --snapshot ...` (user_history_cell_wraps_and_prefixes_each_line_snapshot).
+  - Updated markdown_render expectations for code block headers.
+  - Test run: `cargo test -p codex-tui2` passed after fixes.
+  - Added transcript UX polish (subtle rail, spacer seams, scrollback pin marker, and selection tint).
+  - Ran `just fmt` after transcript UX changes (imports_granularity warning on stable).
+  - Ran `just fix -p codex-tui2` (success).
   - Completed upstream merge commit and pushed to `origin/main`: `1fe038a60`.
   - Re-applied tui2 scrollback fixes on top of upstream app.rs + history_cell changes.
   - Fetched upstream and began merge of upstream/main into main; resolved conflicts (kept upstream codex-rs/tui).
@@ -57,9 +63,9 @@ State:
   - Changed scrollback transcript mode to write transcript lines into the terminal's real scrollback (full-screen scroll) instead of internal viewport scrolling; rebuilt `codex-cli` debug binary.
   - Checked upstream (`openai/codex`): `codex-rs/tui2/src/lib.rs` still enters alternate screen unconditionally for the main session (no config toggle upstream), so native scrollbar/scrollback behavior depends on terminal settings (e.g., "scrollback in alternate screen" support).
   - Now:
-  - Confirm whether to run post-merge tests or just finalize.
+  - Implement transcript UX/UI upgrades (visual polish, selection highlight, smart gutter, separators, pin indicator).
   - Next:
-  - Confirm scrollback transcript behavior still holds after upstream merge.
+  - Validate transcript UX/UI changes with fmt/tests as needed.
 
 Open questions (UNCONFIRMED if needed):
 - Which surface should be prioritized: Rust TUI (`codex-rs/tui`), Rust core, or JS CLI (`codex-cli`)?

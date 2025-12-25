@@ -647,7 +647,14 @@ fn link() {
 #[test]
 fn code_block_unhighlighted() {
     let text = render_markdown_text("```rust\nfn main() {}\n```\n");
-    let expected = Text::from_iter([Line::from_iter(["", "fn main() {}"]).cyan()]);
+    let expected = Text::from_iter([
+        Line::from_iter([
+            Span::from("┌─ ").dim(),
+            Span::from("rust").cyan(),
+            Span::from(" ─").dim(),
+        ]),
+        Line::from_iter(["", "fn main() {}"]).cyan(),
+    ]);
     assert_eq!(text, expected);
 }
 
@@ -717,6 +724,7 @@ Here is a code block that shows another fenced block:
     assert_eq!(
         lines,
         vec![
+            "┌─ text ─".to_string(),
             "Here is a code block that shows another fenced block:".to_string(),
             String::new(),
             "```md".to_string(),

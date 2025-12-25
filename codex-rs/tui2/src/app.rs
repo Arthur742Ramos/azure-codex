@@ -767,6 +767,8 @@ impl App {
         let (scroll_state, top_offset) = self.transcript_scroll.resolve_top(&line_meta, max_start);
         self.transcript_scroll = scroll_state;
         self.transcript_view_top = top_offset;
+        let transcript_scrolled = !matches!(self.transcript_scroll, TranscriptScroll::ToBottom);
+        let show_transcript_rail = transcript_area.width >= 50;
 
         let transcript_visible_height = max_visible as u16;
         let chat_top = if total_lines <= max_transcript_height as usize {
@@ -826,9 +828,50 @@ impl App {
             }
 
             lines[line_index].render_ref(row_area, frame.buffer);
+
+            if show_transcript_rail
+                && matches!(line_meta.get(line_index), Some(TranscriptLineMeta::Spacer))
+            {
+                let seam = ". . .";
+                let seam_width = seam.len() as u16;
+                if seam_width < row_area.width {
+                    let seam_x = row_area.x + (row_area.width - seam_width) / 2;
+                    frame.buffer.set_string(
+                        seam_x,
+                        y,
+                        seam,
+                        ratatui::style::Style::default().dim(),
+                    );
+                }
+            }
+
+            if show_transcript_rail {
+                let rail_x = row_area.x;
+                let rail_cell = &mut frame.buffer[(rail_x, y)];
+                if rail_cell.symbol() == " " {
+                    rail_cell.set_symbol("|");
+                    let style = rail_cell
+                        .style()
+                        .add_modifier(ratatui::style::Modifier::DIM);
+                    rail_cell.set_style(style);
+                }
+            }
         }
 
         self.apply_transcript_selection(transcript_area, frame.buffer);
+
+        if transcript_scrolled && show_transcript_rail {
+            let pin_x = transcript_area.x;
+            let pin_y = transcript_area.y;
+            let cell = &mut frame.buffer[(pin_x, pin_y)];
+            if cell.symbol() == " " {
+                cell.set_symbol("^");
+                let style = ratatui::style::Style::default()
+                    .fg(ratatui::style::Color::Cyan)
+                    .add_modifier(ratatui::style::Modifier::DIM);
+                cell.set_style(style);
+            }
+        }
         if let (Some(anchor), Some(head)) = (
             self.transcript_selection.anchor,
             self.transcript_selection.head,
@@ -1276,8 +1319,11 @@ impl App {
 
             for x in from_x..=to_x {
                 let cell = &mut buf[(x, y)];
-                let style = cell.style();
-                cell.set_style(style.add_modifier(ratatui::style::Modifier::REVERSED));
+                let mut style = cell.style().bg(ratatui::style::Color::DarkGray);
+                if line_index == start.line_index || line_index == end.line_index {
+                    style = style.add_modifier(ratatui::style::Modifier::BOLD);
+                }
+                cell.set_style(style);
             }
         }
     }
