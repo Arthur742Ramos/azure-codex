@@ -1474,11 +1474,13 @@ pub(crate) fn new_info_event(message: String, hint: Option<String>) -> PlainHist
 /// This is displayed when the user changes the model via /model command,
 /// providing visual feedback that mirrors the session header format.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(crate) struct ModelChangedCell {
     model: String,
     reasoning_effort: Option<ReasoningEffortConfig>,
 }
 
+#[allow(dead_code)]
 impl ModelChangedCell {
     pub(crate) fn new(model: String, reasoning_effort: Option<ReasoningEffortConfig>) -> Self {
         Self {
@@ -1521,6 +1523,7 @@ impl HistoryCell for ModelChangedCell {
 }
 
 /// Creates a model changed card to display when the model is updated via /model.
+#[allow(dead_code)]
 pub(crate) fn new_model_changed_card(
     model: String,
     reasoning_effort: Option<ReasoningEffortConfig>,

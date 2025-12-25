@@ -358,6 +358,7 @@ mod tests {
             &TranscriptScroll::Scrolled {
                 cell_index: 0,
                 line_in_cell: 0,
+                wrap_segment: 0,
             },
             Some(head),
             true,

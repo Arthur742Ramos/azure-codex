@@ -95,16 +95,6 @@ pub struct AppExitInfo {
     pub session_lines: Vec<String>,
 }
 
-impl From<AppExitInfo> for codex_tui::AppExitInfo {
-    fn from(info: AppExitInfo) -> Self {
-        codex_tui::AppExitInfo {
-            token_usage: info.token_usage,
-            conversation_id: info.conversation_id,
-            update_action: info.update_action.map(Into::into),
-        }
-    }
-}
-
 fn session_summary(
     token_usage: TokenUsage,
     conversation_id: Option<ConversationId>,
@@ -1569,6 +1559,17 @@ impl App {
                 ));
                 tui.frame_requester().schedule_frame();
             }
+            AppEvent::RefreshAzureModels => {
+                let models_manager = self.server.get_models_manager();
+                tokio::spawn(async move {
+                    let _ = models_manager.list_models_async().await;
+                });
+            }
+            AppEvent::ToggleMouseCapture => {
+                let enabled = tui.toggle_mouse_capture();
+                self.config.disable_mouse_capture = !enabled;
+                tui.frame_requester().schedule_frame();
+            }
             AppEvent::StartFileSearch(query) => {
                 if !query.is_empty() {
                     self.file_search.on_user_query(query);
@@ -1863,14 +1864,18 @@ impl App {
             AppEvent::OpenApprovalsPopup => {
                 self.chat_widget.open_approvals_popup();
             }
-            AppEvent::OpenReviewBranchPicker(cwd) => {
-                self.chat_widget.show_review_branch_picker(&cwd).await;
+            AppEvent::OpenReviewBranchPicker(cwd, auto_fix) => {
+                self.chat_widget
+                    .show_review_branch_picker(&cwd, auto_fix)
+                    .await;
             }
-            AppEvent::OpenReviewCommitPicker(cwd) => {
-                self.chat_widget.show_review_commit_picker(&cwd).await;
+            AppEvent::OpenReviewCommitPicker(cwd, auto_fix) => {
+                self.chat_widget
+                    .show_review_commit_picker(&cwd, auto_fix)
+                    .await;
             }
-            AppEvent::OpenReviewCustomPrompt => {
-                self.chat_widget.show_review_custom_prompt();
+            AppEvent::OpenReviewCustomPrompt(auto_fix) => {
+                self.chat_widget.show_review_custom_prompt(auto_fix);
             }
             AppEvent::FullScreenApprovalRequest(request) => match request {
                 ApprovalRequest::ApplyPatch { cwd, changes, .. } => {
@@ -2036,6 +2041,7 @@ impl App {
                     self.transcript_scroll = TranscriptScroll::Scrolled {
                         cell_index: 0,
                         line_in_cell: 0,
+                        wrap_segment: 0,
                     };
                     tui.frame_requester().schedule_frame();
                 }
@@ -2116,6 +2122,7 @@ mod tests {
     use crate::file_search::FileSearchManager;
     use crate::history_cell::AgentMessageCell;
     use crate::history_cell::HistoryCell;
+    use crate::history_cell::SharedModelState;
     use crate::history_cell::UserHistoryCell;
     use crate::history_cell::new_session_info;
     use crate::transcript_copy_ui::CopySelectionShortcut;
@@ -2375,6 +2382,7 @@ mod tests {
                 app.current_model.as_str(),
                 event,
                 is_first,
+                SharedModelState::new(app.current_model.clone(), None),
             )) as Arc<dyn HistoryCell>
         };
 
@@ -2695,6 +2703,7 @@ mod tests {
         let line_meta = vec![TranscriptLineMeta::CellLine {
             cell_index: 0,
             line_in_cell: 0,
+            wrap_segment: 0,
         }];
         let is_user_cell = vec![true];
         let width: u16 = 10;

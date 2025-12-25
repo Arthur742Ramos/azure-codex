@@ -84,6 +84,7 @@ pub(crate) fn build_transcript_lines(
             meta.push(TranscriptLineMeta::CellLine {
                 cell_index,
                 line_in_cell,
+                wrap_segment: 0,
             });
             lines.push(line);
             // Maintain the `joiner_before` invariant: exactly one entry per output line.
@@ -163,6 +164,7 @@ pub(crate) fn build_wrapped_transcript_lines(
                 meta.push(TranscriptLineMeta::CellLine {
                     cell_index,
                     line_in_cell: visual_line_in_cell,
+                    wrap_segment: 0,
                 });
                 visual_line_in_cell = visual_line_in_cell.saturating_add(1);
                 // Preformatted lines are treated as hard breaks; we keep the cell-provided joiner
@@ -200,6 +202,7 @@ pub(crate) fn build_wrapped_transcript_lines(
                 meta.push(TranscriptLineMeta::CellLine {
                     cell_index,
                     line_in_cell: visual_line_in_cell,
+                    wrap_segment: seg_idx,
                 });
                 visual_line_in_cell = visual_line_in_cell.saturating_add(1);
 
@@ -367,20 +370,24 @@ mod tests {
             vec![
                 TranscriptLineMeta::CellLine {
                     cell_index: 0,
-                    line_in_cell: 0
+                    line_in_cell: 0,
+                    wrap_segment: 0,
                 },
                 TranscriptLineMeta::CellLine {
                     cell_index: 0,
-                    line_in_cell: 1
+                    line_in_cell: 1,
+                    wrap_segment: 1,
                 },
                 TranscriptLineMeta::Spacer,
                 TranscriptLineMeta::CellLine {
                     cell_index: 1,
-                    line_in_cell: 0
+                    line_in_cell: 0,
+                    wrap_segment: 0,
                 },
                 TranscriptLineMeta::CellLine {
                     cell_index: 1,
-                    line_in_cell: 1
+                    line_in_cell: 1,
+                    wrap_segment: 1,
                 },
             ]
         );

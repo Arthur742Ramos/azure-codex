@@ -3171,6 +3171,7 @@ impl ChatWidget {
 
     /// Display a visual card showing the current model configuration.
     /// Called after model selection is successfully persisted.
+    #[allow(dead_code)]
     pub(crate) fn add_model_changed_card(
         &mut self,
         model: &str,
@@ -3500,6 +3501,7 @@ impl ChatWidget {
         &self.config
     }
 
+    #[allow(dead_code)]
     pub(crate) fn active_cell(&self) -> Option<&dyn HistoryCell> {
         self.active_cell.as_deref()
     }
