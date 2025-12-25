@@ -18,7 +18,13 @@ Key decisions:
 - Avoid a fixed bottom pane height; auto-size the bottom pane viewport when possible (terminal scrollback transcript mode).
 
 State:
-- Done:
+  - Done:
+  - Ran `just fmt` after merge conflict resolution (warning about imports_granularity=Item on stable).
+  - Restored `auto_fix` review wiring in `codex-core` and updated ModelClient test call sites after upstream API changes.
+  - Ran `just fix -p codex-core` (success).
+  - Ran `just fmt` after the latest Rust changes (imports_granularity warning on stable).
+  - Re-applied tui2 scrollback fixes on top of upstream app.rs + history_cell changes.
+  - Fetched upstream and began merge of upstream/main into main; resolved conflicts (kept upstream codex-rs/tui).
   - Added Continuity Ledger instructions to `AGENTS.md`.
   - Created initial `CONTINUITY.md`.
   - Improved `codex-rs/tui2` status indicator redraw scheduling (lower idle CPU when animations are off; no redraw loop while paused).
@@ -48,15 +54,11 @@ State:
   - Defaulted `tui.disable_mouse_capture` to `true` (all terminals) so mouse wheel scrolling uses terminal scrollback by default; updated docs and rebuilt `codex-cli` debug binary.
   - Changed scrollback transcript mode to write transcript lines into the terminal's real scrollback (full-screen scroll) instead of internal viewport scrolling; rebuilt `codex-cli` debug binary.
   - Checked upstream (`openai/codex`): `codex-rs/tui2/src/lib.rs` still enters alternate screen unconditionally for the main session (no config toggle upstream), so native scrollbar/scrollback behavior depends on terminal settings (e.g., "scrollback in alternate screen" support).
-- Now:
-  - Investigate report that scrollback-mode transcript is "eating" recent messages (user can't see their last question).
-- Next:
-  - User validates that the default inline TUI restores terminal native scrollbar/scrollback.
-  - User validates that transcript history is scrollable via terminal scrollback (no in-app scrolling).
-  - Fix any transcript loss/visibility bugs in scrollback transcript mode; add focused coverage if feasible; re-validate.
-  - (Optional) Decide whether overlays (diff/transcript) should also respect `tui.use_alternate_screen`.
-  - Ask user before running `cargo test -p codex-tui2` / `cargo test -p codex-core` for additional validation if desired.
-  - Consider whether overlays should also default inline (or stay alternate-screen only for full-screen views).
+  - Now:
+  - Commit the upstream merge result and push to `origin/main`.
+  - Next:
+  - Decide whether to run project-specific tests after merge.
+  - Confirm scrollback transcript behavior still holds after upstream merge.
 
 Open questions (UNCONFIRMED if needed):
 - Which surface should be prioritized: Rust TUI (`codex-rs/tui`), Rust core, or JS CLI (`codex-cli`)?

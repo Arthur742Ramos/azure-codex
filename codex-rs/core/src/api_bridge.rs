@@ -1,6 +1,5 @@
 use chrono::DateTime;
 use chrono::Utc;
-use codex_api::AuthHeaderType;
 use codex_api::AuthProvider as ApiAuthProvider;
 use codex_api::TransportError;
 use codex_api::error::ApiError;
@@ -8,7 +7,7 @@ use codex_api::rate_limits::parse_rate_limit;
 use http::HeaderMap;
 use serde::Deserialize;
 
-use crate::auth::azure::AzureAuth;
+use crate::auth::CodexAuth;
 use crate::error::CodexErr;
 use crate::error::RetryLimitReachedError;
 use crate::error::UnexpectedResponseError;
@@ -101,106 +100,36 @@ fn extract_request_id(headers: Option<&HeaderMap>) -> Option<String> {
     })
 }
 
-/// Create an auth provider for Azure Codex API calls.
-///
-/// Azure Codex supports multiple authentication methods. The priority order is:
-///
-/// 1. Provider-specific API key (from config or AZURE_OPENAI_API_KEY env)
-/// 2. Experimental bearer token from provider config
-/// 3. Azure Entra ID authentication (DefaultAzureCredential, etc.)
-/// 4. CodexAuth API key (from AZURE_CODEX_API_KEY env var)
 pub(crate) async fn auth_provider_from_auth(
-    azure_auth: Option<&AzureAuth>,
+    auth: Option<CodexAuth>,
     provider: &ModelProviderInfo,
-    codex_auth: Option<&crate::auth::CodexAuth>,
 ) -> crate::error::Result<CoreAuthProvider> {
-    // Determine the effective auth header type for this provider
-    let auth_header_type = provider.effective_auth_header_type();
-    let is_azure = provider.is_azure_endpoint();
-
-    // Priority 1: Provider-specific API key (from config or env var)
-    // This supports AZURE_OPENAI_API_KEY for users who prefer API key auth
-    // Note: We use ok().flatten() to treat missing env vars as None, allowing
-    // fallback to Azure Entra ID auth instead of failing immediately.
-    if let Some(api_key) = provider.api_key().ok().flatten() {
-        tracing::debug!("Using API key for Azure endpoint");
+    if let Some(api_key) = provider.api_key()? {
         return Ok(CoreAuthProvider {
             token: Some(api_key),
             account_id: None,
-            auth_header_type,
-            is_azure: true,
         });
     }
 
-    // Priority 2: Experimental bearer token from provider config
     if let Some(token) = provider.experimental_bearer_token.clone() {
         return Ok(CoreAuthProvider {
             token: Some(token),
             account_id: None,
-            auth_header_type,
-            is_azure: true,
         });
     }
 
-    // Priority 3: Use Azure Entra ID authentication
-    if let Some(azure) = azure_auth {
-        match azure.get_token().await {
-            Ok(token) => {
-                tracing::debug!("Using Azure Entra ID token");
-                return Ok(CoreAuthProvider {
-                    token: Some(token),
-                    account_id: None,
-                    // Azure OpenAI uses Bearer tokens for Entra ID auth
-                    auth_header_type: AuthHeaderType::Bearer,
-                    is_azure: true,
-                });
-            }
-            Err(e) => {
-                tracing::error!("Failed to get Azure Entra ID token: {}", e);
-                return Err(crate::error::CodexErr::Authentication(format!(
-                    "Azure authentication failed: {e}. Please ensure you are logged in via Azure CLI, \
-                     have AZURE_CLIENT_ID/AZURE_CLIENT_SECRET/AZURE_TENANT_ID set, \
-                     or are running in Azure with managed identity."
-                )));
-            }
-        }
+    if let Some(auth) = auth {
+        let token = auth.get_token().await?;
+        Ok(CoreAuthProvider {
+            token: Some(token),
+            account_id: auth.get_account_id(),
+        })
+    } else {
+        Ok(CoreAuthProvider {
+            token: None,
+            account_id: None,
+        })
     }
-
-    // Priority 4: Use CodexAuth API key (from AZURE_CODEX_API_KEY env var)
-    if let Some(auth) = codex_auth {
-        match auth.get_token().await {
-            Ok(token) => {
-                tracing::debug!("Using CodexAuth API key");
-                return Ok(CoreAuthProvider {
-                    token: Some(token),
-                    account_id: None,
-                    auth_header_type: AuthHeaderType::Bearer,
-                    is_azure: false,
-                });
-            }
-            Err(e) => {
-                tracing::warn!("Failed to get CodexAuth token: {e}");
-                // Fall through to check if Azure endpoint requires auth
-            }
-        }
-    }
-
-    // No authentication configured - return error for Azure endpoints
-    if is_azure {
-        return Err(crate::error::CodexErr::Authentication(
-            "Azure authentication required but not configured. \
-             Set AZURE_OPENAI_API_KEY or configure azure_auth in config.toml"
-                .to_string(),
-        ));
-    }
-
-    // For non-Azure endpoints without auth, allow unauthenticated requests
-    Ok(CoreAuthProvider {
-        token: None,
-        account_id: None,
-        auth_header_type,
-        is_azure: false,
-    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -216,23 +145,10 @@ struct UsageErrorBody {
     resets_at: Option<i64>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) struct CoreAuthProvider {
     token: Option<String>,
     account_id: Option<String>,
-    auth_header_type: AuthHeaderType,
-    is_azure: bool,
-}
-
-impl Default for CoreAuthProvider {
-    fn default() -> Self {
-        Self {
-            token: None,
-            account_id: None,
-            auth_header_type: AuthHeaderType::Bearer,
-            is_azure: false,
-        }
-    }
 }
 
 impl ApiAuthProvider for CoreAuthProvider {
@@ -240,19 +156,7 @@ impl ApiAuthProvider for CoreAuthProvider {
         self.token.clone()
     }
 
-    fn api_key(&self) -> Option<String> {
-        self.token.clone()
-    }
-
-    fn auth_header_type(&self) -> AuthHeaderType {
-        self.auth_header_type.clone()
-    }
-
     fn account_id(&self) -> Option<String> {
         self.account_id.clone()
-    }
-
-    fn is_azure(&self) -> bool {
-        self.is_azure
     }
 }

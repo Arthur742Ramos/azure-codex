@@ -26,6 +26,7 @@ pub(crate) struct FooterProps {
     pub(crate) transcript_scrolled: bool,
     pub(crate) transcript_selection_active: bool,
     pub(crate) transcript_scroll_position: Option<(usize, usize)>,
+    pub(crate) transcript_copy_selection_key: KeyBinding,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,7 +117,7 @@ fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
             }
             if props.transcript_selection_active {
                 line.push_span(" · ".dim());
-                line.push_span(key_hint::ctrl(KeyCode::Char('y')));
+                line.push_span(props.transcript_copy_selection_key);
                 line.push_span(" copy selection".dim());
             }
             vec![line]
@@ -479,6 +480,7 @@ mod tests {
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             },
         );
 
@@ -494,6 +496,7 @@ mod tests {
                 transcript_scrolled: true,
                 transcript_selection_active: true,
                 transcript_scroll_position: Some((3, 42)),
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             },
         );
 
@@ -509,6 +512,7 @@ mod tests {
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             },
         );
 
@@ -524,6 +528,7 @@ mod tests {
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             },
         );
 
@@ -539,6 +544,7 @@ mod tests {
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             },
         );
 
@@ -554,6 +560,7 @@ mod tests {
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             },
         );
 
@@ -569,6 +576,7 @@ mod tests {
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             },
         );
 
@@ -584,6 +592,7 @@ mod tests {
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             },
         );
 
@@ -599,6 +608,7 @@ mod tests {
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             },
         );
     }
