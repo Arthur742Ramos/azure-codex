@@ -1805,6 +1805,48 @@ fn format_mcp_invocation<'a>(invocation: McpInvocation) -> Line<'a> {
     invocation_spans.into()
 }
 
+/// History cell that displays an update available notification banner.
+#[cfg(not(debug_assertions))]
+#[derive(Debug)]
+pub struct UpdateAvailableHistoryCell {
+    latest_version: String,
+    update_action: Option<crate::update_action::UpdateAction>,
+}
+
+#[cfg(not(debug_assertions))]
+impl UpdateAvailableHistoryCell {
+    pub fn new(
+        latest_version: String,
+        update_action: Option<crate::update_action::UpdateAction>,
+    ) -> Self {
+        Self {
+            latest_version,
+            update_action,
+        }
+    }
+}
+
+#[cfg(not(debug_assertions))]
+impl HistoryCell for UpdateAvailableHistoryCell {
+    fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
+        let current_version = env!("CARGO_PKG_VERSION");
+        let mut lines = vec![Line::from(vec![
+            padded_emoji("  ✨").bold().cyan(),
+            "Update available: ".bold(),
+            format!("{current_version} → {}", self.latest_version).dim(),
+        ])];
+
+        if let Some(action) = &self.update_action {
+            lines.push(Line::from(vec![
+                "     Run: ".dim(),
+                action.command_str().cyan(),
+            ]));
+        }
+
+        lines
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
