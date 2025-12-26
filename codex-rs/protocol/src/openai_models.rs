@@ -1,8 +1,13 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
+use serde::de::Deserializer;
+use serde::de::Error as DeError;
+use serde::de::SeqAccess;
+use serde::de::Visitor;
 use strum::IntoEnumIterator;
 use strum_macros::Display;
 use strum_macros::EnumIter;
@@ -155,9 +160,62 @@ impl TruncationPolicyConfig {
     }
 }
 
-/// Semantic version triple encoded as an array in JSON (e.g. [0, 62, 0]).
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, TS, JsonSchema)]
+/// Semantic version triple encoded as an array in JSON (e.g. [0, 62, 0])
+/// or as a string (e.g. "0.62.0").
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq, TS, JsonSchema)]
 pub struct ClientVersion(pub i32, pub i32, pub i32);
+
+impl<'de> Deserialize<'de> for ClientVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ClientVersionVisitor;
+
+        impl<'de> Visitor<'de> for ClientVersionVisitor {
+            type Value = ClientVersion;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a version string like \"0.62.0\" or an array like [0, 62, 0]")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                let parts: Vec<&str> = value.split('.').collect();
+                if parts.len() != 3 {
+                    return Err(E::custom(format!(
+                        "expected 3 version components, got {}",
+                        parts.len()
+                    )));
+                }
+                let major = parts[0].parse().map_err(DeError::custom)?;
+                let minor = parts[1].parse().map_err(DeError::custom)?;
+                let patch = parts[2].parse().map_err(DeError::custom)?;
+                Ok(ClientVersion(major, minor, patch))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let major = seq
+                    .next_element()?
+                    .ok_or_else(|| DeError::custom("expected major version"))?;
+                let minor = seq
+                    .next_element()?
+                    .ok_or_else(|| DeError::custom("expected minor version"))?;
+                let patch = seq
+                    .next_element()?
+                    .ok_or_else(|| DeError::custom("expected patch version"))?;
+                Ok(ClientVersion(major, minor, patch))
+            }
+        }
+
+        deserializer.deserialize_any(ClientVersionVisitor)
+    }
+}
 
 /// Model metadata returned by the Codex backend `/models` endpoint.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
