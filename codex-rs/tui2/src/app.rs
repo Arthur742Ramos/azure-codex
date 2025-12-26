@@ -32,6 +32,7 @@ use crate::tui::scrolling::ScrollUpdate;
 use crate::tui::scrolling::TranscriptLineMeta;
 use crate::tui::scrolling::TranscriptScroll;
 use crate::update_action::UpdateAction;
+use crate::with_loading_animation;
 use codex_ansi_escape::ansi_escape_line;
 use codex_core::AuthManager;
 use codex_core::ConversationManager;
@@ -201,7 +202,8 @@ async fn handle_model_migration_prompt_if_needed(
     app_event_tx: &AppEventSender,
     models_manager: Arc<ModelsManager>,
 ) -> Option<AppExitInfo> {
-    let available_models = models_manager.list_models(config).await;
+    // Continue loading animation during model list fetch (Azure deployment discovery)
+    let available_models = with_loading_animation(tui, models_manager.list_models(config)).await;
     let upgrade = available_models
         .iter()
         .find(|preset| preset.model == model)
@@ -388,14 +390,26 @@ impl App {
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
 
-        let conversation_manager = Arc::new(ConversationManager::new(
-            auth_manager.clone(),
-            SessionSource::Cli,
-        ));
-        let mut model = conversation_manager
-            .get_models_manager()
-            .get_model(&config.model, &config)
-            .await;
+        let conversation_manager = if let Some(azure_endpoint) = config.azure_endpoint.clone() {
+            Arc::new(ConversationManager::with_azure_endpoint(
+                auth_manager.clone(),
+                SessionSource::Cli,
+                azure_endpoint,
+            ))
+        } else {
+            Arc::new(ConversationManager::new(
+                auth_manager.clone(),
+                SessionSource::Cli,
+            ))
+        };
+        // Continue loading animation during model fetching
+        let mut model = with_loading_animation(
+            tui,
+            conversation_manager
+                .get_models_manager()
+                .get_model(&config.model, &config),
+        )
+        .await;
         let exit_info = handle_model_migration_prompt_if_needed(
             tui,
             &mut config,
@@ -412,10 +426,15 @@ impl App {
         }
 
         let enhanced_keys_supported = tui.enhanced_keys_supported();
-        let model_family = conversation_manager
-            .get_models_manager()
-            .construct_model_family(model.as_str(), &config)
-            .await;
+
+        // Continue loading animation during model family construction
+        let model_family = with_loading_animation(
+            tui,
+            conversation_manager
+                .get_models_manager()
+                .construct_model_family(model.as_str(), &config),
+        )
+        .await;
         let mut chat_widget = match resume_selection {
             ResumeSelection::StartFresh | ResumeSelection::Exit => {
                 let init = crate::chatwidget::ChatWidgetInit {
@@ -434,16 +453,17 @@ impl App {
                 ChatWidget::new(init, conversation_manager.clone())
             }
             ResumeSelection::Resume(path) => {
-                let resumed = conversation_manager
-                    .resume_conversation_from_rollout(
+                // Continue loading animation during session resume
+                let resumed = with_loading_animation(
+                    tui,
+                    conversation_manager.resume_conversation_from_rollout(
                         config.clone(),
                         path.clone(),
                         auth_manager.clone(),
-                    )
-                    .await
-                    .wrap_err_with(|| {
-                        format!("Failed to resume session from {}", path.display())
-                    })?;
+                    ),
+                )
+                .await
+                .wrap_err_with(|| format!("Failed to resume session from {}", path.display()))?;
                 let init = crate::chatwidget::ChatWidgetInit {
                     config: config.clone(),
                     frame_requester: tui.frame_requester(),

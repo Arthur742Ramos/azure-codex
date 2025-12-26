@@ -87,6 +87,7 @@ async fn responses_stream_includes_subagent_header_on_review() {
     let client = ModelClient::new(
         Arc::clone(&config),
         None,
+        None, // azure_auth
         model_family,
         otel_manager,
         provider,
@@ -185,6 +186,7 @@ async fn responses_stream_includes_subagent_header_on_other() {
     let client = ModelClient::new(
         Arc::clone(&config),
         None,
+        None, // azure_auth
         model_family,
         otel_manager,
         provider,
@@ -281,6 +283,7 @@ async fn responses_respects_model_family_overrides_from_config() {
     let client = ModelClient::new(
         Arc::clone(&config),
         None,
+        None, // azure_auth
         model_family,
         otel_manager,
         provider,

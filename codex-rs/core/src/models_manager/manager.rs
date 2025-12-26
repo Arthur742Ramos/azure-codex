@@ -122,7 +122,7 @@ impl ModelsManager {
         let api_provider = self.provider.to_api_provider(Some(AuthMode::ChatGPT))?;
         // Note: ModelsManager is primarily for OpenAI model discovery.
         // For Azure endpoints, this won't be used.
-        let api_auth = auth_provider_from_auth(None, &self.provider).await?;
+        let api_auth = auth_provider_from_auth(None, &self.provider, None).await?;
         let transport = ReqwestTransport::new(build_reqwest_client());
         let client = ModelsClient::new(transport, api_provider, api_auth);
 

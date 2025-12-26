@@ -14,6 +14,7 @@ use crate::render::renderable::Renderable;
 use crate::style::user_message_style;
 use crate::text_formatting::format_and_truncate_tool_result;
 use crate::text_formatting::truncate_text;
+use crate::theme;
 use crate::tooltips;
 use crate::ui_consts::LIVE_PREFIX_COLS;
 use crate::version::CODEX_CLI_VERSION;
@@ -216,7 +217,8 @@ impl HistoryCell for UserHistoryCell {
         lines.push(Line::from("").style(style));
         joins.push(None);
 
-        let prefixed = prefix_lines(wrapped, "> ".bold().dim(), "  ".into());
+        // Use elegant chevron for user messages with subtle styling
+        let prefixed = prefix_lines(wrapped, "› ".cyan().bold(), "  ".into());
         for (line, joiner) in prefixed.into_iter().zip(joiner_before) {
             lines.push(line);
             joins.push(joiner);
@@ -480,11 +482,21 @@ pub fn new_approval_decision_cell(
 ) -> Box<dyn HistoryCell> {
     use codex_core::protocol::ReviewDecision::*;
 
+    // Helper to create styled approval/denial symbols using theme icons
+    fn make_approved_symbol() -> Span<'static> {
+        Span::from(format!("{} ", theme::icons::SUCCESS))
+            .green()
+            .bold()
+    }
+    fn make_denied_symbol() -> Span<'static> {
+        Span::from(format!("{} ", theme::icons::ERROR)).red().bold()
+    }
+
     let (symbol, summary): (Span<'static>, Vec<Span<'static>>) = match decision {
         Approved => {
             let snippet = Span::from(exec_snippet(&command)).dim();
             (
-                "✔ ".green(),
+                make_approved_symbol(),
                 vec![
                     "You ".into(),
                     "approved".bold(),
@@ -497,7 +509,7 @@ pub fn new_approval_decision_cell(
         ApprovedExecpolicyAmendment { .. } => {
             let snippet = Span::from(exec_snippet(&command)).dim();
             (
-                "✔ ".green(),
+                make_approved_symbol(),
                 vec![
                     "You ".into(),
                     "approved".bold(),
@@ -510,7 +522,7 @@ pub fn new_approval_decision_cell(
         ApprovedForSession => {
             let snippet = Span::from(exec_snippet(&command)).dim();
             (
-                "✔ ".green(),
+                make_approved_symbol(),
                 vec![
                     "You ".into(),
                     "approved".bold(),
@@ -523,7 +535,7 @@ pub fn new_approval_decision_cell(
         Denied => {
             let snippet = Span::from(exec_snippet(&command)).dim();
             (
-                "✗ ".red(),
+                make_denied_symbol(),
                 vec![
                     "You ".into(),
                     "did not approve".bold(),
@@ -535,7 +547,7 @@ pub fn new_approval_decision_cell(
         Abort => {
             let snippet = Span::from(exec_snippet(&command)).dim();
             (
-                "✗ ".red(),
+                make_denied_symbol(),
                 vec![
                     "You ".into(),
                     "canceled".bold(),
@@ -613,6 +625,9 @@ fn with_border_internal(
     lines: Vec<Line<'static>>,
     forced_inner_width: Option<usize>,
 ) -> Vec<Line<'static>> {
+    // Use rounded border characters from theme for consistency
+    use crate::theme::rounded;
+
     let max_line_width = lines
         .iter()
         .map(|line| {
@@ -628,8 +643,22 @@ fn with_border_internal(
 
     let mut out = Vec::with_capacity(lines.len() + 2);
     let border_inner_width = content_width + 2;
-    out.push(vec![format!("╭{}╮", "─".repeat(border_inner_width)).dim()].into());
 
+    // Top border with rounded corners
+    out.push(
+        vec![
+            format!(
+                "{}{}{}",
+                rounded::TL,
+                rounded::H.repeat(border_inner_width),
+                rounded::TR
+            )
+            .dim(),
+        ]
+        .into(),
+    );
+
+    // Content lines with side borders
     for line in lines.into_iter() {
         let used_width: usize = line
             .iter()
@@ -637,16 +666,28 @@ fn with_border_internal(
             .sum();
         let span_count = line.spans.len();
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(span_count + 4);
-        spans.push(Span::from("│ ").dim());
+        spans.push(Span::from(format!("{} ", rounded::V)).dim());
         spans.extend(line.into_iter());
         if used_width < content_width {
             spans.push(Span::from(" ".repeat(content_width - used_width)).dim());
         }
-        spans.push(Span::from(" │").dim());
+        spans.push(Span::from(format!(" {}", rounded::V)).dim());
         out.push(Line::from(spans));
     }
 
-    out.push(vec![format!("╰{}╯", "─".repeat(border_inner_width)).dim()].into());
+    // Bottom border with rounded corners
+    out.push(
+        vec![
+            format!(
+                "{}{}{}",
+                rounded::BL,
+                rounded::H.repeat(border_inner_width),
+                rounded::BR
+            )
+            .dim(),
+        ]
+        .into(),
+    );
 
     out
 }
@@ -1100,9 +1141,10 @@ impl HistoryCell for McpToolCallCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut lines: Vec<Line<'static>> = Vec::new();
         let status = self.success();
+        // Use theme status indicators for consistent styling
         let bullet = match status {
-            Some(true) => "•".green().bold(),
-            Some(false) => "•".red().bold(),
+            Some(true) => theme::bullet_success(),
+            Some(false) => theme::bullet_error(),
             None => spinner(Some(self.start_time), self.animations_enabled),
         };
         let header_text = if status.is_some() {
@@ -1131,7 +1173,12 @@ impl HistoryCell for McpToolCallCell {
                 .subsequent_indent("    ".into());
             let wrapped = word_wrap_line(&invocation_line, opts);
             let body_lines: Vec<Line<'static>> = wrapped.iter().map(line_to_static).collect();
-            lines.extend(prefix_lines(body_lines, "  └ ".dim(), "    ".into()));
+            // Use rounded tree connector for elegant appearance
+            lines.extend(prefix_lines(
+                body_lines,
+                format!("  {} ", theme::rounded::BL).dim(),
+                "    ".into(),
+            ));
         }
 
         let mut detail_lines: Vec<Line<'static>> = Vec::new();
@@ -1176,8 +1223,9 @@ impl HistoryCell for McpToolCallCell {
         }
 
         if !detail_lines.is_empty() {
+            // Use rounded tree connector for elegant appearance
             let initial_prefix: Span<'static> = if inline_invocation {
-                "  └ ".dim()
+                Span::from(format!("  {} ", theme::rounded::BL)).dim()
             } else {
                 "    ".into()
             };
