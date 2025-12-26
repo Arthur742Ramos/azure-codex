@@ -9,11 +9,13 @@
 //! - **Semantic colors**: Green for success, Red for errors, Magenta for warnings
 //! - **Contrast**: Bold for emphasis, Dim for secondary content
 //! - **Accessibility**: High contrast ratios, no yellow (poor visibility)
+//! - **Elegance**: Rounded corners, breathing room, visual hierarchy
 
 use ratatui::style::Color;
 use ratatui::style::Modifier;
 use ratatui::style::Style;
 use ratatui::style::Stylize;
+use ratatui::text::Line;
 use ratatui::text::Span;
 
 // ============================================================================
@@ -28,6 +30,9 @@ pub const COLOR_SECONDARY: Color = Color::Blue;
 
 /// Tertiary accent - Magenta for special highlights
 pub const COLOR_ACCENT: Color = Color::Magenta;
+
+/// Subtle accent for backgrounds and borders
+pub const COLOR_SUBTLE: Color = Color::DarkGray;
 
 // ============================================================================
 // Semantic Colors
@@ -423,6 +428,405 @@ pub fn role_label(role: &str) -> Span<'static> {
         "system" => Span::styled(" System ".to_string(), Style::default().dim()),
         _ => Span::styled(format!(" {role} "), Style::default().dim()),
     }
+}
+
+// ============================================================================
+// Iconography System
+// ============================================================================
+
+/// Unicode icons for consistent visual language across the TUI
+pub mod icons {
+    // File operations
+    pub const FILE_READ: &str = "📄";
+    pub const FILE_WRITE: &str = "✏️";
+    pub const FILE_CREATE: &str = "📝";
+    pub const FILE_DELETE: &str = "🗑️";
+    pub const FOLDER: &str = "📁";
+    pub const FOLDER_OPEN: &str = "📂";
+
+    // Actions
+    pub const SEARCH: &str = "🔍";
+    pub const RUN: &str = "▶";
+    pub const STOP: &str = "■";
+    pub const REFRESH: &str = "↻";
+    pub const DOWNLOAD: &str = "↓";
+    pub const UPLOAD: &str = "↑";
+
+    // Status (using heavy checkmark/crossmark for better visibility)
+    pub const SUCCESS: &str = "✔";
+    pub const ERROR: &str = "✗";
+    pub const WARNING: &str = "⚠";
+    pub const INFO: &str = "ℹ";
+    pub const QUESTION: &str = "?";
+
+    // State indicators
+    pub const ACTIVE: &str = "●";
+    pub const INACTIVE: &str = "○";
+    pub const PENDING: &str = "◐";
+    pub const LOADING: &str = "◌";
+
+    // Navigation
+    pub const ARROW_RIGHT: &str = "→";
+    pub const ARROW_LEFT: &str = "←";
+    pub const ARROW_UP: &str = "↑";
+    pub const ARROW_DOWN: &str = "↓";
+    pub const CHEVRON_RIGHT: &str = "›";
+    pub const CHEVRON_DOWN: &str = "⌄";
+    pub const EXPAND: &str = "▸";
+    pub const COLLAPSE: &str = "▾";
+
+    // Communication
+    pub const CHAT: &str = "💬";
+    pub const USER: &str = "👤";
+    pub const ASSISTANT: &str = "🤖";
+    pub const WEB: &str = "🌐";
+
+    // Tools
+    pub const TOOL: &str = "⚙";
+    pub const SETTINGS: &str = "⚙";
+    pub const KEY: &str = "🔑";
+    pub const LOCK: &str = "🔒";
+    pub const UNLOCK: &str = "🔓";
+
+    // Diff
+    pub const DIFF_ADD: &str = "+";
+    pub const DIFF_REMOVE: &str = "-";
+    pub const DIFF_CHANGE: &str = "~";
+
+    // Decorative
+    pub const BULLET: &str = "•";
+    pub const DIAMOND: &str = "◆";
+    pub const STAR: &str = "★";
+    pub const SPARKLE: &str = "✨";
+}
+
+// ============================================================================
+// Elegant Border Characters
+// ============================================================================
+
+/// Rounded border characters for elegant containers
+pub mod rounded {
+    pub const TL: &str = "╭";
+    pub const TR: &str = "╮";
+    pub const BL: &str = "╰";
+    pub const BR: &str = "╯";
+    pub const H: &str = "─";
+    pub const V: &str = "│";
+    pub const T_DOWN: &str = "┬";
+    pub const T_UP: &str = "┴";
+    pub const T_RIGHT: &str = "├";
+    pub const T_LEFT: &str = "┤";
+}
+
+/// Sharp border characters for emphasis
+pub mod sharp {
+    pub const TL: &str = "┌";
+    pub const TR: &str = "┐";
+    pub const BL: &str = "└";
+    pub const BR: &str = "┘";
+    pub const H: &str = "─";
+    pub const V: &str = "│";
+}
+
+/// Double-line borders for important containers
+pub mod double {
+    pub const TL: &str = "╔";
+    pub const TR: &str = "╗";
+    pub const BL: &str = "╚";
+    pub const BR: &str = "╝";
+    pub const H: &str = "═";
+    pub const V: &str = "║";
+}
+
+// ============================================================================
+// Message Bubble Helpers
+// ============================================================================
+
+/// Configuration for message bubble rendering
+#[derive(Debug, Clone, Copy)]
+pub struct BubbleStyle {
+    pub use_rounded_corners: bool,
+    pub show_role_label: bool,
+    pub indent: u16,
+    pub padding: u16,
+}
+
+impl Default for BubbleStyle {
+    fn default() -> Self {
+        Self {
+            use_rounded_corners: true,
+            show_role_label: true,
+            indent: 2,
+            padding: 1,
+        }
+    }
+}
+
+impl BubbleStyle {
+    pub const fn user() -> Self {
+        Self {
+            use_rounded_corners: false,
+            show_role_label: true,
+            indent: 2,
+            padding: 0,
+        }
+    }
+
+    pub const fn assistant() -> Self {
+        Self {
+            use_rounded_corners: true,
+            show_role_label: true,
+            indent: 2,
+            padding: 1,
+        }
+    }
+
+    pub const fn tool() -> Self {
+        Self {
+            use_rounded_corners: true,
+            show_role_label: false,
+            indent: 4,
+            padding: 0,
+        }
+    }
+}
+
+/// Create a top border line for a message bubble
+pub fn bubble_top(width: usize, label: Option<&str>, style: &BubbleStyle) -> Line<'static> {
+    let (tl, tr, h) = if style.use_rounded_corners {
+        (rounded::TL, rounded::TR, rounded::H)
+    } else {
+        (sharp::TL, sharp::TR, sharp::H)
+    };
+
+    let indent = " ".repeat(style.indent as usize);
+
+    match label {
+        Some(lbl) => {
+            let label_len = lbl.chars().count() + 2; // space padding
+            let remaining = width.saturating_sub(label_len + 2 + style.indent as usize);
+            let line_str = format!(
+                "{indent}{tl}{h} {lbl} {rest}{tr}",
+                rest = h.repeat(remaining)
+            );
+            Line::from(vec![Span::styled(line_str, Style::default().dim())])
+        }
+        None => {
+            let line_len = width.saturating_sub(2 + style.indent as usize);
+            let line_str = format!("{indent}{tl}{}{tr}", h.repeat(line_len));
+            Line::from(vec![Span::styled(line_str, Style::default().dim())])
+        }
+    }
+}
+
+/// Create a bottom border line for a message bubble
+pub fn bubble_bottom(width: usize, style: &BubbleStyle) -> Line<'static> {
+    let (bl, br, h) = if style.use_rounded_corners {
+        (rounded::BL, rounded::BR, rounded::H)
+    } else {
+        (sharp::BL, sharp::BR, sharp::H)
+    };
+
+    let indent = " ".repeat(style.indent as usize);
+    let line_len = width.saturating_sub(2 + style.indent as usize);
+    let line_str = format!("{indent}{bl}{}{br}", h.repeat(line_len));
+    Line::from(vec![Span::styled(line_str, Style::default().dim())])
+}
+
+/// Create a content line within a message bubble (with side borders)
+pub fn bubble_content_line(
+    content: Line<'static>,
+    width: usize,
+    style: &BubbleStyle,
+) -> Line<'static> {
+    let v = if style.use_rounded_corners {
+        rounded::V
+    } else {
+        sharp::V
+    };
+
+    let indent = " ".repeat(style.indent as usize);
+    let padding = " ".repeat(style.padding as usize);
+
+    // Calculate content width and pad
+    let content_width: usize = content
+        .spans
+        .iter()
+        .map(|s| s.content.chars().count())
+        .sum();
+    let available = width.saturating_sub(4 + style.indent as usize + (style.padding as usize * 2));
+    let right_pad = available.saturating_sub(content_width);
+
+    let mut spans = vec![Span::styled(
+        format!("{indent}{v}{padding}"),
+        Style::default().dim(),
+    )];
+    spans.extend(content.spans);
+    spans.push(Span::styled(
+        format!("{}{padding}{v}", " ".repeat(right_pad)),
+        Style::default().dim(),
+    ));
+
+    Line::from(spans)
+}
+
+/// Create an empty line within a message bubble (for padding)
+pub fn bubble_empty_line(width: usize, style: &BubbleStyle) -> Line<'static> {
+    let v = if style.use_rounded_corners {
+        rounded::V
+    } else {
+        sharp::V
+    };
+
+    let indent = " ".repeat(style.indent as usize);
+    let inner = width.saturating_sub(2 + style.indent as usize);
+    let line_str = format!("{indent}{v}{}{v}", " ".repeat(inner));
+    Line::from(vec![Span::styled(line_str, Style::default().dim())])
+}
+
+// ============================================================================
+// Separator Lines
+// ============================================================================
+
+/// Create a horizontal separator line
+pub fn separator(width: usize) -> Line<'static> {
+    Line::from(vec![Span::styled(
+        "─".repeat(width),
+        Style::default().dim(),
+    )])
+}
+
+/// Create a horizontal separator with a centered label
+pub fn separator_with_label(width: usize, label: &str) -> Line<'static> {
+    let label_len = label.chars().count() + 2;
+    let side_len = (width.saturating_sub(label_len)) / 2;
+    let right_side = width.saturating_sub(side_len + label_len);
+
+    Line::from(vec![
+        Span::styled("─".repeat(side_len), Style::default().dim()),
+        Span::styled(format!(" {label} "), Style::default().dim()),
+        Span::styled("─".repeat(right_side), Style::default().dim()),
+    ])
+}
+
+/// Create a subtle dotted separator
+pub fn separator_dotted(width: usize) -> Line<'static> {
+    let dots = "·".repeat(width);
+    Line::from(vec![Span::styled(dots, Style::default().dim())])
+}
+
+// ============================================================================
+// Status Line Helpers
+// ============================================================================
+
+/// Create a status indicator with icon and label
+pub fn status_indicator(icon: &str, label: &str, color: Color) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(format!("{icon} "), Style::default().fg(color).bold()),
+        Span::styled(label.to_string(), Style::default().fg(color)),
+    ]
+}
+
+/// Create a key-value pair for status display
+pub fn status_kv(key: &str, value: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(format!("{key}: "), Style::default().dim()),
+        Span::styled(value.to_string(), Style::default()),
+    ]
+}
+
+/// Create a mini progress indicator using dots
+pub fn mini_progress(filled: usize, total: usize) -> Span<'static> {
+    let filled_str = icons::ACTIVE.repeat(filled.min(total));
+    let empty_str = icons::INACTIVE.repeat(total.saturating_sub(filled));
+    Span::styled(format!("{filled_str}{empty_str}"), Style::default().dim())
+}
+
+// ============================================================================
+// Diff Display Helpers
+// ============================================================================
+
+/// Style for added lines in diffs
+pub fn diff_add_style() -> Style {
+    Style::default().fg(COLOR_SUCCESS)
+}
+
+/// Style for removed lines in diffs
+pub fn diff_remove_style() -> Style {
+    Style::default().fg(COLOR_ERROR)
+}
+
+/// Style for context lines in diffs
+pub fn diff_context_style() -> Style {
+    Style::default().dim()
+}
+
+/// Style for line numbers in diffs
+pub fn diff_line_number_style() -> Style {
+    Style::default().fg(COLOR_LINE_NUMBER).dim()
+}
+
+/// Create a diff line with proper styling
+pub fn diff_line(line_num: Option<u32>, prefix: &str, content: &str) -> Line<'static> {
+    let num_str = match line_num {
+        Some(n) => format!("{n:4} "),
+        None => "     ".to_string(),
+    };
+
+    let (prefix_style, content_style) = match prefix {
+        "+" => (diff_add_style(), diff_add_style()),
+        "-" => (diff_remove_style(), diff_remove_style()),
+        _ => (diff_context_style(), Style::default()),
+    };
+
+    Line::from(vec![
+        Span::styled(num_str, diff_line_number_style()),
+        Span::styled(format!("{prefix} "), prefix_style),
+        Span::styled(content.to_string(), content_style),
+    ])
+}
+
+/// Create a diff summary line
+pub fn diff_summary(additions: usize, deletions: usize, files: usize) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(format!("+{additions}"), diff_add_style()),
+        Span::raw(" "),
+        Span::styled(format!("-{deletions}"), diff_remove_style()),
+        Span::raw(" "),
+        Span::styled(format!("~{files} file(s)"), Style::default().dim()),
+    ])
+}
+
+// ============================================================================
+// Animation Helpers
+// ============================================================================
+
+/// Spinner frames for loading animation
+pub const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// Elegant dot spinner frames
+pub const DOT_SPINNER_FRAMES: &[&str] = &["●", "◐", "◑", "◒", "◓"];
+
+/// Breathing indicator frames (for pulsing effect)
+pub const BREATHING_FRAMES: &[&str] = &["○", "◔", "◑", "◕", "●", "◕", "◑", "◔"];
+
+/// Get a spinner frame based on elapsed time
+pub fn spinner_frame<'a>(elapsed_ms: u128, frames: &'a [&'a str]) -> &'a str {
+    let frame_duration_ms = 80;
+    let idx = ((elapsed_ms / frame_duration_ms) % frames.len() as u128) as usize;
+    frames[idx]
+}
+
+/// Create a styled spinner span
+pub fn spinner_span(elapsed_ms: u128) -> Span<'static> {
+    let frame = spinner_frame(elapsed_ms, SPINNER_FRAMES);
+    Span::styled(frame.to_string(), Style::default().fg(COLOR_PRIMARY).bold())
+}
+
+/// Create a breathing/pulsing indicator
+pub fn breathing_span(elapsed_ms: u128, color: Color) -> Span<'static> {
+    let frame = spinner_frame(elapsed_ms, BREATHING_FRAMES);
+    Span::styled(frame.to_string(), Style::default().fg(color).bold())
 }
 
 #[cfg(test)]

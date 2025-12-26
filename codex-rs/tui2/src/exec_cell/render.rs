@@ -131,10 +131,11 @@ pub(crate) fn output_lines(
     let head_end = total.min(line_limit);
     for (i, raw) in lines[..head_end].iter().enumerate() {
         let mut line = ansi_escape_line(raw);
+        // Use rounded connector for elegant appearance
         let prefix = if !include_prefix {
             ""
         } else if i == 0 && include_angle_pipe {
-            "  └ "
+            "  ╰ "
         } else {
             "    "
         };
@@ -352,7 +353,8 @@ impl ExecCell {
             }
         }
 
-        out.extend(prefix_lines(out_indented, "  └ ".dim(), "    ".into()));
+        // Use rounded connector for clean hierarchy
+        out.extend(prefix_lines(out_indented, "  ╰ ".dim(), "    ".into()));
         out
     }
 
@@ -607,10 +609,12 @@ impl ExecDisplayLayout {
     }
 }
 
+// Use rounded border characters from theme for elegant appearance
 const EXEC_DISPLAY_LAYOUT: ExecDisplayLayout = ExecDisplayLayout::new(
     PrefixedBlock::new("  │ ", "  │ "),
     2,
-    PrefixedBlock::new("  └ ", "    "),
+    // Rounded bottom-left connector for clean visual hierarchy
+    PrefixedBlock::new("  ╰ ", "    "),
     5,
 );
 

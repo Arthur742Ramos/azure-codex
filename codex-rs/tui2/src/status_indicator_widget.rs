@@ -28,7 +28,8 @@ use crate::wrapping::RtOptions;
 use crate::wrapping::word_wrap_lines;
 
 const DETAILS_MAX_LINES: usize = 3;
-const DETAILS_PREFIX: &str = "  └ ";
+// Use rounded connector for elegant appearance
+const DETAILS_PREFIX: &str = "  ╰ ";
 
 pub(crate) struct StatusIndicatorWidget {
     /// Animated header text (defaults to "Working").

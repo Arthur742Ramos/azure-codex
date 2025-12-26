@@ -8,6 +8,7 @@ use std::sync::atomic::Ordering;
 
 use crate::AuthManager;
 use crate::SandboxState;
+use crate::auth::azure::AzureAuth;
 use crate::client_common::REVIEW_PROMPT;
 use crate::compact;
 use crate::compact::run_inline_auto_compact_task;
@@ -185,6 +186,12 @@ fn maybe_push_chat_wire_api_deprecation(
     post_session_configured_events: &mut Vec<Event>,
 ) {
     if config.model_provider.wire_api != WireApi::Chat {
+        return;
+    }
+
+    // Don't emit deprecation warning for Azure endpoints - Azure OpenAI
+    // only supports the Chat Completions API, not the Responses API
+    if config.model_provider.is_azure || config.azure_endpoint.is_some() {
         return;
     }
 
@@ -480,6 +487,7 @@ impl Session {
     #[allow(clippy::too_many_arguments)]
     fn make_turn_context(
         auth_manager: Option<Arc<AuthManager>>,
+        azure_auth: Option<Arc<AzureAuth>>,
         otel_manager: &OtelManager,
         provider: ModelProviderInfo,
         session_configuration: &SessionConfiguration,
@@ -497,6 +505,7 @@ impl Session {
         let client = ModelClient::new(
             per_turn_config.clone(),
             auth_manager,
+            azure_auth,
             model_family.clone(),
             otel_manager,
             provider,
@@ -587,10 +596,21 @@ impl Session {
             config.mcp_servers.iter(),
             config.mcp_oauth_credentials_store_mode,
         );
+        // Create Azure auth if configured
+        let azure_auth_fut = async {
+            config
+                .azure_auth
+                .clone()
+                .map(|azure_config| std::sync::Arc::new(AzureAuth::new(azure_config)))
+        };
 
         // Join all independent futures.
-        let (rollout_recorder, (history_log_id, history_entry_count), auth_statuses) =
-            tokio::join!(rollout_fut, history_meta_fut, auth_statuses_fut);
+        let (rollout_recorder, (history_log_id, history_entry_count), auth_statuses, azure_auth) = tokio::join!(
+            rollout_fut,
+            history_meta_fut,
+            auth_statuses_fut,
+            azure_auth_fut
+        );
 
         let rollout_recorder = rollout_recorder.map_err(|e| {
             error!("failed to initialize rollout recorder: {e:#}");
@@ -662,6 +682,7 @@ impl Session {
             show_raw_agent_reasoning: config.show_raw_agent_reasoning,
             exec_policy,
             auth_manager: Arc::clone(&auth_manager),
+            azure_auth,
             otel_manager,
             models_manager: Arc::clone(&models_manager),
             tool_approvals: Mutex::new(ApprovalStore::default()),
@@ -909,6 +930,7 @@ impl Session {
             .await;
         let mut turn_context: TurnContext = Self::make_turn_context(
             Some(Arc::clone(&self.services.auth_manager)),
+            self.services.azure_auth.clone(),
             &self.services.otel_manager,
             session_configuration.provider.clone(),
             &session_configuration,
@@ -2107,6 +2129,7 @@ async fn spawn_review_thread(
     let user_facing_hint = resolved.user_facing_hint;
     let provider = parent_turn_context.client.get_provider();
     let auth_manager = parent_turn_context.client.get_auth_manager();
+    let azure_auth = sess.services.azure_auth.clone();
     let model_family = review_model_family.clone();
 
     // Build per‑turn client with the requested model/family.
@@ -2124,6 +2147,7 @@ async fn spawn_review_thread(
     let client = ModelClient::new(
         per_turn_config.clone(),
         auth_manager,
+        azure_auth,
         model_family.clone(),
         otel_manager,
         provider,
@@ -3144,6 +3168,7 @@ mod tests {
             show_raw_agent_reasoning: config.show_raw_agent_reasoning,
             exec_policy,
             auth_manager: auth_manager.clone(),
+            azure_auth: None,
             otel_manager: otel_manager.clone(),
             models_manager,
             tool_approvals: Mutex::new(ApprovalStore::default()),
@@ -3152,6 +3177,7 @@ mod tests {
 
         let turn_context = Session::make_turn_context(
             Some(Arc::clone(&auth_manager)),
+            None, // azure_auth
             &otel_manager,
             session_configuration.provider.clone(),
             &session_configuration,
@@ -3231,6 +3257,7 @@ mod tests {
             show_raw_agent_reasoning: config.show_raw_agent_reasoning,
             exec_policy,
             auth_manager: Arc::clone(&auth_manager),
+            azure_auth: None,
             otel_manager: otel_manager.clone(),
             models_manager,
             tool_approvals: Mutex::new(ApprovalStore::default()),
@@ -3239,6 +3266,7 @@ mod tests {
 
         let turn_context = Arc::new(Session::make_turn_context(
             Some(Arc::clone(&auth_manager)),
+            None, // azure_auth
             &otel_manager,
             session_configuration.provider.clone(),
             &session_configuration,

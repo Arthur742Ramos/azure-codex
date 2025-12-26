@@ -96,6 +96,7 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
     let client = ModelClient::new(
         Arc::clone(&config),
         None,
+        None, // azure_auth
         model_family,
         otel_manager,
         provider,

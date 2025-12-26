@@ -196,7 +196,8 @@ fn render_changes_block(rows: Vec<Row>, wrap_cols: usize, cwd: &Path) -> Vec<RtL
                 FileChange::Update { .. } => "M".dim(),
             };
             let mut header: Vec<RtSpan<'static>> = Vec::new();
-            header.push("  └ ".dim());
+            // Use rounded connector for elegant appearance
+            header.push("  ╰ ".dim());
             header.push(status);
             header.push(" ".dim());
             header.extend(render_path(&r, true));
