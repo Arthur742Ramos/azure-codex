@@ -98,6 +98,7 @@ mod windows_mouse;
 #[cfg(test)]
 pub mod test_backend;
 
+use crate::frames::FRAME_TICK_DEFAULT;
 use crate::onboarding::TrustDirectorySelection;
 use crate::onboarding::onboarding_screen::OnboardingScreenArgs;
 use crate::onboarding::onboarding_screen::run_onboarding_app;
@@ -111,6 +112,8 @@ use ratatui::layout::Alignment;
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 use std::io::Write as _;
+use std::sync::OnceLock;
+use std::time::Instant;
 
 // (tests access modules directly within the crate)
 
@@ -571,10 +574,16 @@ async fn run_ratatui_app(
     app_result
 }
 
+/// Global start time for loading animation synchronization.
+static LOADING_START: OnceLock<Instant> = OnceLock::new();
+
 /// Render a single frame of the loading screen animation.
 /// Call this in a loop during async initialization to keep the animation running.
 pub fn render_loading_frame(tui: &mut Tui) {
     let loading_text = "Starting Azure Codex...";
+    let start = LOADING_START.get_or_init(Instant::now);
+    // Always use Azure cloud animation for branding
+    let frames = &frames::FRAMES_AZURE;
 
     let _ = tui.draw(u16::MAX, |frame| {
         let area = frame.area();
@@ -582,21 +591,84 @@ pub fn render_loading_frame(tui: &mut Tui) {
         // Clear the screen
         frame.render_widget_ref(ratatui::widgets::Clear, area);
 
-        // Create shimmer animation text
-        let spans = shimmer_spans(loading_text);
-        let line = Line::from(spans);
-        let paragraph = Paragraph::new(line).alignment(Alignment::Center);
-
-        // Center vertically
-        let y_offset = area.height / 2;
-        let centered_area = ratatui::layout::Rect {
-            x: area.x,
-            y: y_offset,
-            width: area.width,
-            height: 1,
+        // Calculate current animation frame based on elapsed time
+        let elapsed_ms = start.elapsed().as_millis();
+        let tick_ms = FRAME_TICK_DEFAULT.as_millis();
+        let frame_idx = if tick_ms > 0 {
+            ((elapsed_ms / tick_ms) % frames.len() as u128) as usize
+        } else {
+            0
         };
+        let ascii_frame = frames[frame_idx];
+        let ascii_lines: Vec<&str> = ascii_frame.lines().collect();
+        let ascii_height = ascii_lines.len() as u16;
 
-        frame.render_widget_ref(paragraph, centered_area);
+        // Minimum dimensions for showing ASCII animation
+        const MIN_WIDTH: u16 = 50;
+        const MIN_HEIGHT: u16 = 22;
+
+        let show_ascii = area.width >= MIN_WIDTH && area.height >= MIN_HEIGHT;
+
+        if show_ascii {
+            // Calculate total content height: ASCII + spacing + shimmer text
+            let total_height = ascii_height + 2; // +2 for spacing and shimmer line
+
+            // Center content vertically
+            let y_start = area.height.saturating_sub(total_height) / 2;
+
+            // Find max width of ASCII frame for centering
+            let max_frame_width = ascii_lines.iter().map(|l| l.len()).max().unwrap_or(0);
+            let x_padding = if area.width as usize > max_frame_width {
+                (area.width as usize - max_frame_width) / 2
+            } else {
+                0
+            };
+
+            // Render ASCII animation lines
+            for (i, line) in ascii_lines.iter().enumerate() {
+                let y = y_start + i as u16;
+                if y < area.height {
+                    let padded_line = format!("{}{}", " ".repeat(x_padding), line);
+                    let ascii_area = ratatui::layout::Rect {
+                        x: area.x,
+                        y,
+                        width: area.width,
+                        height: 1,
+                    };
+                    let para = Paragraph::new(padded_line);
+                    frame.render_widget_ref(para, ascii_area);
+                }
+            }
+
+            // Render shimmer text below the ASCII animation
+            let shimmer_y = y_start + ascii_height + 1;
+            if shimmer_y < area.height {
+                let spans = shimmer_spans(loading_text);
+                let line = Line::from(spans);
+                let paragraph = Paragraph::new(line).alignment(Alignment::Center);
+                let shimmer_area = ratatui::layout::Rect {
+                    x: area.x,
+                    y: shimmer_y,
+                    width: area.width,
+                    height: 1,
+                };
+                frame.render_widget_ref(paragraph, shimmer_area);
+            }
+        } else {
+            // Fallback: just show shimmer text centered
+            let spans = shimmer_spans(loading_text);
+            let line = Line::from(spans);
+            let paragraph = Paragraph::new(line).alignment(Alignment::Center);
+
+            let y_offset = area.height / 2;
+            let centered_area = ratatui::layout::Rect {
+                x: area.x,
+                y: y_offset,
+                width: area.width,
+                height: 1,
+            };
+            frame.render_widget_ref(paragraph, centered_area);
+        }
     });
 }
 

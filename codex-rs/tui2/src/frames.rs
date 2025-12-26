@@ -47,6 +47,7 @@ macro_rules! frames_for {
 pub(crate) const FRAMES_DEFAULT: [&str; 36] = frames_for!("default");
 pub(crate) const FRAMES_CODEX: [&str; 36] = frames_for!("codex");
 pub(crate) const FRAMES_OPENAI: [&str; 36] = frames_for!("openai");
+pub(crate) const FRAMES_AZURE: [&str; 36] = frames_for!("azure");
 pub(crate) const FRAMES_BLOCKS: [&str; 36] = frames_for!("blocks");
 pub(crate) const FRAMES_DOTS: [&str; 36] = frames_for!("dots");
 pub(crate) const FRAMES_HASH: [&str; 36] = frames_for!("hash");
@@ -56,6 +57,7 @@ pub(crate) const FRAMES_SHAPES: [&str; 36] = frames_for!("shapes");
 pub(crate) const FRAMES_SLUG: [&str; 36] = frames_for!("slug");
 
 pub(crate) const ALL_VARIANTS: &[&[&str]] = &[
+    &FRAMES_AZURE, // Azure cloud animation - primary for Azure Codex
     &FRAMES_DEFAULT,
     &FRAMES_CODEX,
     &FRAMES_OPENAI,
