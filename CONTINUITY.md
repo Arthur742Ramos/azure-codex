@@ -18,7 +18,21 @@ Key decisions:
 - Avoid a fixed bottom pane height; auto-size the bottom pane viewport when possible (terminal scrollback transcript mode).
 
 State:
-- Done:
+  - Done:
+  - Ran `just fmt` after merge conflict resolution (warning about imports_granularity=Item on stable).
+  - Restored `auto_fix` review wiring in `codex-core` and updated ModelClient test call sites after upstream API changes.
+  - Ran `just fix -p codex-core` (success).
+  - Ran `just fmt` after the latest Rust changes (imports_granularity warning on stable).
+  - Fixed tui2 merge fallout (review auto_fix wiring, wrap_segment transcript metadata, mouse capture toggle handling, azure model refresh handling, and dead_code allowances).
+  - Accepted updated history_cell snapshot via `cargo insta accept --snapshot ...` (user_history_cell_wraps_and_prefixes_each_line_snapshot).
+  - Updated markdown_render expectations for code block headers.
+  - Test run: `cargo test -p codex-tui2` passed after fixes.
+  - Added transcript UX polish (subtle rail, spacer seams, scrollback pin marker, and selection tint).
+  - Ran `just fmt` after transcript UX changes (imports_granularity warning on stable).
+  - Ran `just fix -p codex-tui2` (success).
+  - Completed upstream merge commit and pushed to `origin/main`: `1fe038a60`.
+  - Re-applied tui2 scrollback fixes on top of upstream app.rs + history_cell changes.
+  - Fetched upstream and began merge of upstream/main into main; resolved conflicts (kept upstream codex-rs/tui).
   - Added Continuity Ledger instructions to `AGENTS.md`.
   - Created initial `CONTINUITY.md`.
   - Improved `codex-rs/tui2` status indicator redraw scheduling (lower idle CPU when animations are off; no redraw loop while paused).
@@ -48,15 +62,10 @@ State:
   - Defaulted `tui.disable_mouse_capture` to `true` (all terminals) so mouse wheel scrolling uses terminal scrollback by default; updated docs and rebuilt `codex-cli` debug binary.
   - Changed scrollback transcript mode to write transcript lines into the terminal's real scrollback (full-screen scroll) instead of internal viewport scrolling; rebuilt `codex-cli` debug binary.
   - Checked upstream (`openai/codex`): `codex-rs/tui2/src/lib.rs` still enters alternate screen unconditionally for the main session (no config toggle upstream), so native scrollbar/scrollback behavior depends on terminal settings (e.g., "scrollback in alternate screen" support).
-- Now:
-  - Investigate report that scrollback-mode transcript is "eating" recent messages (user can't see their last question).
-- Next:
-  - User validates that the default inline TUI restores terminal native scrollbar/scrollback.
-  - User validates that transcript history is scrollable via terminal scrollback (no in-app scrolling).
-  - Fix any transcript loss/visibility bugs in scrollback transcript mode; add focused coverage if feasible; re-validate.
-  - (Optional) Decide whether overlays (diff/transcript) should also respect `tui.use_alternate_screen`.
-  - Ask user before running `cargo test -p codex-tui2` / `cargo test -p codex-core` for additional validation if desired.
-  - Consider whether overlays should also default inline (or stay alternate-screen only for full-screen views).
+  - Now:
+  - Implement transcript UX/UI upgrades (visual polish, selection highlight, smart gutter, separators, pin indicator).
+  - Next:
+  - Validate transcript UX/UI changes with fmt/tests as needed.
 
 Open questions (UNCONFIRMED if needed):
 - Which surface should be prioritized: Rust TUI (`codex-rs/tui`), Rust core, or JS CLI (`codex-cli`)?

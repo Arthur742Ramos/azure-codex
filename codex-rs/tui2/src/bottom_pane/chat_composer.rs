@@ -1,3 +1,5 @@
+use crate::key_hint;
+use crate::key_hint::KeyBinding;
 use crate::key_hint::has_ctrl_or_alt;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
@@ -122,6 +124,7 @@ pub(crate) struct ChatComposer {
     transcript_scrolled: bool,
     transcript_selection_active: bool,
     transcript_scroll_position: Option<(usize, usize)>,
+    transcript_copy_selection_key: KeyBinding,
     skills: Option<Vec<SkillMetadata>>,
     dismissed_skill_popup_token: Option<String>,
 }
@@ -174,6 +177,7 @@ impl ChatComposer {
             transcript_scrolled: false,
             transcript_selection_active: false,
             transcript_scroll_position: None,
+            transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
             skills: None,
             dismissed_skill_popup_token: None,
         };
@@ -1555,6 +1559,7 @@ impl ChatComposer {
             transcript_scrolled: self.transcript_scrolled,
             transcript_selection_active: self.transcript_selection_active,
             transcript_scroll_position: self.transcript_scroll_position,
+            transcript_copy_selection_key: self.transcript_copy_selection_key,
         }
     }
 
@@ -1586,10 +1591,12 @@ impl ChatComposer {
         scrolled: bool,
         selection_active: bool,
         scroll_position: Option<(usize, usize)>,
+        copy_selection_key: KeyBinding,
     ) {
         self.transcript_scrolled = scrolled;
         self.transcript_selection_active = selection_active;
         self.transcript_scroll_position = scroll_position;
+        self.transcript_copy_selection_key = copy_selection_key;
     }
 
     fn sync_popups(&mut self) {

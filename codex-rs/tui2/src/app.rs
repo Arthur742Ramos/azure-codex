@@ -17,6 +17,11 @@ use crate::pager_overlay::Overlay;
 use crate::render::highlight::highlight_bash_to_lines;
 use crate::render::renderable::Renderable;
 use crate::resume_picker::ResumeSelection;
+use crate::transcript_copy_ui::TranscriptCopyUi;
+use crate::transcript_multi_click::TranscriptMultiClick;
+use crate::transcript_selection::TRANSCRIPT_GUTTER_COLS;
+use crate::transcript_selection::TranscriptSelection;
+use crate::transcript_selection::TranscriptSelectionPoint;
 use crate::tui;
 use crate::tui::TuiEvent;
 use crate::tui::scrolling::MouseScrollState;
@@ -27,10 +32,6 @@ use crate::tui::scrolling::ScrollUpdate;
 use crate::tui::scrolling::TranscriptLineMeta;
 use crate::tui::scrolling::TranscriptScroll;
 use crate::update_action::UpdateAction;
-use crate::with_loading_animation;
-use crate::wrapping::RtOptions;
-use crate::wrapping::word_wrap_line;
-use crate::wrapping::word_wrap_lines_borrowed;
 use codex_ansi_escape::ansi_escape_line;
 use codex_core::AuthManager;
 use codex_core::ConversationManager;
@@ -77,7 +78,9 @@ use std::thread;
 use std::time::Duration;
 use tokio::select;
 use tokio::sync::mpsc::unbounded_channel;
-use unicode_width::UnicodeWidthStr;
+
+#[cfg(not(debug_assertions))]
+use crate::history_cell::UpdateAvailableHistoryCell;
 
 #[derive(Debug, Clone)]
 pub struct AppExitInfo {
@@ -198,18 +201,7 @@ async fn handle_model_migration_prompt_if_needed(
     app_event_tx: &AppEventSender,
     models_manager: Arc<ModelsManager>,
 ) -> Option<AppExitInfo> {
-    let available_models = if models_manager.is_azure() {
-        match models_manager.try_list_models(config) {
-            Ok(models) if !models.is_empty() => models,
-            _ => {
-                app_event_tx.send(AppEvent::RefreshAzureModels);
-                return None;
-            }
-        }
-    } else {
-        // Continue loading animation during model list fetching (this is the slow Azure call)
-        with_loading_animation(tui, models_manager.list_models(config)).await
-    };
+    let available_models = models_manager.list_models(config).await;
     let upgrade = available_models
         .iter()
         .find(|preset| preset.model == model)
@@ -328,8 +320,10 @@ pub(crate) struct App {
     #[allow(dead_code)]
     transcript_scroll: TranscriptScroll,
     transcript_selection: TranscriptSelection,
+    transcript_multi_click: TranscriptMultiClick,
     transcript_view_top: usize,
     transcript_total_lines: usize,
+    transcript_copy_ui: TranscriptCopyUi,
 
     // Pager overlay state (Transcript or Static like Diff)
     pub(crate) overlay: Option<Overlay>,
@@ -357,29 +351,6 @@ pub(crate) struct App {
     // One-shot suppression of the next world-writable scan after user confirmation.
     skip_world_writable_scan_once: bool,
 }
-
-/// Content-relative selection within the inline transcript viewport.
-///
-/// Selection endpoints are expressed in terms of flattened, wrapped transcript
-/// line indices and columns, so the highlight tracks logical conversation
-/// content even when the viewport scrolls or the terminal is resized.
-#[derive(Debug, Clone, Copy, Default)]
-struct TranscriptSelection {
-    anchor: Option<TranscriptSelectionPoint>,
-    head: Option<TranscriptSelectionPoint>,
-}
-
-/// A single endpoint of a transcript selection.
-///
-/// `line_index` is an index into the flattened wrapped transcript lines, and
-/// `column` is a zero-based column offset within that visual line, counted from
-/// the first content column to the right of the transcript gutter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TranscriptSelectionPoint {
-    line_index: usize,
-    column: u16,
-}
-
 impl App {
     async fn shutdown_current_conversation(&mut self) {
         if let Some(conversation_id) = self.chat_widget.conversation_id() {
@@ -417,28 +388,14 @@ impl App {
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
 
-        // Use Azure-aware ConversationManager when azure_endpoint is configured
-        let conversation_manager = if let Some(azure_endpoint) = config.azure_endpoint.clone() {
-            Arc::new(ConversationManager::with_azure_endpoint(
-                auth_manager.clone(),
-                SessionSource::Cli,
-                azure_endpoint,
-            ))
-        } else {
-            Arc::new(ConversationManager::new(
-                auth_manager.clone(),
-                SessionSource::Cli,
-            ))
-        };
-
-        // Continue loading animation during model fetching
-        let mut model = with_loading_animation(
-            tui,
-            conversation_manager
-                .get_models_manager()
-                .get_model(&config.model, &config),
-        )
-        .await;
+        let conversation_manager = Arc::new(ConversationManager::new(
+            auth_manager.clone(),
+            SessionSource::Cli,
+        ));
+        let mut model = conversation_manager
+            .get_models_manager()
+            .get_model(&config.model, &config)
+            .await;
         let exit_info = handle_model_migration_prompt_if_needed(
             tui,
             &mut config,
@@ -455,15 +412,10 @@ impl App {
         }
 
         let enhanced_keys_supported = tui.enhanced_keys_supported();
-
-        // Continue loading animation during model family construction
-        let model_family = with_loading_animation(
-            tui,
-            conversation_manager
-                .get_models_manager()
-                .construct_model_family(model.as_str(), &config),
-        )
-        .await;
+        let model_family = conversation_manager
+            .get_models_manager()
+            .construct_model_family(model.as_str(), &config)
+            .await;
         let mut chat_widget = match resume_selection {
             ResumeSelection::StartFresh | ResumeSelection::Exit => {
                 let init = crate::chatwidget::ChatWidgetInit {
@@ -482,17 +434,16 @@ impl App {
                 ChatWidget::new(init, conversation_manager.clone())
             }
             ResumeSelection::Resume(path) => {
-                // Continue loading animation during session resume
-                let resumed = with_loading_animation(
-                    tui,
-                    conversation_manager.resume_conversation_from_rollout(
+                let resumed = conversation_manager
+                    .resume_conversation_from_rollout(
                         config.clone(),
                         path.clone(),
                         auth_manager.clone(),
-                    ),
-                )
-                .await
-                .wrap_err_with(|| format!("Failed to resume session from {}", path.display()))?;
+                    )
+                    .await
+                    .wrap_err_with(|| {
+                        format!("Failed to resume session from {}", path.display())
+                    })?;
                 let init = crate::chatwidget::ChatWidgetInit {
                     config: config.clone(),
                     frame_requester: tui.frame_requester(),
@@ -534,6 +485,8 @@ impl App {
             },
         );
 
+        let copy_selection_shortcut = crate::transcript_copy_ui::detect_copy_selection_shortcut();
+
         let mut app = Self {
             server: conversation_manager.clone(),
             app_event_tx,
@@ -547,8 +500,10 @@ impl App {
             transcript_cells: Vec::new(),
             transcript_scroll: TranscriptScroll::default(),
             transcript_selection: TranscriptSelection::default(),
+            transcript_multi_click: TranscriptMultiClick::default(),
             transcript_view_top: 0,
             transcript_total_lines: 0,
+            transcript_copy_ui: TranscriptCopyUi::new_with_shortcut(copy_selection_shortcut),
             overlay: None,
             deferred_history_lines: Vec::new(),
             has_emitted_history_lines: false,
@@ -586,11 +541,17 @@ impl App {
             }
         }
 
-        // Azure-codex fork: Update available card disabled since the fork
-        // uses version 0.0.0 and checking against upstream releases doesn't
-        // make sense.
         #[cfg(not(debug_assertions))]
-        let _ = upgrade_version;
+        if let Some(latest_version) = upgrade_version {
+            app.handle_event(
+                tui,
+                AppEvent::InsertHistoryCell(Box::new(UpdateAvailableHistoryCell::new(
+                    latest_version,
+                    crate::update_action::get_update_action(),
+                ))),
+            )
+            .await?;
+        }
 
         let tui_events = tui.event_stream();
         tokio::pin!(tui_events);
@@ -609,17 +570,15 @@ impl App {
         let session_lines = if width == 0 {
             Vec::new()
         } else {
-            let (lines, line_meta) = Self::build_transcript_lines(
-                &app.transcript_cells,
-                app.chat_widget.active_cell(),
-                width,
-            );
+            let transcript =
+                crate::transcript_render::build_transcript_lines(&app.transcript_cells, width);
+            let (lines, line_meta) = (transcript.lines, transcript.meta);
             let is_user_cell: Vec<bool> = app
                 .transcript_cells
                 .iter()
                 .map(|cell| cell.as_any().is::<UserHistoryCell>())
                 .collect();
-            Self::render_lines_to_ansi(&lines, &line_meta, &is_user_cell, width)
+            crate::transcript_render::render_lines_to_ansi(&lines, &line_meta, &is_user_cell, width)
         };
 
         tui.terminal.clear()?;
@@ -688,11 +647,17 @@ impl App {
                             let lines = std::mem::take(&mut self.deferred_history_lines);
                             tui.insert_history_lines(lines);
                         }
-                        self.chat_widget.set_transcript_ui_state(false, false, None);
+                        self.chat_widget.set_transcript_ui_state(
+                            false,
+                            false,
+                            None,
+                            self.copy_selection_key(),
+                        );
                     } else {
+                        let cells = self.transcript_cells.clone();
                         tui.draw(tui.terminal.size()?.height, |frame| {
                             let chat_height = self.chat_widget.desired_height(frame.area().width);
-                            let chat_top = self.render_transcript_cells(frame, chat_height);
+                            let chat_top = self.render_transcript_cells(frame, &cells, chat_height);
                             let chat_area = Rect {
                                 x: frame.area().x,
                                 y: chat_top,
@@ -739,6 +704,7 @@ impl App {
                             transcript_scrolled,
                             selection_active,
                             scroll_position,
+                            self.copy_selection_key(),
                         );
                     }
                 }
@@ -747,72 +713,12 @@ impl App {
         Ok(true)
     }
 
-    fn transcript_content_width(full_width: u16) -> u16 {
-        if full_width <= 1 {
-            full_width
-        } else {
-            full_width - 1
-        }
-    }
-
-    fn render_vertical_scrollbar(
-        area: Rect,
-        buf: &mut Buffer,
-        top_offset: usize,
-        total_lines: usize,
-        visible_lines: usize,
-    ) {
-        if area.width == 0 || area.height == 0 || total_lines == 0 || visible_lines == 0 {
-            return;
-        }
-
-        if total_lines <= visible_lines {
-            return;
-        }
-
-        let track_height = usize::from(area.height);
-        if track_height == 0 {
-            return;
-        }
-
-        let thumb_height = (track_height.saturating_mul(visible_lines))
-            .div_ceil(total_lines)
-            .max(1)
-            .min(track_height);
-        let max_thumb_top = track_height.saturating_sub(thumb_height);
-        let max_scroll = total_lines.saturating_sub(visible_lines);
-        if max_scroll == 0 {
-            return;
-        }
-
-        let clamped_top_offset = top_offset.min(max_scroll);
-        let thumb_top = if max_thumb_top == 0 {
-            0
-        } else {
-            max_thumb_top.saturating_mul(clamped_top_offset) / max_scroll
-        };
-        let thumb_bottom = thumb_top.saturating_add(thumb_height);
-
-        let track_style =
-            ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::DIM);
-        let thumb_style =
-            ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::BOLD);
-        let x = area.x;
-
-        for row_index in 0..track_height {
-            let y = area.y.saturating_add(row_index as u16);
-            let cell = &mut buf[(x, y)];
-            let (symbol, style) = if row_index >= thumb_top && row_index < thumb_bottom {
-                ("█", thumb_style)
-            } else {
-                ("│", track_style)
-            };
-            cell.set_symbol(symbol);
-            cell.set_style(cell.style().patch(style));
-        }
-    }
-
-    pub(crate) fn render_transcript_cells(&mut self, frame: &mut Frame, chat_height: u16) -> u16 {
+    pub(crate) fn render_transcript_cells(
+        &mut self,
+        frame: &mut Frame,
+        cells: &[Arc<dyn HistoryCell>],
+        chat_height: u16,
+    ) -> u16 {
         let area = frame.area();
         if area.width == 0 || area.height == 0 {
             self.transcript_scroll = TranscriptScroll::default();
@@ -836,13 +742,10 @@ impl App {
             width: area.width,
             height: max_transcript_height,
         };
-        let transcript_content_width = Self::transcript_content_width(transcript_area.width);
 
-        let (lines, line_meta) = Self::build_transcript_lines(
-            &self.transcript_cells,
-            self.chat_widget.active_cell(),
-            transcript_content_width,
-        );
+        let transcript =
+            crate::transcript_render::build_wrapped_transcript_lines(cells, transcript_area.width);
+        let (lines, line_meta) = (transcript.lines, transcript.meta);
         if lines.is_empty() {
             Clear.render_ref(transcript_area, frame.buffer);
             self.transcript_scroll = TranscriptScroll::default();
@@ -851,73 +754,21 @@ impl App {
             return area.y;
         }
 
-        let wrapped = word_wrap_lines_borrowed(&lines, transcript_content_width.max(1) as usize);
-        if wrapped.is_empty() {
-            self.transcript_scroll = TranscriptScroll::default();
-            self.transcript_view_top = 0;
-            self.transcript_total_lines = 0;
-            return area.y;
-        }
-
-        let is_user_cell: Vec<bool> = self
-            .transcript_cells
+        let is_user_cell: Vec<bool> = cells
             .iter()
             .map(|c| c.as_any().is::<UserHistoryCell>())
             .collect();
-        let base_opts: RtOptions<'_> = RtOptions::new(transcript_content_width.max(1) as usize);
-        let mut wrapped_is_user_row: Vec<bool> = Vec::with_capacity(wrapped.len());
-        let mut wrapped_line_meta: Vec<TranscriptLineMeta> = Vec::with_capacity(wrapped.len());
-        let mut first = true;
-        for (idx, line) in lines.iter().enumerate() {
-            let opts = if first {
-                base_opts.clone()
-            } else {
-                base_opts
-                    .clone()
-                    .initial_indent(base_opts.subsequent_indent.clone())
-            };
-            let seg_count = word_wrap_line(line, opts).len();
-            let meta = line_meta
-                .get(idx)
-                .copied()
-                .unwrap_or(TranscriptLineMeta::Spacer);
-            let is_user_row = meta
-                .cell_index()
-                .map(|cell_index| is_user_cell.get(cell_index).copied().unwrap_or(false))
-                .unwrap_or(false);
-            // Generate metadata with incrementing wrap_segment for each wrapped segment
-            match meta {
-                TranscriptLineMeta::CellLine {
-                    cell_index,
-                    line_in_cell,
-                    ..
-                } => {
-                    for wrap_segment in 0..seg_count {
-                        wrapped_line_meta.push(TranscriptLineMeta::CellLine {
-                            cell_index,
-                            line_in_cell,
-                            wrap_segment,
-                        });
-                    }
-                }
-                TranscriptLineMeta::Spacer => {
-                    wrapped_line_meta.extend(std::iter::repeat_n(meta, seg_count));
-                }
-            }
-            wrapped_is_user_row.extend(std::iter::repeat_n(is_user_row, seg_count));
-            first = false;
-        }
 
-        let total_lines = wrapped.len();
+        let total_lines = lines.len();
         self.transcript_total_lines = total_lines;
         let max_visible = std::cmp::min(max_transcript_height as usize, total_lines);
         let max_start = total_lines.saturating_sub(max_visible);
 
-        let (scroll_state, top_offset) = self
-            .transcript_scroll
-            .resolve_top(&wrapped_line_meta, max_start);
+        let (scroll_state, top_offset) = self.transcript_scroll.resolve_top(&line_meta, max_start);
         self.transcript_scroll = scroll_state;
         self.transcript_view_top = top_offset;
+        let transcript_scrolled = !matches!(self.transcript_scroll, TranscriptScroll::ToBottom);
+        let show_transcript_rail = transcript_area.width >= 50;
 
         let transcript_visible_height = max_visible as u16;
         let chat_top = if total_lines <= max_transcript_height as usize {
@@ -948,62 +799,94 @@ impl App {
             width: area.width,
             height: transcript_visible_height,
         };
-        let transcript_content_area = Rect {
-            x: transcript_area.x,
-            y: transcript_area.y,
-            width: transcript_content_width,
-            height: transcript_area.height,
-        };
 
         for (row_index, line_index) in (top_offset..total_lines).enumerate() {
             if row_index >= max_visible {
                 break;
             }
 
-            let y = transcript_area.y.saturating_add(row_index as u16);
-            let row_area_full = Rect {
+            let y = transcript_area.y + row_index as u16;
+            let row_area = Rect {
                 x: transcript_area.x,
                 y,
                 width: transcript_area.width,
                 height: 1,
             };
-            let row_area_content = Rect {
-                x: transcript_content_area.x,
-                y: transcript_content_area.y.saturating_add(row_index as u16),
-                width: transcript_content_area.width,
-                height: 1,
-            };
 
-            if wrapped_is_user_row
+            let is_user_row = line_meta
                 .get(line_index)
-                .copied()
-                .unwrap_or(false)
-            {
+                .and_then(TranscriptLineMeta::cell_index)
+                .map(|cell_index| is_user_cell.get(cell_index).copied().unwrap_or(false))
+                .unwrap_or(false);
+            if is_user_row {
                 let base_style = crate::style::user_message_style();
-                for x in row_area_full.x..row_area_full.right() {
+                for x in row_area.x..row_area.right() {
                     let cell = &mut frame.buffer[(x, y)];
                     let style = cell.style().patch(base_style);
                     cell.set_style(style);
                 }
             }
 
-            wrapped[line_index].render_ref(row_area_content, frame.buffer);
+            lines[line_index].render_ref(row_area, frame.buffer);
+
+            if show_transcript_rail
+                && matches!(line_meta.get(line_index), Some(TranscriptLineMeta::Spacer))
+            {
+                let seam = ". . .";
+                let seam_width = seam.len() as u16;
+                if seam_width < row_area.width {
+                    let seam_x = row_area.x + (row_area.width - seam_width) / 2;
+                    frame.buffer.set_string(
+                        seam_x,
+                        y,
+                        seam,
+                        ratatui::style::Style::default().dim(),
+                    );
+                }
+            }
+
+            if show_transcript_rail {
+                let rail_x = row_area.x;
+                let rail_cell = &mut frame.buffer[(rail_x, y)];
+                if rail_cell.symbol() == " " {
+                    rail_cell.set_symbol("|");
+                    let style = rail_cell
+                        .style()
+                        .add_modifier(ratatui::style::Modifier::DIM);
+                    rail_cell.set_style(style);
+                }
+            }
         }
 
-        self.apply_transcript_selection(transcript_content_area, frame.buffer);
-        if transcript_area.width > transcript_content_area.width && total_lines > max_visible {
-            Self::render_vertical_scrollbar(
-                Rect {
-                    x: transcript_area.right().saturating_sub(1),
-                    y: transcript_area.y,
-                    width: 1,
-                    height: transcript_area.height,
-                },
+        self.apply_transcript_selection(transcript_area, frame.buffer);
+
+        if transcript_scrolled && show_transcript_rail {
+            let pin_x = transcript_area.x;
+            let pin_y = transcript_area.y;
+            let cell = &mut frame.buffer[(pin_x, pin_y)];
+            if cell.symbol() == " " {
+                cell.set_symbol("^");
+                let style = ratatui::style::Style::default()
+                    .fg(ratatui::style::Color::Cyan)
+                    .add_modifier(ratatui::style::Modifier::DIM);
+                cell.set_style(style);
+            }
+        }
+        if let (Some(anchor), Some(head)) = (
+            self.transcript_selection.anchor,
+            self.transcript_selection.head,
+        ) && anchor != head
+        {
+            self.transcript_copy_ui.render_copy_pill(
+                transcript_area,
                 frame.buffer,
-                top_offset,
-                total_lines,
-                max_visible,
+                (anchor.line_index, anchor.column),
+                (head.line_index, head.column),
+                self.transcript_view_top,
+                self.transcript_total_lines,
             );
+        } else {
+            self.transcript_copy_ui.clear_affordance();
         }
         chat_top
     }
@@ -1013,7 +896,7 @@ impl App {
     /// - Mouse wheel movement scrolls the conversation history using stream-based
     ///   normalization (events-per-line factor, discrete vs. continuous streams),
     ///   independent of the terminal's own scrollback.
-    /// - Mouse clicks and drags adjust a text selection defined in terms of
+    /// - Mouse drags adjust a text selection defined in terms of
     ///   flattened transcript lines and columns, so the selection is anchored
     ///   to the underlying content rather than absolute screen rows.
     /// - When the user drags to extend a selection while the view is following the bottom
@@ -1031,7 +914,7 @@ impl App {
     ) {
         use crossterm::event::MouseEventKind;
 
-        if self.overlay.is_some() || self.use_terminal_scrollback_transcript(tui) {
+        if self.overlay.is_some() {
             return;
         }
 
@@ -1059,15 +942,8 @@ impl App {
             width,
             height: transcript_height,
         };
-        let transcript_content_width = Self::transcript_content_width(transcript_area.width);
-        let transcript_content_area = Rect {
-            x: transcript_area.x,
-            y: transcript_area.y,
-            width: transcript_content_width,
-            height: transcript_area.height,
-        };
-        let base_x = transcript_content_area.x.saturating_add(2);
-        let max_x = transcript_content_area.right().saturating_sub(1);
+        let base_x = transcript_area.x.saturating_add(TRANSCRIPT_GUTTER_COLS);
+        let max_x = transcript_area.right().saturating_sub(1);
 
         // Treat the transcript as the only interactive region for transcript selection.
         //
@@ -1100,6 +976,15 @@ impl App {
 
         let streaming = self.chat_widget.is_task_running();
 
+        if matches!(mouse_event.kind, MouseEventKind::Down(MouseButton::Left))
+            && self
+                .transcript_copy_ui
+                .hit_test(mouse_event.column, mouse_event.row)
+        {
+            self.copy_transcript_selection(tui);
+            return;
+        }
+
         match mouse_event.kind {
             MouseEventKind::ScrollUp => {
                 let scroll_update = self.mouse_scroll_update(ScrollDirection::Up);
@@ -1107,7 +992,7 @@ impl App {
                     tui,
                     scroll_update,
                     transcript_area.height as usize,
-                    transcript_content_width,
+                    transcript_area.width,
                     true,
                 );
             }
@@ -1117,48 +1002,60 @@ impl App {
                     tui,
                     scroll_update,
                     transcript_area.height as usize,
-                    transcript_content_width,
+                    transcript_area.width,
                     true,
                 );
             }
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {}
             MouseEventKind::Down(MouseButton::Left) => {
-                if let Some(point) = self.transcript_point_from_coordinates(
+                self.transcript_copy_ui.set_dragging(true);
+                let point = self.transcript_point_from_coordinates(
                     transcript_area,
                     base_x,
                     clamped_x,
                     clamped_y,
+                );
+                if self.transcript_multi_click.on_mouse_down(
+                    &mut self.transcript_selection,
+                    &self.transcript_cells,
+                    transcript_area.width,
+                    point,
                 ) {
-                    self.transcript_selection.anchor = Some(point);
-                    self.transcript_selection.head = Some(point);
                     tui.frame_requester().schedule_frame();
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                if let Some(anchor) = self.transcript_selection.anchor
-                    && let Some(point) = self.transcript_point_from_coordinates(
-                        transcript_area,
-                        base_x,
-                        clamped_x,
-                        clamped_y,
-                    )
-                {
-                    if streaming
-                        && matches!(self.transcript_scroll, TranscriptScroll::ToBottom)
-                        && point != anchor
-                    {
-                        self.lock_transcript_scroll_to_current_view(
-                            transcript_area.height as usize,
-                            transcript_content_width,
-                        );
-                    }
-                    self.transcript_selection.head = Some(point);
+                let point = self.transcript_point_from_coordinates(
+                    transcript_area,
+                    base_x,
+                    clamped_x,
+                    clamped_y,
+                );
+                let outcome = crate::transcript_selection::on_mouse_drag(
+                    &mut self.transcript_selection,
+                    &self.transcript_scroll,
+                    point,
+                    streaming,
+                );
+                self.transcript_multi_click
+                    .on_mouse_drag(&self.transcript_selection, point);
+                if outcome.lock_scroll {
+                    self.lock_transcript_scroll_to_current_view(
+                        transcript_area.height as usize,
+                        transcript_area.width,
+                    );
+                }
+                if outcome.changed {
                     tui.frame_requester().schedule_frame();
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                if self.transcript_selection.anchor == self.transcript_selection.head {
-                    self.transcript_selection = TranscriptSelection::default();
+                self.transcript_copy_ui.set_dragging(false);
+                let selection_changed =
+                    crate::transcript_selection::on_mouse_up(&mut self.transcript_selection);
+                let has_active_selection = self.transcript_selection.anchor.is_some()
+                    && self.transcript_selection.head.is_some();
+                if selection_changed || has_active_selection {
                     tui.frame_requester().schedule_frame();
                 }
             }
@@ -1260,10 +1157,7 @@ impl App {
             return None;
         }
 
-        Some((
-            transcript_height as usize,
-            Self::transcript_content_width(width),
-        ))
+        Some((transcript_height as usize, width))
     }
 
     /// Scroll the transcript by a number of visual lines.
@@ -1287,65 +1181,16 @@ impl App {
             return;
         }
 
-        let (lines, line_meta) = Self::build_transcript_lines(
-            &self.transcript_cells,
-            self.chat_widget.active_cell(),
-            width,
-        );
-        if lines.is_empty() || line_meta.is_empty() {
-            return;
-        }
-
-        let base_opts: RtOptions<'_> = RtOptions::new(width.max(1) as usize);
-        let mut wrapped_line_meta = Vec::new();
-        let mut first = true;
-        for (idx, line) in lines.iter().enumerate() {
-            let opts = if first {
-                base_opts.clone()
-            } else {
-                base_opts
-                    .clone()
-                    .initial_indent(base_opts.subsequent_indent.clone())
-            };
-            let seg_count = word_wrap_line(line, opts).len();
-            let meta = line_meta
-                .get(idx)
-                .copied()
-                .unwrap_or(TranscriptLineMeta::Spacer);
-            // Generate metadata with incrementing wrap_segment for each wrapped segment
-            match meta {
-                TranscriptLineMeta::CellLine {
-                    cell_index,
-                    line_in_cell,
-                    ..
-                } => {
-                    for wrap_segment in 0..seg_count {
-                        wrapped_line_meta.push(TranscriptLineMeta::CellLine {
-                            cell_index,
-                            line_in_cell,
-                            wrap_segment,
-                        });
-                    }
-                }
-                TranscriptLineMeta::Spacer => {
-                    wrapped_line_meta.extend(std::iter::repeat_n(meta, seg_count));
-                }
-            }
-            first = false;
-        }
-
-        if wrapped_line_meta.is_empty() {
-            return;
-        }
-
+        let transcript =
+            crate::transcript_render::build_wrapped_transcript_lines(&self.transcript_cells, width);
+        let line_meta = transcript.meta;
         self.transcript_scroll =
             self.transcript_scroll
-                .scrolled_by(delta_lines, &wrapped_line_meta, visible_lines);
+                .scrolled_by(delta_lines, &line_meta, visible_lines);
 
         if schedule_frame {
-            // Delay redraws slightly so scroll bursts coalesce into a single frame.
-            tui.frame_requester()
-                .schedule_frame_in(Duration::from_millis(16));
+            // Request a redraw; the frame scheduler coalesces bursts and clamps to 60fps.
+            tui.frame_requester().schedule_frame();
         }
     }
 
@@ -1357,18 +1202,13 @@ impl App {
     /// a concrete position corresponding to the current top row, and switches into a scroll
     /// mode that keeps that position stable until the user scrolls again.
     fn lock_transcript_scroll_to_current_view(&mut self, visible_lines: usize, width: u16) {
-        if (self.transcript_cells.is_empty() && self.chat_widget.active_cell().is_none())
-            || visible_lines == 0
-            || width == 0
-        {
+        if self.transcript_cells.is_empty() || visible_lines == 0 || width == 0 {
             return;
         }
 
-        let (lines, line_meta) = Self::build_transcript_lines(
-            &self.transcript_cells,
-            self.chat_widget.active_cell(),
-            width,
-        );
+        let transcript =
+            crate::transcript_render::build_wrapped_transcript_lines(&self.transcript_cells, width);
+        let (lines, line_meta) = (transcript.lines, transcript.meta);
         if lines.is_empty() || line_meta.is_empty() {
             return;
         }
@@ -1393,121 +1233,6 @@ impl App {
         }
     }
 
-    /// Build the flattened transcript lines for rendering, scrolling, and exit transcripts.
-    ///
-    /// Returns both the visible `Line` buffer and a parallel metadata vector
-    /// that maps each line back to its originating `(cell_index, line_in_cell)`
-    /// pair (see `TranscriptLineMeta::CellLine`), or `TranscriptLineMeta::Spacer` for
-    /// synthetic spacer rows inserted between cells. This allows the scroll state
-    /// to anchor to a specific history cell even as new content arrives or the
-    /// viewport size changes, and gives exit transcript renderers enough structure
-    /// to style user rows differently from agent rows.
-    fn build_transcript_lines(
-        cells: &[Arc<dyn HistoryCell>],
-        active_cell: Option<&dyn HistoryCell>,
-        width: u16,
-    ) -> (Vec<Line<'static>>, Vec<TranscriptLineMeta>) {
-        let mut lines: Vec<Line<'static>> = Vec::new();
-        let mut line_meta: Vec<TranscriptLineMeta> = Vec::new();
-        let mut has_emitted_lines = false;
-
-        let mut push_cell = |cell_index: usize, cell: &dyn HistoryCell| {
-            let cell_lines = cell.display_lines(width);
-            if cell_lines.is_empty() {
-                return;
-            }
-
-            if !cell.is_stream_continuation() {
-                if has_emitted_lines {
-                    lines.push(Line::from(""));
-                    line_meta.push(TranscriptLineMeta::Spacer);
-                } else {
-                    has_emitted_lines = true;
-                }
-            }
-
-            for (line_in_cell, line) in cell_lines.into_iter().enumerate() {
-                line_meta.push(TranscriptLineMeta::CellLine {
-                    cell_index,
-                    line_in_cell,
-                    wrap_segment: 0, // Will be updated when wrapping is applied
-                });
-                lines.push(line);
-            }
-        };
-
-        for (cell_index, cell) in cells.iter().enumerate() {
-            push_cell(cell_index, cell.as_ref());
-        }
-
-        if let Some(active) = active_cell {
-            push_cell(cells.len(), active);
-        }
-
-        (lines, line_meta)
-    }
-
-    /// Render flattened transcript lines into ANSI strings suitable for
-    /// printing after the TUI exits.
-    ///
-    /// This helper mirrors the original TUI viewport behavior:
-    ///  - Merges line-level style into each span so the ANSI output matches
-    ///    the on-screen styling (e.g., blockquotes, lists).
-    ///  - For user-authored rows, pads the background style out to the full
-    ///    terminal width so prompts appear as solid blocks in scrollback.
-    ///  - Streams spans through the shared vt100 writer so downstream tests
-    ///    and tools see consistent escape sequences.
-    fn render_lines_to_ansi(
-        lines: &[Line<'static>],
-        line_meta: &[TranscriptLineMeta],
-        is_user_cell: &[bool],
-        width: u16,
-    ) -> Vec<String> {
-        lines
-            .iter()
-            .enumerate()
-            .map(|(idx, line)| {
-                let is_user_row = line_meta
-                    .get(idx)
-                    .and_then(TranscriptLineMeta::cell_index)
-                    .map(|cell_index| is_user_cell.get(cell_index).copied().unwrap_or(false))
-                    .unwrap_or(false);
-
-                let mut merged_spans: Vec<ratatui::text::Span<'static>> = line
-                    .spans
-                    .iter()
-                    .map(|span| ratatui::text::Span {
-                        style: span.style.patch(line.style),
-                        content: span.content.clone(),
-                    })
-                    .collect();
-
-                if is_user_row && width > 0 {
-                    let text: String = merged_spans
-                        .iter()
-                        .map(|span| span.content.as_ref())
-                        .collect();
-                    let text_width = UnicodeWidthStr::width(text.as_str());
-                    let total_width = usize::from(width);
-                    if text_width < total_width {
-                        let pad_len = total_width.saturating_sub(text_width);
-                        if pad_len > 0 {
-                            let pad_style = crate::style::user_message_style();
-                            merged_spans.push(ratatui::text::Span {
-                                style: pad_style,
-                                content: " ".repeat(pad_len).into(),
-                            });
-                        }
-                    }
-                }
-
-                let mut buf: Vec<u8> = Vec::new();
-                let _ = crate::insert_history::write_spans(&mut buf, merged_spans.iter());
-                String::from_utf8(buf).unwrap_or_default()
-            })
-            .collect()
-    }
-
     /// Apply the current transcript selection to the given buffer.
     ///
     /// The selection is defined in terms of flattened wrapped transcript line
@@ -1528,16 +1253,10 @@ impl App {
             return;
         }
 
-        let base_x = area.x.saturating_add(2);
+        let base_x = area.x.saturating_add(TRANSCRIPT_GUTTER_COLS);
         let max_x = area.right().saturating_sub(1);
 
-        let mut start = anchor;
-        let mut end = head;
-        if (end.line_index < start.line_index)
-            || (end.line_index == start.line_index && end.column < start.column)
-        {
-            std::mem::swap(&mut start, &mut end);
-        }
+        let (start, end) = crate::transcript_selection::ordered_endpoints(anchor, head);
 
         let visible_start = self.transcript_view_top;
         let visible_end = self
@@ -1600,8 +1319,11 @@ impl App {
 
             for x in from_x..=to_x {
                 let cell = &mut buf[(x, y)];
-                let style = cell.style();
-                cell.set_style(style.add_modifier(ratatui::style::Modifier::REVERSED));
+                let mut style = cell.style().bg(ratatui::style::Color::DarkGray);
+                if line_index == start.line_index || line_index == end.line_index {
+                    style = style.add_modifier(ratatui::style::Modifier::BOLD);
+                }
+                cell.set_style(style);
             }
         }
     }
@@ -1612,15 +1334,13 @@ impl App {
     /// indices and columns, and this method reconstructs the same wrapped
     /// transcript used for on-screen rendering so the copied text closely
     /// matches the highlighted region.
+    ///
+    /// Important: copy operates on the selection's full content-relative range,
+    /// not just the current viewport. A selection can extend outside the visible
+    /// region (for example, by scrolling after selecting, or by selecting while
+    /// autoscrolling), and we still want the clipboard payload to reflect the
+    /// entire selected transcript.
     fn copy_transcript_selection(&mut self, tui: &tui::Tui) {
-        let (anchor, head) = match (
-            self.transcript_selection.anchor,
-            self.transcript_selection.head,
-        ) {
-            (Some(a), Some(h)) if a != h => (a, h),
-            _ => return,
-        };
-
         let size = tui.terminal.last_known_screen_size;
         let width = size.width;
         let height = size.height;
@@ -1638,140 +1358,20 @@ impl App {
             return;
         }
 
-        let transcript_content_width = Self::transcript_content_width(width);
-        let transcript_area = Rect {
-            x: 0,
-            y: 0,
-            width: transcript_content_width,
-            height: transcript_height,
+        let Some(text) = crate::transcript_copy::selection_to_copy_text_for_cells(
+            &self.transcript_cells,
+            self.transcript_selection,
+            width,
+        ) else {
+            return;
         };
-
-        let cells = self.transcript_cells.clone();
-        let (lines, _) = Self::build_transcript_lines(
-            &cells,
-            self.chat_widget.active_cell(),
-            transcript_content_width,
-        );
-        if lines.is_empty() {
-            return;
-        }
-
-        let wrapped = crate::wrapping::word_wrap_lines_borrowed(
-            &lines,
-            transcript_content_width.max(1) as usize,
-        );
-        let total_lines = wrapped.len();
-        if total_lines == 0 {
-            return;
-        }
-
-        let max_visible = transcript_area.height as usize;
-        let visible_start = self
-            .transcript_view_top
-            .min(total_lines.saturating_sub(max_visible));
-        let visible_end = std::cmp::min(visible_start + max_visible, total_lines);
-
-        let mut buf = Buffer::empty(transcript_area);
-        Clear.render_ref(transcript_area, &mut buf);
-
-        for (row_index, line_index) in (visible_start..visible_end).enumerate() {
-            let row_area = Rect {
-                x: transcript_area.x,
-                y: transcript_area.y + row_index as u16,
-                width: transcript_area.width,
-                height: 1,
-            };
-            wrapped[line_index].render_ref(row_area, &mut buf);
-        }
-
-        let base_x = transcript_area.x.saturating_add(2);
-        let max_x = transcript_area.right().saturating_sub(1);
-
-        let mut start = anchor;
-        let mut end = head;
-        if (end.line_index < start.line_index)
-            || (end.line_index == start.line_index && end.column < start.column)
-        {
-            std::mem::swap(&mut start, &mut end);
-        }
-
-        let mut lines_out: Vec<String> = Vec::new();
-
-        for (row_index, line_index) in (visible_start..visible_end).enumerate() {
-            if line_index < start.line_index || line_index > end.line_index {
-                continue;
-            }
-
-            let y = transcript_area.y + row_index as u16;
-
-            let line_start_col = if line_index == start.line_index {
-                start.column
-            } else {
-                0
-            };
-            let line_end_col = if line_index == end.line_index {
-                end.column
-            } else {
-                max_x.saturating_sub(base_x)
-            };
-
-            let row_sel_start = base_x.saturating_add(line_start_col);
-            let row_sel_end = base_x.saturating_add(line_end_col).min(max_x);
-
-            if row_sel_start > row_sel_end {
-                continue;
-            }
-
-            let mut first_text_x = None;
-            let mut last_text_x = None;
-            for x in base_x..=max_x {
-                let cell = &buf[(x, y)];
-                if cell.symbol() != " " {
-                    if first_text_x.is_none() {
-                        first_text_x = Some(x);
-                    }
-                    last_text_x = Some(x);
-                }
-            }
-
-            let (text_start, text_end) = match (first_text_x, last_text_x) {
-                // Treat indentation spaces as part of the copyable region by
-                // starting from the first content column to the right of the
-                // transcript gutter, but still clamp to the last non-space
-                // glyph so trailing padding is not included.
-                (Some(_), Some(e)) => (base_x, e),
-                _ => {
-                    lines_out.push(String::new());
-                    continue;
-                }
-            };
-
-            let from_x = row_sel_start.max(text_start);
-            let to_x = row_sel_end.min(text_end);
-            if from_x > to_x {
-                continue;
-            }
-
-            let mut line_text = String::new();
-            for x in from_x..=to_x {
-                let cell = &buf[(x, y)];
-                let symbol = cell.symbol();
-                if !symbol.is_empty() {
-                    line_text.push_str(symbol);
-                }
-            }
-
-            lines_out.push(line_text);
-        }
-
-        if lines_out.is_empty() {
-            return;
-        }
-
-        let text = lines_out.join("\n");
         if let Err(err) = clipboard_copy::copy_text(text) {
             tracing::error!(error = %err, "failed to copy selection to clipboard");
         }
+    }
+
+    fn copy_selection_key(&self) -> crate::key_hint::KeyBinding {
+        self.transcript_copy_ui.key_binding()
     }
 
     /// Map a mouse position in the transcript area to a content-relative
@@ -1921,7 +1521,6 @@ impl App {
                     tui.frame_requester().schedule_frame();
                 }
                 self.transcript_cells.push(cell.clone());
-
                 if self.use_terminal_scrollback_transcript(tui) {
                     let mut display =
                         cell.transcript_lines(tui.terminal.last_known_screen_size.width);
@@ -1995,31 +1594,26 @@ impl App {
                 self.chat_widget.on_diff_complete();
                 // Enter alternate screen using TUI helper and build pager lines
                 let _ = tui.enter_alt_screen();
-                const MAX_DIFF_OVERLAY_LINES: usize = 20_000;
-
                 let pager_lines: Vec<ratatui::text::Line<'static>> = if text.trim().is_empty() {
                     vec!["No changes detected.".italic().into()]
                 } else {
-                    let mut lines = Vec::new();
-                    for (idx, line) in text.lines().enumerate() {
-                        if idx >= MAX_DIFF_OVERLAY_LINES {
-                            lines.push(
-                                format!(
-                                    "... (diff output truncated; showing first {MAX_DIFF_OVERLAY_LINES} lines)"
-                                )
-                                .dim()
-                                .into(),
-                            );
-                            break;
-                        }
-                        lines.push(ansi_escape_line(line));
-                    }
-                    lines
+                    text.lines().map(ansi_escape_line).collect()
                 };
                 self.overlay = Some(Overlay::new_static_with_lines(
                     pager_lines,
                     "D I F F".to_string(),
                 ));
+                tui.frame_requester().schedule_frame();
+            }
+            AppEvent::RefreshAzureModels => {
+                let models_manager = self.server.get_models_manager();
+                tokio::spawn(async move {
+                    let _ = models_manager.list_models_async().await;
+                });
+            }
+            AppEvent::ToggleMouseCapture => {
+                let enabled = tui.toggle_mouse_capture();
+                self.config.disable_mouse_capture = !enabled;
                 tui.frame_requester().schedule_frame();
             }
             AppEvent::StartFileSearch(query) => {
@@ -2050,23 +1644,6 @@ impl App {
             }
             AppEvent::OpenAllModelsPopup { models } => {
                 self.chat_widget.open_all_models_popup(models);
-            }
-            AppEvent::RefreshAzureModels => {
-                // Trigger an async fetch of Azure models to populate the cache
-                let models_manager = self.server.get_models_manager();
-                let config = self.config.clone();
-                tokio::spawn(async move {
-                    let _ = models_manager.list_models(&config).await;
-                });
-            }
-            AppEvent::ToggleMouseCapture => {
-                let enabled = tui.toggle_mouse_capture();
-                let message = if enabled {
-                    "Mouse capture enabled. App handles scrolling and text selection."
-                } else {
-                    "Mouse capture disabled. Use native terminal text selection."
-                };
-                self.chat_widget.add_info_message(message.to_string(), None);
             }
             AppEvent::OpenFullAccessConfirmation { preset } => {
                 self.chat_widget.open_full_access_confirmation(preset);
@@ -2167,20 +1744,17 @@ impl App {
                     .await
                 {
                     Ok(()) => {
-                        // Display a visual card showing the updated model configuration
-                        self.chat_widget.add_model_changed_card(&model, effort);
-                        // Add profile info as a separate message if applicable
+                        let mut message = format!("Model changed to {model}");
+                        if let Some(label) = Self::reasoning_label_for(&model, effort) {
+                            message.push(' ');
+                            message.push_str(label);
+                        }
                         if let Some(profile) = profile {
-                            let mut message = format!("Model changed to {model}");
-                            if let Some(label) = Self::reasoning_label_for(&model, effort) {
-                                message.push(' ');
-                                message.push_str(label);
-                            }
                             message.push_str(" for ");
                             message.push_str(profile);
                             message.push_str(" profile");
-                            self.chat_widget.add_info_message(message, None);
                         }
+                        self.chat_widget.add_info_message(message, None);
                     }
                     Err(err) => {
                         tracing::error!(
@@ -2417,7 +1991,6 @@ impl App {
     }
 
     async fn handle_key_event(&mut self, tui: &mut tui::Tui, key_event: KeyEvent) {
-        let use_terminal_scrollback_transcript = self.use_terminal_scrollback_transcript(tui);
         match key_event {
             KeyEvent {
                 code: KeyCode::Char('t'),
@@ -2448,18 +2021,18 @@ impl App {
                 }
             }
             KeyEvent {
-                code: KeyCode::Char('y'),
-                modifiers: crossterm::event::KeyModifiers::CONTROL,
+                code: KeyCode::Char(ch),
+                modifiers,
                 kind: KeyEventKind::Press | KeyEventKind::Repeat,
                 ..
-            } => {
+            } if self.transcript_copy_ui.is_copy_key(ch, modifiers) => {
                 self.copy_transcript_selection(tui);
             }
             KeyEvent {
                 code: KeyCode::PageUp,
                 kind: KeyEventKind::Press | KeyEventKind::Repeat,
                 ..
-            } if !use_terminal_scrollback_transcript => {
+            } => {
                 let size = tui.terminal.last_known_screen_size;
                 let width = size.width;
                 let height = size.height;
@@ -2469,12 +2042,11 @@ impl App {
                         let transcript_height = height.saturating_sub(chat_height);
                         if transcript_height > 0 {
                             let delta = -i32::from(transcript_height);
-                            let transcript_content_width = Self::transcript_content_width(width);
                             self.scroll_transcript(
                                 tui,
                                 delta,
                                 usize::from(transcript_height),
-                                transcript_content_width,
+                                width,
                                 true,
                             );
                         }
@@ -2485,7 +2057,7 @@ impl App {
                 code: KeyCode::PageDown,
                 kind: KeyEventKind::Press | KeyEventKind::Repeat,
                 ..
-            } if !use_terminal_scrollback_transcript => {
+            } => {
                 let size = tui.terminal.last_known_screen_size;
                 let width = size.width;
                 let height = size.height;
@@ -2495,12 +2067,11 @@ impl App {
                         let transcript_height = height.saturating_sub(chat_height);
                         if transcript_height > 0 {
                             let delta = i32::from(transcript_height);
-                            let transcript_content_width = Self::transcript_content_width(width);
                             self.scroll_transcript(
                                 tui,
                                 delta,
                                 usize::from(transcript_height),
-                                transcript_content_width,
+                                width,
                                 true,
                             );
                         }
@@ -2511,7 +2082,7 @@ impl App {
                 code: KeyCode::Home,
                 kind: KeyEventKind::Press | KeyEventKind::Repeat,
                 ..
-            } if !use_terminal_scrollback_transcript => {
+            } => {
                 if !self.transcript_cells.is_empty() {
                     self.transcript_scroll = TranscriptScroll::Scrolled {
                         cell_index: 0,
@@ -2525,7 +2096,7 @@ impl App {
                 code: KeyCode::End,
                 kind: KeyEventKind::Press | KeyEventKind::Repeat,
                 ..
-            } if !use_terminal_scrollback_transcript => {
+            } => {
                 self.transcript_scroll = TranscriptScroll::ToBottom;
                 tui.frame_requester().schedule_frame();
             }
@@ -2600,6 +2171,7 @@ mod tests {
     use crate::history_cell::SharedModelState;
     use crate::history_cell::UserHistoryCell;
     use crate::history_cell::new_session_info;
+    use crate::transcript_copy_ui::CopySelectionShortcut;
     use codex_core::AuthManager;
     use codex_core::CodexAuth;
     use codex_core::ConversationManager;
@@ -2614,15 +2186,6 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
-
-    #[test]
-    fn scrollback_viewport_height_reserves_one_row() {
-        assert_eq!(App::scrollback_viewport_height(10, 10), 9);
-        assert_eq!(App::scrollback_viewport_height(10, 9), 9);
-        assert_eq!(App::scrollback_viewport_height(10, 0), 1);
-        assert_eq!(App::scrollback_viewport_height(1, 10), 1);
-        assert_eq!(App::scrollback_viewport_height(0, 10), 1);
-    }
 
     async fn make_test_app() -> App {
         let (chat_widget, app_event_tx, _rx, _op_rx) = make_chatwidget_manual_with_sender().await;
@@ -2648,8 +2211,12 @@ mod tests {
             transcript_cells: Vec::new(),
             transcript_scroll: TranscriptScroll::default(),
             transcript_selection: TranscriptSelection::default(),
+            transcript_multi_click: TranscriptMultiClick::default(),
             transcript_view_top: 0,
             transcript_total_lines: 0,
+            transcript_copy_ui: TranscriptCopyUi::new_with_shortcut(
+                CopySelectionShortcut::CtrlShiftC,
+            ),
             overlay: None,
             deferred_history_lines: Vec::new(),
             has_emitted_history_lines: false,
@@ -2694,8 +2261,12 @@ mod tests {
                 transcript_cells: Vec::new(),
                 transcript_scroll: TranscriptScroll::default(),
                 transcript_selection: TranscriptSelection::default(),
+                transcript_multi_click: TranscriptMultiClick::default(),
                 transcript_view_top: 0,
                 transcript_total_lines: 0,
+                transcript_copy_ui: TranscriptCopyUi::new_with_shortcut(
+                    CopySelectionShortcut::CtrlShiftC,
+                ),
                 overlay: None,
                 deferred_history_lines: Vec::new(),
                 has_emitted_history_lines: false,
@@ -2751,6 +2322,38 @@ mod tests {
             &seen,
             &all_model_presets()
         ));
+    }
+
+    #[tokio::test]
+    async fn transcript_selection_copy_includes_offscreen_lines() {
+        let mut app = make_test_app().await;
+        app.transcript_cells = vec![Arc::new(AgentMessageCell::new(
+            vec![
+                Line::from("one"),
+                Line::from("two"),
+                Line::from("three"),
+                Line::from("four"),
+            ],
+            true,
+        ))];
+
+        app.transcript_view_top = 2;
+        app.transcript_selection.anchor = Some(TranscriptSelectionPoint {
+            line_index: 0,
+            column: 0,
+        });
+        app.transcript_selection.head = Some(TranscriptSelectionPoint {
+            line_index: 3,
+            column: u16::MAX,
+        });
+
+        let text = crate::transcript_copy::selection_to_copy_text_for_cells(
+            &app.transcript_cells,
+            app.transcript_selection,
+            40,
+        )
+        .expect("expected text");
+        assert_eq!(text, "one\ntwo\nthree\nfour");
     }
 
     #[tokio::test]
@@ -2825,10 +2428,7 @@ mod tests {
                 app.current_model.as_str(),
                 event,
                 is_first,
-                SharedModelState::new(
-                    app.current_model.clone(),
-                    app.chat_widget.config_ref().model_reasoning_effort,
-                ),
+                SharedModelState::new(app.current_model.clone(), None),
             )) as Arc<dyn HistoryCell>
         };
 
@@ -2924,6 +2524,184 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn transcript_selection_renders_copy_affordance() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let mut app = make_test_app().await;
+        app.transcript_total_lines = 3;
+        app.transcript_view_top = 0;
+
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 60,
+            height: 3,
+        };
+
+        app.transcript_selection = TranscriptSelection {
+            anchor: Some(TranscriptSelectionPoint {
+                line_index: 1,
+                column: 2,
+            }),
+            head: Some(TranscriptSelectionPoint {
+                line_index: 1,
+                column: 6,
+            }),
+        };
+
+        let mut buf = Buffer::empty(area);
+        for y in 0..area.height {
+            for x in 2..area.width.saturating_sub(1) {
+                buf[(x, y)].set_symbol("X");
+            }
+        }
+
+        app.apply_transcript_selection(area, &mut buf);
+        let anchor = app.transcript_selection.anchor.expect("anchor");
+        let head = app.transcript_selection.head.expect("head");
+        app.transcript_copy_ui.render_copy_pill(
+            area,
+            &mut buf,
+            (anchor.line_index, anchor.column),
+            (head.line_index, head.column),
+            app.transcript_view_top,
+            app.transcript_total_lines,
+        );
+
+        let mut s = String::new();
+        for y in area.y..area.bottom() {
+            for x in area.x..area.right() {
+                s.push(buf[(x, y)].symbol().chars().next().unwrap_or(' '));
+            }
+            s.push('\n');
+        }
+
+        assert!(s.contains("copy"));
+        assert!(s.contains("ctrl + shift + c"));
+        assert!(app.transcript_copy_ui.hit_test(10, 2));
+    }
+
+    #[tokio::test]
+    async fn transcript_selection_renders_ctrl_y_copy_affordance_in_vscode_mode() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let mut app = make_test_app().await;
+        app.transcript_copy_ui = TranscriptCopyUi::new_with_shortcut(CopySelectionShortcut::CtrlY);
+        app.transcript_total_lines = 3;
+        app.transcript_view_top = 0;
+
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 60,
+            height: 3,
+        };
+
+        app.transcript_selection = TranscriptSelection {
+            anchor: Some(TranscriptSelectionPoint {
+                line_index: 1,
+                column: 2,
+            }),
+            head: Some(TranscriptSelectionPoint {
+                line_index: 1,
+                column: 6,
+            }),
+        };
+
+        let mut buf = Buffer::empty(area);
+        for y in 0..area.height {
+            for x in 2..area.width.saturating_sub(1) {
+                buf[(x, y)].set_symbol("X");
+            }
+        }
+
+        app.apply_transcript_selection(area, &mut buf);
+        let anchor = app.transcript_selection.anchor.expect("anchor");
+        let head = app.transcript_selection.head.expect("head");
+        app.transcript_copy_ui.render_copy_pill(
+            area,
+            &mut buf,
+            (anchor.line_index, anchor.column),
+            (head.line_index, head.column),
+            app.transcript_view_top,
+            app.transcript_total_lines,
+        );
+
+        let mut s = String::new();
+        for y in area.y..area.bottom() {
+            for x in area.x..area.right() {
+                s.push(buf[(x, y)].symbol().chars().next().unwrap_or(' '));
+            }
+            s.push('\n');
+        }
+
+        assert!(s.contains("copy"));
+        assert!(s.contains("ctrl + y"));
+        assert!(!s.contains("ctrl + shift + c"));
+        assert!(app.transcript_copy_ui.hit_test(10, 2));
+    }
+
+    #[tokio::test]
+    async fn transcript_selection_hides_copy_affordance_while_dragging() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let mut app = make_test_app().await;
+        app.transcript_total_lines = 3;
+        app.transcript_view_top = 0;
+        app.transcript_copy_ui.set_dragging(true);
+
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 60,
+            height: 3,
+        };
+
+        app.transcript_selection = TranscriptSelection {
+            anchor: Some(TranscriptSelectionPoint {
+                line_index: 1,
+                column: 2,
+            }),
+            head: Some(TranscriptSelectionPoint {
+                line_index: 1,
+                column: 6,
+            }),
+        };
+
+        let mut buf = Buffer::empty(area);
+        for y in 0..area.height {
+            for x in 2..area.width.saturating_sub(1) {
+                buf[(x, y)].set_symbol("X");
+            }
+        }
+
+        let anchor = app.transcript_selection.anchor.expect("anchor");
+        let head = app.transcript_selection.head.expect("head");
+        app.transcript_copy_ui.render_copy_pill(
+            area,
+            &mut buf,
+            (anchor.line_index, anchor.column),
+            (head.line_index, head.column),
+            app.transcript_view_top,
+            app.transcript_total_lines,
+        );
+
+        let mut s = String::new();
+        for y in area.y..area.bottom() {
+            for x in area.x..area.right() {
+                s.push(buf[(x, y)].symbol().chars().next().unwrap_or(' '));
+            }
+            s.push('\n');
+        }
+
+        assert!(!s.contains("copy"));
+        assert!(!app.transcript_copy_ui.hit_test(10, 2));
+    }
+
+    #[tokio::test]
     async fn new_session_requests_shutdown_for_previous_conversation() {
         let (mut app, mut app_event_rx, mut op_rx) = make_test_app_with_channels().await;
 
@@ -2976,7 +2754,12 @@ mod tests {
         let is_user_cell = vec![true];
         let width: u16 = 10;
 
-        let rendered = App::render_lines_to_ansi(&lines, &line_meta, &is_user_cell, width);
+        let rendered = crate::transcript_render::render_lines_to_ansi(
+            &lines,
+            &line_meta,
+            &is_user_cell,
+            width,
+        );
         assert_eq!(rendered.len(), 1);
         assert!(rendered[0].contains("hi"));
     }

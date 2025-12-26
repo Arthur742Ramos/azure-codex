@@ -13,7 +13,7 @@ use crate::compact;
 use crate::compact::run_inline_auto_compact_task;
 use crate::compact::should_use_remote_compact_task;
 use crate::compact_remote::run_inline_remote_auto_compact_task;
-use crate::exec_policy::load_exec_policy_for_features;
+use crate::exec_policy::ExecPolicyManager;
 use crate::features::Feature;
 use crate::features::Features;
 use crate::models_manager::manager::ModelsManager;
@@ -148,7 +148,6 @@ use crate::user_instructions::UserInstructions;
 use crate::user_notification::UserNotification;
 use crate::util::backoff;
 use codex_async_utils::OrCancelExt;
-use codex_execpolicy::Policy as ExecPolicy;
 use codex_otel::otel_manager::OtelManager;
 use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
 use codex_protocol::models::ContentItem;
@@ -186,12 +185,6 @@ fn maybe_push_chat_wire_api_deprecation(
     post_session_configured_events: &mut Vec<Event>,
 ) {
     if config.model_provider.wire_api != WireApi::Chat {
-        return;
-    }
-
-    // Don't emit deprecation warning for Azure endpoints - Azure OpenAI
-    // only supports the Chat Completions API, not the Responses API
-    if config.model_provider.is_azure || config.azure_endpoint.is_some() {
         return;
     }
 
@@ -247,10 +240,9 @@ impl Codex {
         )
         .await;
 
-        let exec_policy = load_exec_policy_for_features(&config.features, &config.codex_home)
+        let exec_policy = ExecPolicyManager::load(&config.features, &config.config_layer_stack)
             .await
             .map_err(|err| CodexErr::Fatal(format!("failed to load execpolicy: {err}")))?;
-        let exec_policy = Arc::new(RwLock::new(exec_policy));
 
         let config = Arc::new(config);
         if config.features.enabled(Feature::RemoteModels)
@@ -272,7 +264,6 @@ impl Codex {
             sandbox_policy: config.sandbox_policy.clone(),
             cwd: config.cwd.clone(),
             original_config_do_not_use: Arc::clone(&config),
-            exec_policy,
             session_source,
         };
 
@@ -284,6 +275,7 @@ impl Codex {
             config.clone(),
             auth_manager.clone(),
             models_manager.clone(),
+            exec_policy,
             tx_event.clone(),
             conversation_history,
             session_source_clone,
@@ -377,7 +369,6 @@ pub(crate) struct TurnContext {
     pub(crate) final_output_json_schema: Option<Value>,
     pub(crate) codex_linux_sandbox_exe: Option<PathBuf>,
     pub(crate) tool_call_gate: Arc<ReadinessFlag>,
-    pub(crate) exec_policy: Arc<RwLock<ExecPolicy>>,
     pub(crate) truncation_policy: TruncationPolicy,
 }
 
@@ -431,9 +422,6 @@ pub(crate) struct SessionConfiguration {
     /// `ConfigureSession` operation so that the business-logic layer can
     /// operate deterministically.
     cwd: PathBuf,
-
-    /// Execpolicy policy, applied only when enabled by feature flag.
-    exec_policy: Arc<RwLock<ExecPolicy>>,
 
     // TODO(pakrym): Remove config from here
     original_config_do_not_use: Arc<Config>,
@@ -492,7 +480,6 @@ impl Session {
     #[allow(clippy::too_many_arguments)]
     fn make_turn_context(
         auth_manager: Option<Arc<AuthManager>>,
-        azure_auth: Option<Arc<crate::auth::azure::AzureAuth>>,
         otel_manager: &OtelManager,
         provider: ModelProviderInfo,
         session_configuration: &SessionConfiguration,
@@ -510,7 +497,6 @@ impl Session {
         let client = ModelClient::new(
             per_turn_config.clone(),
             auth_manager,
-            azure_auth,
             model_family.clone(),
             otel_manager,
             provider,
@@ -541,7 +527,6 @@ impl Session {
             final_output_json_schema: None,
             codex_linux_sandbox_exe: per_turn_config.codex_linux_sandbox_exe.clone(),
             tool_call_gate: Arc::new(ReadinessFlag::new()),
-            exec_policy: session_configuration.exec_policy.clone(),
             truncation_policy: TruncationPolicy::new(
                 per_turn_config.as_ref(),
                 model_family.truncation_policy,
@@ -555,6 +540,7 @@ impl Session {
         config: Arc<Config>,
         auth_manager: Arc<AuthManager>,
         models_manager: Arc<ModelsManager>,
+        exec_policy: ExecPolicyManager,
         tx_event: Sender<Event>,
         initial_history: InitialHistory,
         session_source: SessionSource,
@@ -594,7 +580,6 @@ impl Session {
         // - initialize RolloutRecorder with new or resumed session info
         // - perform default shell discovery
         // - load history metadata
-        // - create Azure auth if configured
         let rollout_fut = RolloutRecorder::new(&config, rollout_params);
 
         let history_meta_fut = crate::message_history::history_metadata(&config);
@@ -602,19 +587,10 @@ impl Session {
             config.mcp_servers.iter(),
             config.mcp_oauth_credentials_store_mode,
         );
-        let azure_auth_fut = async {
-            config.azure_auth.clone().map(|azure_config| {
-                std::sync::Arc::new(crate::auth::azure::AzureAuth::new(azure_config))
-            })
-        };
 
         // Join all independent futures.
-        let (rollout_recorder, (history_log_id, history_entry_count), auth_statuses, azure_auth) = tokio::join!(
-            rollout_fut,
-            history_meta_fut,
-            auth_statuses_fut,
-            azure_auth_fut
-        );
+        let (rollout_recorder, (history_log_id, history_entry_count), auth_statuses) =
+            tokio::join!(rollout_fut, history_meta_fut, auth_statuses_fut);
 
         let rollout_recorder = rollout_recorder.map_err(|e| {
             error!("failed to initialize rollout recorder: {e:#}");
@@ -684,8 +660,8 @@ impl Session {
             rollout: Mutex::new(Some(rollout_recorder)),
             user_shell: Arc::new(default_shell),
             show_raw_agent_reasoning: config.show_raw_agent_reasoning,
+            exec_policy,
             auth_manager: Arc::clone(&auth_manager),
-            azure_auth,
             otel_manager,
             models_manager: Arc::clone(&models_manager),
             tool_approvals: Mutex::new(ApprovalStore::default()),
@@ -933,7 +909,6 @@ impl Session {
             .await;
         let mut turn_context: TurnContext = Self::make_turn_context(
             Some(Arc::clone(&self.services.auth_manager)),
-            self.services.azure_auth.clone(),
             &self.services.otel_manager,
             session_configuration.provider.clone(),
             &session_configuration,
@@ -1045,29 +1020,24 @@ impl Session {
         amendment: &ExecPolicyAmendment,
     ) -> Result<(), ExecPolicyUpdateError> {
         let features = self.features.clone();
-        let (codex_home, current_policy) = {
-            let state = self.state.lock().await;
-            (
-                state
-                    .session_configuration
-                    .original_config_do_not_use
-                    .codex_home
-                    .clone(),
-                state.session_configuration.exec_policy.clone(),
-            )
-        };
+        let codex_home = self
+            .state
+            .lock()
+            .await
+            .session_configuration
+            .original_config_do_not_use
+            .codex_home
+            .clone();
 
         if !features.enabled(Feature::ExecPolicy) {
             error!("attempted to append execpolicy rule while execpolicy feature is disabled");
             return Err(ExecPolicyUpdateError::FeatureDisabled);
         }
 
-        crate::exec_policy::append_execpolicy_amendment_and_update(
-            &codex_home,
-            &current_policy,
-            &amendment.command,
-        )
-        .await?;
+        self.services
+            .exec_policy
+            .append_amendment_and_update(&codex_home, amendment)
+            .await?;
 
         Ok(())
     }
@@ -1452,12 +1422,14 @@ impl Session {
         message: impl Into<String>,
         codex_error: CodexErr,
     ) {
+        let additional_details = codex_error.to_string();
         let codex_error_info = CodexErrorInfo::ResponseStreamDisconnected {
             http_status_code: codex_error.http_status_code_value(),
         };
         let event = EventMsg::StreamError(StreamErrorEvent {
             message: message.into(),
             codex_error_info: Some(codex_error_info),
+            additional_details: Some(additional_details),
         });
         self.send_event(turn_context, event).await;
     }
@@ -1733,7 +1705,6 @@ mod handlers {
     use codex_rmcp_client::ElicitationAction;
     use codex_rmcp_client::ElicitationResponse;
     use mcp_types::RequestId;
-    use std::io::ErrorKind;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tracing::info;
@@ -2044,20 +2015,6 @@ mod handlers {
             .terminate_all_sessions()
             .await;
         info!("Shutting down Codex instance");
-        if let Some(snapshot) = sess.services.user_shell.shell_snapshot.as_ref() {
-            let path = snapshot.path.clone();
-            if let Err(err) = tokio::fs::remove_file(&path).await
-                && err.kind() != ErrorKind::NotFound
-            {
-                warn!("failed to delete shell snapshot {path:?}: {err}");
-            }
-            if let Some(parent) = path.parent()
-                && let Err(err) = tokio::fs::remove_dir_all(parent).await
-                && err.kind() != ErrorKind::NotFound
-            {
-                warn!("failed to delete shell snapshot dir {parent:?}: {err}");
-            }
-        }
 
         // Gracefully flush and shutdown rollout recorder on session end so tests
         // that inspect the rollout file do not race with the background writer.
@@ -2145,6 +2102,9 @@ async fn spawn_review_thread(
 
     let base_instructions = REVIEW_PROMPT.to_string();
     let review_prompt = resolved.prompt.clone();
+    let auto_fix = resolved.auto_fix;
+    let target = resolved.target;
+    let user_facing_hint = resolved.user_facing_hint;
     let provider = parent_turn_context.client.get_provider();
     let auth_manager = parent_turn_context.client.get_auth_manager();
     let model_family = review_model_family.clone();
@@ -2164,7 +2124,6 @@ async fn spawn_review_thread(
     let client = ModelClient::new(
         per_turn_config.clone(),
         auth_manager,
-        sess.services.azure_auth.clone(),
         model_family.clone(),
         otel_manager,
         provider,
@@ -2190,7 +2149,6 @@ async fn spawn_review_thread(
         final_output_json_schema: None,
         codex_linux_sandbox_exe: parent_turn_context.codex_linux_sandbox_exe.clone(),
         tool_call_gate: Arc::new(ReadinessFlag::new()),
-        exec_policy: parent_turn_context.exec_policy.clone(),
         truncation_policy: TruncationPolicy::new(&per_turn_config, model_family.truncation_policy),
     };
 
@@ -2199,14 +2157,14 @@ async fn spawn_review_thread(
         text: review_prompt,
     }];
     let tc = Arc::new(review_turn_context);
-    sess.spawn_task(tc.clone(), input, ReviewTask::new(resolved.auto_fix))
+    sess.spawn_task(tc.clone(), input, ReviewTask::new(auto_fix))
         .await;
 
     // Announce entering review mode so UIs can switch modes.
     let review_request = ReviewRequest {
-        target: resolved.target,
-        user_facing_hint: Some(resolved.user_facing_hint),
-        auto_fix: resolved.auto_fix,
+        target,
+        user_facing_hint: Some(user_facing_hint),
+        auto_fix,
     };
     sess.send_event(&tc, EventMsg::EnteredReviewMode(review_request))
         .await;
@@ -2302,7 +2260,6 @@ pub(crate) async fn run_task(
     sess.maybe_start_ghost_snapshot(Arc::clone(&turn_context), cancellation_token.child_token())
         .await;
     let mut last_agent_message: Option<String> = None;
-    let mut auto_resume_attempts = 0;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -2382,23 +2339,6 @@ pub(crate) async fn run_task(
                 state.history.replace_last_turn_images("Invalid image");
             }
             Err(e) => {
-                if let CodexErr::Stream(_, _) = &e {
-                    auto_resume_attempts += 1;
-                    let message = format!(
-                        "Stream disconnected before completion. Resuming with \"Keep going\" (attempt {auto_resume_attempts}).",
-                    );
-                    sess.send_event(&turn_context, EventMsg::Warning(WarningEvent { message }))
-                        .await;
-                    if sess
-                        .inject_input(vec![UserInput::Text {
-                            text: "Keep going".to_string(),
-                        }])
-                        .await
-                        .is_ok()
-                    {
-                        continue;
-                    }
-                }
                 info!("Turn error: {e:#}");
                 let event = EventMsg::Error(e.to_error_event(None));
                 sess.send_event(&turn_context, event).await;
@@ -2581,6 +2521,11 @@ async fn try_run_turn(
         model: turn_context.client.get_model(),
         effort: turn_context.client.get_reasoning_effort(),
         summary: turn_context.client.get_reasoning_summary(),
+        base_instructions: turn_context.base_instructions.clone(),
+        user_instructions: turn_context.user_instructions.clone(),
+        developer_instructions: turn_context.developer_instructions.clone(),
+        final_output_json_schema: turn_context.final_output_json_schema.clone(),
+        truncation_policy: Some(turn_context.truncation_policy.into()),
     });
 
     sess.persist_rollout_items(&[rollout_item]).await;
@@ -2804,6 +2749,7 @@ mod tests {
     use crate::function_tool::FunctionCallError;
     use crate::shell::default_user_shell;
     use crate::tools::format_exec_output_str;
+
     use codex_protocol::models::FunctionCallOutputPayload;
 
     use crate::protocol::CompactedItem;
@@ -2898,7 +2844,6 @@ mod tests {
             sandbox_policy: config.sandbox_policy.clone(),
             cwd: config.cwd.clone(),
             original_config_do_not_use: Arc::clone(&config),
-            exec_policy: Arc::new(RwLock::new(ExecPolicy::empty())),
             session_source: SessionSource::Exec,
         };
 
@@ -2965,7 +2910,6 @@ mod tests {
             sandbox_policy: config.sandbox_policy.clone(),
             cwd: config.cwd.clone(),
             original_config_do_not_use: Arc::clone(&config),
-            exec_policy: Arc::new(RwLock::new(ExecPolicy::empty())),
             session_source: SessionSource::Exec,
         };
 
@@ -3158,6 +3102,7 @@ mod tests {
         let auth_manager =
             AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
         let models_manager = Arc::new(ModelsManager::new(auth_manager.clone()));
+        let exec_policy = ExecPolicyManager::default();
         let model = ModelsManager::get_model_offline(config.model.as_deref());
         let session_configuration = SessionConfiguration {
             provider: config.model_provider.clone(),
@@ -3172,7 +3117,6 @@ mod tests {
             sandbox_policy: config.sandbox_policy.clone(),
             cwd: config.cwd.clone(),
             original_config_do_not_use: Arc::clone(&config),
-            exec_policy: Arc::new(RwLock::new(ExecPolicy::empty())),
             session_source: SessionSource::Exec,
         };
         let per_turn_config = Session::build_per_turn_config(&session_configuration);
@@ -3198,8 +3142,8 @@ mod tests {
             rollout: Mutex::new(None),
             user_shell: Arc::new(default_user_shell()),
             show_raw_agent_reasoning: config.show_raw_agent_reasoning,
+            exec_policy,
             auth_manager: auth_manager.clone(),
-            azure_auth: None, // Test helper - Azure auth not needed for tests
             otel_manager: otel_manager.clone(),
             models_manager,
             tool_approvals: Mutex::new(ApprovalStore::default()),
@@ -3208,7 +3152,6 @@ mod tests {
 
         let turn_context = Session::make_turn_context(
             Some(Arc::clone(&auth_manager)),
-            None, // Test helper - Azure auth not needed for tests
             &otel_manager,
             session_configuration.provider.clone(),
             &session_configuration,
@@ -3246,6 +3189,7 @@ mod tests {
         let auth_manager =
             AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
         let models_manager = Arc::new(ModelsManager::new(auth_manager.clone()));
+        let exec_policy = ExecPolicyManager::default();
         let model = ModelsManager::get_model_offline(config.model.as_deref());
         let session_configuration = SessionConfiguration {
             provider: config.model_provider.clone(),
@@ -3260,7 +3204,6 @@ mod tests {
             sandbox_policy: config.sandbox_policy.clone(),
             cwd: config.cwd.clone(),
             original_config_do_not_use: Arc::clone(&config),
-            exec_policy: Arc::new(RwLock::new(ExecPolicy::empty())),
             session_source: SessionSource::Exec,
         };
         let per_turn_config = Session::build_per_turn_config(&session_configuration);
@@ -3286,8 +3229,8 @@ mod tests {
             rollout: Mutex::new(None),
             user_shell: Arc::new(default_user_shell()),
             show_raw_agent_reasoning: config.show_raw_agent_reasoning,
+            exec_policy,
             auth_manager: Arc::clone(&auth_manager),
-            azure_auth: None, // Test helper - Azure auth not needed for tests
             otel_manager: otel_manager.clone(),
             models_manager,
             tool_approvals: Mutex::new(ApprovalStore::default()),
@@ -3296,7 +3239,6 @@ mod tests {
 
         let turn_context = Arc::new(Session::make_turn_context(
             Some(Arc::clone(&auth_manager)),
-            None, // Test helper - Azure auth not needed for tests
             &otel_manager,
             session_configuration.provider.clone(),
             &session_configuration,
