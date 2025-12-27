@@ -263,6 +263,8 @@ mod tests {
                 text: "raw details".to_string(),
             }]),
             encrypted_content: None,
+            thinking_signature: None,
+            thinking_block_type: None,
         };
 
         let turn_item = parse_turn_item(&item).expect("expected reasoning turn item");
@@ -295,6 +297,8 @@ mod tests {
                 },
             ]),
             encrypted_content: None,
+            thinking_signature: None,
+            thinking_block_type: None,
         };
 
         let turn_item = parse_turn_item(&item).expect("expected reasoning turn item");

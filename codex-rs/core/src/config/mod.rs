@@ -368,14 +368,15 @@ pub struct Config {
     pub otel: crate::config::types::OtelConfig,
 
     /// Azure Entra ID authentication configuration.
-    /// When set, enables Azure authentication for Azure OpenAI endpoints.
+    /// When set, enables Azure authentication for Azure endpoints.
     pub azure_auth: Option<crate::auth::azure_config::AzureAuthConfig>,
 
-    /// Azure OpenAI endpoint URL (e.g., "https://myresource.openai.azure.com").
-    /// When set, automatically configures Azure OpenAI as the provider.
+    /// Azure AI Services endpoint URL (e.g., "https://myresource.services.ai.azure.com").
+    /// When set, automatically configures Azure as the provider.
+    /// Works for both GPT models (Azure OpenAI) and Claude models (Azure AI Services).
     pub azure_endpoint: Option<String>,
 
-    /// Azure OpenAI API version. Defaults to "2025-04-01-preview".
+    /// Azure API version. Defaults to "2025-04-01-preview".
     pub azure_api_version: String,
 }
 
@@ -839,15 +840,15 @@ pub struct ConfigToml {
     pub otel: Option<crate::config::types::OtelConfigToml>,
 
     /// Azure Entra ID authentication configuration.
-    /// When set, enables Azure authentication for Azure OpenAI endpoints.
+    /// When set, enables Azure authentication for Azure endpoints.
     pub azure_auth: Option<crate::auth::azure_config::AzureAuthConfig>,
 
-    /// Azure OpenAI endpoint URL (e.g., "https://myresource.openai.azure.com").
-    /// When set, automatically configures Azure OpenAI as the provider.
-    /// This is the simplest way to configure Azure Codex - just set this and `model`.
+    /// Azure AI Services endpoint URL (e.g., "https://myresource.services.ai.azure.com").
+    /// When set, automatically configures Azure as the provider.
+    /// Works for both GPT models and Claude models - this is the simplest way to configure Azure Codex.
     pub azure_endpoint: Option<String>,
 
-    /// Azure OpenAI API version. Defaults to "2025-04-01-preview".
+    /// Azure API version. Defaults to "2025-04-01-preview".
     pub azure_api_version: Option<String>,
 
     /// Tracks whether the Windows onboarding screen has been acknowledged.
@@ -1233,9 +1234,9 @@ impl Config {
 
         // Azure auto-configuration: if azure_endpoint is set, automatically create
         // an Azure provider with sensible defaults. This allows users to configure
-        // Azure OpenAI with just two lines:
-        //   azure_endpoint = "https://myresource.openai.azure.com"
-        //   model = "gpt-4"
+        // Azure with just two lines:
+        //   azure_endpoint = "https://myresource.services.ai.azure.com"
+        //   model = "gpt-4"  (or "claude-3-5-sonnet" for Claude models)
         let azure_endpoint = cfg.azure_endpoint.clone();
         let azure_api_version = cfg
             .azure_api_version

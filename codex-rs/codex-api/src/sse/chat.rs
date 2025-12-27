@@ -320,6 +320,8 @@ async fn append_reasoning_text(
             summary: Vec::new(),
             content: Some(vec![]),
             encrypted_content: None,
+            thinking_signature: None,
+            thinking_block_type: None,
         };
         *reasoning_item = Some(item.clone());
         let _ = tx_event

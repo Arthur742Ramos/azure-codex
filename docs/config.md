@@ -198,6 +198,8 @@ If the selected model is known to support reasoning (for example: `o3`, `o4-mini
 - `"xhigh"` (available on `gpt-5.1-codex-max` and `gpt-5.2`)
 
 Note: to minimize reasoning, choose `"minimal"`.
+Note: Claude models (Anthropic Messages API) require signed thinking blocks; Codex preserves them
+automatically when reasoning is enabled.
 
 ### model_reasoning_summary
 

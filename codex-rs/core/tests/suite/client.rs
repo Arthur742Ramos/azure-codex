@@ -903,6 +903,8 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
             text: "content".into(),
         }]),
         encrypted_content: None,
+        thinking_signature: None,
+        thinking_block_type: None,
     });
     prompt.input.push(ResponseItem::Message {
         id: Some("message-id".into()),

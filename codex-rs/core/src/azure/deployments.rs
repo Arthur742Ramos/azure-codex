@@ -84,7 +84,8 @@ pub struct AzureDeploymentsManager {
     /// Cached list of deployments.
     deployments: RwLock<Vec<AzureDeployment>>,
 
-    /// The Azure OpenAI endpoint (e.g., "https://myresource.openai.azure.com").
+    /// The Azure endpoint (e.g., "https://myresource.services.ai.azure.com").
+    /// Supports both Azure AI Services and Azure OpenAI endpoint formats.
     endpoint: Option<String>,
 
     /// Cached account name extracted from endpoint.
@@ -105,16 +106,18 @@ impl AzureDeploymentsManager {
         }
     }
 
-    /// Extract the account name from an Azure OpenAI endpoint URL.
+    /// Extract the account name from an Azure endpoint URL.
     fn extract_account_name(endpoint: &str) -> Option<String> {
-        // Endpoint format: https://{account-name}.openai.azure.com
-        // or https://{account-name}-{region}.openai.azure.com
+        // Supported endpoint formats:
+        //   - https://{account-name}.services.ai.azure.com (Azure AI Services - preferred)
+        //   - https://{account-name}.openai.azure.com (Azure OpenAI - legacy)
+        //   - https://{account-name}-{region}.openai.azure.com
         let url = endpoint.trim_end_matches('/');
         let host = url
             .strip_prefix("https://")
             .or_else(|| url.strip_prefix("http://"))?;
 
-        // Get the subdomain (everything before .openai.azure.com)
+        // Get the subdomain (everything before the first dot)
         let account = host.split('.').next()?;
         Some(account.to_string())
     }
@@ -306,10 +309,7 @@ impl AzureDeploymentsManager {
         self.get_deployments()
             .await
             .into_iter()
-            .filter(|d| {
-                let name_lower = d.name.to_lowercase();
-                name_lower.starts_with("gpt")
-            })
+            .filter(|d| is_supported_model(&d.name, d.underlying_model_name()))
             .collect()
     }
 
@@ -358,6 +358,14 @@ impl AzureDeploymentsManager {
 }
 
 impl AzureDeployment {
+    /// Get the underlying model name if available.
+    pub fn underlying_model_name(&self) -> Option<&str> {
+        self.properties
+            .model
+            .as_ref()
+            .and_then(|m| m.name.as_deref())
+    }
+
     /// Returns true if this deployment supports the Responses API.
     pub fn supports_responses_api(&self) -> bool {
         self.properties
@@ -473,6 +481,44 @@ impl AzureDeployment {
     }
 }
 
+/// Supported model prefixes for the model picker.
+/// Includes GPT models, Claude models, and other Azure AI deployments.
+const SUPPORTED_MODEL_PREFIXES: &[&str] = &[
+    "gpt", "claude", "o1", // OpenAI o1 models
+    "o3", // OpenAI o3 models
+];
+
+/// Check if a deployment is a supported model for the picker.
+/// Checks both the deployment name and the underlying model name.
+fn is_supported_model(deployment_name: &str, underlying_model: Option<&str>) -> bool {
+    let name_lower = deployment_name.to_lowercase();
+
+    // Check deployment name
+    for prefix in SUPPORTED_MODEL_PREFIXES {
+        if name_lower.starts_with(prefix) {
+            return true;
+        }
+    }
+
+    // Check underlying model name
+    if let Some(model) = underlying_model {
+        let model_lower = model.to_lowercase();
+        for prefix in SUPPORTED_MODEL_PREFIXES {
+            if model_lower.starts_with(prefix) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Check if a model is a Claude model.
+fn is_claude_model(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.starts_with("claude") || lower.contains("claude")
+}
+
 /// Check if a model supports xHigh reasoning based on its name.
 /// Models that support xHigh: gpt-5.1-codex-max, gpt-5.2
 fn supports_xhigh(model_name: &str) -> bool {
@@ -490,6 +536,53 @@ fn get_reasoning_efforts_for_model(
 ) -> ReasoningSupport {
     let name_lower = deployment_name.to_lowercase();
     let underlying_lower = underlying_model.map(str::to_lowercase);
+
+    // Check for Claude models (Azure AI deployed)
+    let is_claude =
+        is_claude_model(deployment_name) || underlying_model.is_some_and(is_claude_model);
+
+    if is_claude {
+        // Claude models support extended thinking but with different terminology
+        let is_opus = name_lower.contains("opus")
+            || underlying_lower
+                .as_ref()
+                .is_some_and(|m| m.contains("opus"));
+
+        if is_opus {
+            // Claude Opus has the highest capabilities
+            return ReasoningSupport {
+                default_effort: Some(ReasoningEffort::High),
+                presets: vec![
+                    effort(ReasoningEffort::Medium, "Balanced thinking"),
+                    effort(ReasoningEffort::High, "Extended thinking"),
+                    effort(ReasoningEffort::XHigh, "Maximum thinking depth"),
+                ],
+            };
+        }
+
+        let is_haiku = name_lower.contains("haiku")
+            || underlying_lower
+                .as_ref()
+                .is_some_and(|m| m.contains("haiku"));
+
+        if is_haiku {
+            // Claude Haiku is optimized for speed
+            return ReasoningSupport {
+                default_effort: Some(ReasoningEffort::Low),
+                presets: vec![effort(ReasoningEffort::Low, "Fast responses")],
+            };
+        }
+
+        // Claude Sonnet (default Claude model)
+        return ReasoningSupport {
+            default_effort: Some(ReasoningEffort::Medium),
+            presets: vec![
+                effort(ReasoningEffort::Low, "Quick responses"),
+                effort(ReasoningEffort::Medium, "Balanced thinking"),
+                effort(ReasoningEffort::High, "Extended thinking"),
+            ],
+        };
+    }
 
     // Specialized support maps based on model capability signals.
     let is_gpt5_pro = name_lower.contains("gpt-5-pro")
@@ -544,6 +637,11 @@ fn effort(effort: ReasoningEffort, description: &str) -> ReasoningEffortPreset {
 
 /// Format a deployment name into a display name.
 fn format_display_name(name: &str) -> String {
+    // Handle Claude models specially
+    if is_claude_model(name) {
+        return format_claude_display_name(name);
+    }
+
     // Convert deployment names like "gpt-4o" to "GPT-4o"
     // and "gpt-5.1-codex-max" to "GPT-5.1 Codex Max"
     let parts: Vec<&str> = name.split('-').collect();
@@ -570,6 +668,50 @@ fn format_display_name(name: &str) -> String {
     formatted.join("-").replace("-", " ").replace("  ", " ")
 }
 
+/// Format Claude model names into display names.
+/// Examples:
+///   "claude-3-5-sonnet" → "Claude 3.5 Sonnet"
+///   "claude-3-opus" → "Claude 3 Opus"
+///   "claude-3-5-sonnet-20241022" → "Claude 3.5 Sonnet"
+fn format_claude_display_name(name: &str) -> String {
+    let parts: Vec<&str> = name.split('-').collect();
+    let mut result_parts: Vec<String> = Vec::new();
+    let mut i = 0;
+
+    while i < parts.len() {
+        let part = parts[i];
+        let lower = part.to_lowercase();
+
+        if lower == "claude" {
+            result_parts.push("Claude".to_string());
+        } else if part.chars().all(|c| c.is_ascii_digit()) {
+            // Check if this is part of a compound version (e.g., "3-5" → "3.5")
+            if i + 1 < parts.len()
+                && parts[i + 1].chars().all(|c| c.is_ascii_digit())
+                && parts[i + 1].len() == 1
+            {
+                result_parts.push(format!("{}.{}", part, parts[i + 1]));
+                i += 1;
+            } else if part.len() >= 8 {
+                // Skip date-like suffixes (e.g., "20241022")
+                break;
+            } else {
+                result_parts.push(part.to_string());
+            }
+        } else {
+            // Capitalize model names like "sonnet", "opus", "haiku"
+            let mut chars: Vec<char> = part.chars().collect();
+            if let Some(first) = chars.first_mut() {
+                *first = first.to_ascii_uppercase();
+            }
+            result_parts.push(chars.into_iter().collect());
+        }
+        i += 1;
+    }
+
+    result_parts.join(" ")
+}
+
 /// Create a shared deployments manager.
 pub fn create_deployments_manager(endpoint: Option<String>) -> Arc<AzureDeploymentsManager> {
     Arc::new(AzureDeploymentsManager::new(endpoint))
@@ -581,6 +723,15 @@ mod tests {
 
     #[test]
     fn test_extract_account_name() {
+        // Azure AI Services (preferred format)
+        assert_eq!(
+            AzureDeploymentsManager::extract_account_name(
+                "https://myresource.services.ai.azure.com"
+            ),
+            Some("myresource".to_string())
+        );
+
+        // Azure OpenAI (legacy format)
         assert_eq!(
             AzureDeploymentsManager::extract_account_name("https://myresource.openai.azure.com"),
             Some("myresource".to_string())
@@ -697,6 +848,137 @@ mod tests {
                 description: "High reasoning (maximum supported by GPT-5-Pro)".to_string()
             }],
             "gpt-5-pro should only surface High"
+        );
+    }
+
+    // Claude model tests
+
+    #[test]
+    fn test_is_claude_model() {
+        assert!(is_claude_model("claude-3-5-sonnet"));
+        assert!(is_claude_model("Claude-3-Opus"));
+        assert!(is_claude_model("claude-3-haiku"));
+        assert!(is_claude_model("my-claude-deployment"));
+
+        assert!(!is_claude_model("gpt-4o"));
+        assert!(!is_claude_model("gpt-5.1-codex"));
+    }
+
+    #[test]
+    fn test_is_supported_model_claude() {
+        // Claude models should be supported
+        assert!(is_supported_model("claude-3-5-sonnet", None));
+        assert!(is_supported_model("claude-3-opus", None));
+        assert!(is_supported_model("claude-3-haiku", None));
+
+        // Custom deployment with Claude underlying model
+        assert!(is_supported_model(
+            "my-deployment",
+            Some("claude-3-5-sonnet")
+        ));
+
+        // Non-supported models
+        assert!(!is_supported_model("llama-3", None));
+        assert!(!is_supported_model("mistral-7b", None));
+    }
+
+    #[test]
+    fn test_format_claude_display_name() {
+        assert_eq!(
+            format_claude_display_name("claude-3-5-sonnet"),
+            "Claude 3.5 Sonnet"
+        );
+        assert_eq!(format_claude_display_name("claude-3-opus"), "Claude 3 Opus");
+        assert_eq!(
+            format_claude_display_name("claude-3-haiku"),
+            "Claude 3 Haiku"
+        );
+        assert_eq!(
+            format_claude_display_name("claude-3-5-sonnet-20241022"),
+            "Claude 3.5 Sonnet"
+        );
+        assert_eq!(
+            format_claude_display_name("Claude-3-5-Sonnet"),
+            "Claude 3.5 Sonnet"
+        );
+    }
+
+    #[test]
+    fn test_format_display_name_routes_claude() {
+        // Claude models should go through format_claude_display_name
+        assert_eq!(
+            format_display_name("claude-3-5-sonnet"),
+            "Claude 3.5 Sonnet"
+        );
+
+        // GPT models should use the existing formatter
+        assert_eq!(format_display_name("gpt-4o"), "GPT 4o");
+    }
+
+    #[test]
+    fn test_reasoning_efforts_claude_opus() {
+        let efforts = get_reasoning_efforts_for_model("claude-3-opus", None);
+        assert_eq!(
+            efforts.default_effort,
+            Some(ReasoningEffort::High),
+            "Claude Opus default should be High"
+        );
+        assert!(
+            efforts
+                .presets
+                .iter()
+                .any(|e| e.effort == ReasoningEffort::XHigh),
+            "Claude Opus should have XHigh"
+        );
+    }
+
+    #[test]
+    fn test_reasoning_efforts_claude_sonnet() {
+        let efforts = get_reasoning_efforts_for_model("claude-3-5-sonnet", None);
+        assert_eq!(
+            efforts.default_effort,
+            Some(ReasoningEffort::Medium),
+            "Claude Sonnet default should be Medium"
+        );
+        assert!(
+            efforts
+                .presets
+                .iter()
+                .any(|e| e.effort == ReasoningEffort::High),
+            "Claude Sonnet should have High"
+        );
+        assert!(
+            !efforts
+                .presets
+                .iter()
+                .any(|e| e.effort == ReasoningEffort::XHigh),
+            "Claude Sonnet should NOT have XHigh"
+        );
+    }
+
+    #[test]
+    fn test_reasoning_efforts_claude_haiku() {
+        let efforts = get_reasoning_efforts_for_model("claude-3-haiku", None);
+        assert_eq!(
+            efforts.default_effort,
+            Some(ReasoningEffort::Low),
+            "Claude Haiku default should be Low"
+        );
+        assert_eq!(
+            efforts.presets.len(),
+            1,
+            "Claude Haiku should only have one effort level"
+        );
+    }
+
+    #[test]
+    fn test_reasoning_efforts_claude_from_underlying() {
+        // Custom deployment name but Claude underlying model
+        let efforts = get_reasoning_efforts_for_model("my-ai-deployment", Some("claude-3-opus"));
+        assert_eq!(
+            efforts.default_effort,
+            Some(ReasoningEffort::High),
+            "Should detect Claude Opus from underlying model"
         );
     }
 }

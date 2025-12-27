@@ -12,6 +12,8 @@ pub enum WireApi {
     Responses,
     Chat,
     Compact,
+    /// Anthropic Messages API (used for Claude models on Azure AI Services)
+    Anthropic,
 }
 
 /// High-level retry configuration for a provider.
@@ -102,6 +104,18 @@ impl Provider {
 
         self.base_url.to_ascii_lowercase().contains("openai.azure.")
             || matches_azure_responses_base_url(&self.base_url)
+    }
+
+    /// Returns true if this is an Azure AI Services endpoint for Anthropic models.
+    pub fn is_azure_anthropic_endpoint(&self) -> bool {
+        if self.wire != WireApi::Anthropic {
+            return false;
+        }
+
+        let lower = self.base_url.to_ascii_lowercase();
+        lower.contains("services.ai.azure.com")
+            || lower.contains("models.ai.azure.com")
+            || lower.contains("/anthropic/")
     }
 }
 

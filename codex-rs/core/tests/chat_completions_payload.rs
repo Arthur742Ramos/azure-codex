@@ -160,6 +160,8 @@ fn reasoning_item(text: &str) -> ResponseItem {
             text: text.to_string(),
         }]),
         encrypted_content: None,
+        thinking_signature: None,
+        thinking_block_type: None,
     }
 }
 

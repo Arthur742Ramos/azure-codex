@@ -166,6 +166,8 @@ impl Stream for AggregatedStream {
                                 text: std::mem::take(&mut this.cumulative_reasoning),
                             }]),
                             encrypted_content: None,
+                            thinking_signature: None,
+                            thinking_block_type: None,
                         };
                         this.pending
                             .push_back(ResponseEvent::OutputItemDone(aggregated_reasoning));

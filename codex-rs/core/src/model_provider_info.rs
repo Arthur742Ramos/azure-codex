@@ -46,6 +46,9 @@ pub enum WireApi {
     /// Regular Chat Completions compatible with `/v1/chat/completions`.
     #[default]
     Chat,
+
+    /// Anthropic Messages API for Claude models on Azure AI Services.
+    Anthropic,
 }
 
 /// Serializable representation of a provider definition.
@@ -200,6 +203,7 @@ impl ModelProviderInfo {
             wire: match self.wire_api {
                 WireApi::Responses => ApiWireApi::Responses,
                 WireApi::Chat => ApiWireApi::Chat,
+                WireApi::Anthropic => ApiWireApi::Anthropic,
             },
             headers,
             retry,
@@ -322,9 +326,9 @@ impl ModelProviderInfo {
                 }),
             env_key: Some("AZURE_OPENAI_API_KEY".into()),
             env_key_instructions: Some(
-                "Set AZURE_OPENAI_ENDPOINT to your Azure OpenAI resource endpoint \
-                (e.g., https://your-resource.openai.azure.com) and AZURE_OPENAI_API_KEY \
-                to your API key from the Azure Portal."
+                "Set AZURE_OPENAI_ENDPOINT to your Azure AI Services endpoint \
+                (e.g., https://your-resource.services.ai.azure.com) and AZURE_OPENAI_API_KEY \
+                to your API key from the Azure Portal. This works for both GPT and Claude models."
                     .into(),
             ),
             experimental_bearer_token: None,
@@ -394,8 +398,10 @@ impl ModelProviderInfo {
 /// Checks if a URL hostname matches known Azure patterns.
 fn is_azure_hostname(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    const AZURE_PATTERNS: [&str; 7] = [
-        "openai.azure.com",
+    const AZURE_PATTERNS: [&str; 9] = [
+        "services.ai.azure.com", // Azure AI Services (preferred, works for all models)
+        "models.ai.azure.com",   // Azure AI Models
+        "openai.azure.com",      // Azure OpenAI (legacy)
         "openai.azure.us",
         "cognitiveservices.azure.",
         "aoai.azure.",

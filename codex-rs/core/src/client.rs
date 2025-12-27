@@ -4,6 +4,8 @@ use crate::api_bridge::auth_provider_from_auth;
 use crate::api_bridge::map_api_error;
 use crate::auth::azure::AzureAuth;
 use codex_api::AggregateStreamExt;
+use codex_api::AnthropicClient as ApiAnthropicClient;
+use codex_api::AnthropicOptions as ApiAnthropicOptions;
 use codex_api::ChatClient as ApiChatClient;
 use codex_api::CompactClient as ApiCompactClient;
 use codex_api::CompactionInput as ApiCompactionInput;
@@ -174,6 +176,21 @@ impl ModelClient {
                     ))
                 }
             }
+            WireApi::Anthropic => {
+                let api_stream = self.stream_anthropic(prompt).await?;
+
+                if self.config.show_raw_agent_reasoning {
+                    Ok(map_response_stream(
+                        api_stream.streaming_mode(),
+                        self.otel_manager.clone(),
+                    ))
+                } else {
+                    Ok(map_response_stream(
+                        api_stream.aggregate(),
+                        self.otel_manager.clone(),
+                    ))
+                }
+            }
         }
     }
 
@@ -222,6 +239,75 @@ impl ModelClient {
                     Some(session_source.clone()),
                 )
                 .await;
+
+            match stream_result {
+                Ok(stream) => return Ok(stream),
+                Err(ApiError::Transport(TransportError::Http { status, .. }))
+                    if status == StatusCode::UNAUTHORIZED =>
+                {
+                    handle_unauthorized(
+                        status,
+                        &mut refreshed,
+                        &auth_manager,
+                        &self.azure_auth,
+                        &auth,
+                    )
+                    .await?;
+                    continue;
+                }
+                Err(err) => return Err(map_api_error(err)),
+            }
+        }
+    }
+
+    /// Streams a turn via the Anthropic Messages API.
+    ///
+    /// This path is used for Claude models on Azure AI Services.
+    /// Supports extended thinking via reasoning_effort when configured.
+    async fn stream_anthropic(&self, prompt: &Prompt) -> Result<ApiResponseStream> {
+        if prompt.output_schema.is_some() {
+            return Err(CodexErr::UnsupportedOperation(
+                "output_schema is not supported for Anthropic Messages API".to_string(),
+            ));
+        }
+
+        let auth_manager = self.auth_manager.clone();
+        let model_family = self.get_model_family();
+        let instructions = prompt.get_full_instructions(&model_family).into_owned();
+        let tools_json = create_tools_json_for_chat_completions_api(&prompt.tools)?;
+        let api_prompt = build_api_prompt(prompt, instructions, tools_json);
+        let conversation_id = self.conversation_id.to_string();
+        let session_source = self.session_source.clone();
+
+        // Get reasoning effort for extended thinking
+        // Use configured effort, or fall back to model's default
+        let reasoning_effort = self.effort.or(model_family.default_reasoning_effort);
+
+        let mut refreshed = false;
+        let model = self.get_model();
+        loop {
+            let auth = auth_manager.as_ref().and_then(|m| m.auth());
+            let api_provider = self
+                .provider
+                .to_api_provider_with_model(auth.as_ref().map(|a| a.mode), Some(&model))?;
+            let api_auth = auth_provider_from_auth(
+                self.azure_auth.as_ref().map(AsRef::as_ref),
+                &self.provider,
+                auth.as_ref(),
+            )
+            .await?;
+            let transport = ReqwestTransport::new(build_reqwest_client());
+            let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();
+            let client = ApiAnthropicClient::new(transport, api_provider, api_auth)
+                .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+
+            let options = ApiAnthropicOptions {
+                reasoning_effort,
+                conversation_id: Some(conversation_id.clone()),
+                session_source: Some(session_source.clone()),
+            };
+
+            let stream_result = client.stream_prompt(&model, &api_prompt, options).await;
 
             match stream_result {
                 Ok(stream) => return Ok(stream),
@@ -649,6 +735,7 @@ impl SseTelemetry for ApiTelemetry {
 /// Azure uses different URL formats for different APIs:
 /// - Responses API: {endpoint}/openai/responses (model in body)
 /// - Chat Completions API: {endpoint}/openai/deployments/{model}/chat/completions
+/// - Azure AI Services (Claude): {endpoint}/anthropic/v1/messages
 ///
 /// This function creates a new provider with the correct base_url and wire_api
 /// for the target wire API.
@@ -662,28 +749,77 @@ fn adjust_azure_provider_for_wire_api(
 
     // Adjust base_url based on target wire API
     if let Some(base_url) = &provider.base_url {
-        adjusted.base_url = Some(match target_wire_api {
-            WireApi::Responses => {
-                // For Responses API: {endpoint}/openai
-                // Strip /deployments if present
-                if base_url.ends_with("/openai/deployments") {
-                    base_url.trim_end_matches("/deployments").to_string()
-                } else {
-                    base_url.clone()
+        // Check if this is a Claude model
+        let is_claude = is_claude_model_name(model_name);
+
+        // Check if this is an Azure AI Services endpoint (services.ai.azure.com)
+        let is_ai_services = is_azure_ai_services_endpoint(base_url);
+
+        if is_claude && is_ai_services {
+            // Azure AI Services for Claude uses the Anthropic API format
+            // Base URL should point to: {endpoint}/anthropic/v1
+            adjusted.base_url = Some(adjust_url_for_azure_ai_services(base_url));
+            tracing::debug!(
+                model = %model_name,
+                adjusted_base_url = ?adjusted.base_url,
+                "Adjusted for Azure AI Services Claude endpoint"
+            );
+        } else if is_claude && !is_ai_services {
+            // Claude on Azure OpenAI endpoint - this won't work!
+            // Log a warning to help the user understand the issue
+            tracing::warn!(
+                model = %model_name,
+                base_url = %base_url,
+                "Claude models require Azure AI Services endpoint (services.ai.azure.com), \
+                 not Azure OpenAI endpoint (openai.azure.com). \
+                 Please configure azure_endpoint to point to your Azure AI Services resource."
+            );
+            // Still try to construct an Anthropic URL in case user has custom setup
+            adjusted.base_url = Some(match target_wire_api {
+                WireApi::Responses => base_url.clone(),
+                WireApi::Chat => {
+                    if base_url.ends_with("/openai") {
+                        format!("{base_url}/deployments/{model_name}")
+                    } else if base_url.ends_with("/openai/deployments") {
+                        format!("{base_url}/{model_name}")
+                    } else {
+                        base_url.clone()
+                    }
                 }
-            }
-            WireApi::Chat => {
-                // For Chat API: {endpoint}/openai/deployments/{model}
-                // Add /deployments/{model} if not present
-                if base_url.ends_with("/openai") {
-                    format!("{base_url}/deployments/{model_name}")
-                } else if base_url.ends_with("/openai/deployments") {
-                    format!("{base_url}/{model_name}")
-                } else {
-                    base_url.clone()
+                WireApi::Anthropic => {
+                    // Try to construct an Anthropic-like URL
+                    adjust_url_for_azure_ai_services(base_url)
                 }
-            }
-        });
+            });
+        } else {
+            // Standard Azure OpenAI handling
+            adjusted.base_url = Some(match target_wire_api {
+                WireApi::Responses => {
+                    // For Responses API: {endpoint}/openai
+                    // Strip /deployments if present
+                    if base_url.ends_with("/openai/deployments") {
+                        base_url.trim_end_matches("/deployments").to_string()
+                    } else {
+                        base_url.clone()
+                    }
+                }
+                WireApi::Chat => {
+                    // For Chat API: {endpoint}/openai/deployments/{model}
+                    // Add /deployments/{model} if not present
+                    if base_url.ends_with("/openai") {
+                        format!("{base_url}/deployments/{model_name}")
+                    } else if base_url.ends_with("/openai/deployments") {
+                        format!("{base_url}/{model_name}")
+                    } else {
+                        base_url.clone()
+                    }
+                }
+                WireApi::Anthropic => {
+                    // For Anthropic API on Azure AI Services
+                    adjust_url_for_azure_ai_services(base_url)
+                }
+            });
+        }
     }
 
     tracing::debug!(
@@ -698,6 +834,40 @@ fn adjust_azure_provider_for_wire_api(
     adjusted
 }
 
+/// Checks if an endpoint URL is an Azure AI Services endpoint (for Claude, etc.)
+fn is_azure_ai_services_endpoint(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    lower.contains("services.ai.azure.com")
+        || lower.contains("models.ai.azure.com")
+        || lower.contains("/anthropic/")
+}
+
+/// Adjusts a URL for Azure AI Services Claude endpoint.
+/// Converts various URL formats to the correct Anthropic API format.
+fn adjust_url_for_azure_ai_services(base_url: &str) -> String {
+    let url = base_url.trim_end_matches('/');
+
+    // If already pointing to anthropic API, return as-is
+    if url.ends_with("/anthropic/v1") || url.ends_with("/anthropic") {
+        return url.to_string();
+    }
+
+    // Extract the base endpoint and add /anthropic/v1
+    // Expected input: https://{resource}.services.ai.azure.com
+    // Expected output: https://{resource}.services.ai.azure.com/anthropic/v1
+    if url.contains("services.ai.azure.com") {
+        // Strip any existing path components
+        if let Some(idx) = url.find("services.ai.azure.com") {
+            let end_idx = idx + "services.ai.azure.com".len();
+            let base = &url[..end_idx];
+            return format!("{base}/anthropic/v1");
+        }
+    }
+
+    // Fallback: just append anthropic/v1
+    format!("{url}/anthropic/v1")
+}
+
 /// Determines the appropriate wire API for an Azure deployment based on model name.
 ///
 /// Azure OpenAI deployments have varying capabilities:
@@ -709,9 +879,17 @@ fn adjust_azure_provider_for_wire_api(
 fn determine_wire_api_for_azure_model(model_name: &str) -> WireApi {
     let name_lower = model_name.to_lowercase();
 
-    // Models that ONLY support Chat Completions (no Responses API)
-    // Claude and Grok models on Azure only support chatCompletion
-    if name_lower.starts_with("claude-") || name_lower.starts_with("grok-") {
+    // Claude models on Azure AI Services use the Anthropic Messages API
+    if name_lower.starts_with("claude") || name_lower.contains("claude") {
+        tracing::debug!(
+            model = %model_name,
+            "Using Anthropic Messages API for Claude model"
+        );
+        return WireApi::Anthropic;
+    }
+
+    // Grok models on Azure only support Chat Completions API
+    if name_lower.starts_with("grok-") {
         tracing::debug!(
             model = %model_name,
             "Model only supports Chat Completions API"
@@ -745,4 +923,10 @@ fn determine_wire_api_for_azure_model(model_name: &str) -> WireApi {
         "Unknown model, defaulting to Responses API"
     );
     WireApi::Responses
+}
+
+/// Checks if a model name is a Claude model.
+fn is_claude_model_name(model_name: &str) -> bool {
+    let lower = model_name.to_lowercase();
+    lower.starts_with("claude") || lower.contains("claude")
 }
