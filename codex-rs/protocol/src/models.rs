@@ -77,9 +77,14 @@ pub enum ResponseItem {
         #[ts(skip)]
         id: String,
         summary: Vec<ReasoningItemReasoningSummary>,
-        #[serde(default, skip_serializing_if = "should_serialize_reasoning_content")]
-        #[ts(optional)]
+        /// The raw thinking content. Skip serializing since this is provider-specific
+        /// (Claude stores extended thinking here, OpenAI doesn't accept it).
+        #[serde(default, skip_serializing)]
+        #[ts(skip)]
         content: Option<Vec<ReasoningItemContent>>,
+        /// Anthropic-specific encrypted content for redacted thinking blocks.
+        #[serde(default, skip_serializing)]
+        #[ts(skip)]
         encrypted_content: Option<String>,
         /// Anthropic-specific: signature for extended thinking verification.
         /// Always skip serializing - Anthropic request builder handles this manually.
@@ -166,15 +171,6 @@ pub enum ResponseItem {
     },
     #[serde(other)]
     Other,
-}
-
-fn should_serialize_reasoning_content(content: &Option<Vec<ReasoningItemContent>>) -> bool {
-    match content {
-        Some(content) => !content
-            .iter()
-            .any(|c| matches!(c, ReasoningItemContent::ReasoningText { .. })),
-        None => false,
-    }
 }
 
 fn local_image_error_placeholder(
