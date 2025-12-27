@@ -333,32 +333,46 @@ impl<'a> AnthropicRequestBuilder<'a> {
                     flush_tool_uses(&mut messages, &mut pending_tool_uses, &mut pending_thinking);
 
                     // Anthropic uses tool_result blocks for function outputs
+                    // Note: Anthropic requires non-whitespace text in content blocks
                     let content_value = if let Some(items) = &output.content_items {
                         let mapped: Vec<Value> = items
                             .iter()
-                            .map(|it| match it {
+                            .filter_map(|it| match it {
                                 FunctionCallOutputContentItem::InputText { text } => {
-                                    json!({"type": "text", "text": text})
+                                    // Filter out whitespace-only text
+                                    if text.trim().is_empty() {
+                                        None
+                                    } else {
+                                        Some(json!({"type": "text", "text": text}))
+                                    }
                                 }
                                 FunctionCallOutputContentItem::InputImage { image_url } => {
                                     // Anthropic image format for tool results
                                     if let Some(base64_data) = extract_base64_image(image_url) {
-                                        json!({
+                                        Some(json!({
                                             "type": "image",
                                             "source": {
                                                 "type": "base64",
                                                 "media_type": "image/png",
                                                 "data": base64_data,
                                             }
-                                        })
+                                        }))
                                     } else {
                                         // URL-based images aren't directly supported in tool results
-                                        json!({"type": "text", "text": format!("[Image: {image_url}]")})
+                                        Some(json!({"type": "text", "text": format!("[Image: {image_url}]")}))
                                     }
                                 }
                             })
                             .collect();
-                        json!(mapped)
+                        // If all content was filtered out, provide a placeholder
+                        if mapped.is_empty() {
+                            json!([{"type": "text", "text": "[empty]"}])
+                        } else {
+                            json!(mapped)
+                        }
+                    } else if output.content.trim().is_empty() {
+                        // Handle whitespace-only content
+                        json!([{"type": "text", "text": "[empty]"}])
                     } else {
                         json!([{"type": "text", "text": output.content}])
                     };
@@ -453,7 +467,8 @@ impl<'a> AnthropicRequestBuilder<'a> {
             .iter()
             .filter_map(|c| match c {
                 ContentItem::InputText { text } | ContentItem::OutputText { text } => {
-                    if text.is_empty() {
+                    // Anthropic requires non-whitespace text in content blocks
+                    if text.trim().is_empty() {
                         None
                     } else {
                         Some(json!({"type": "text", "text": text}))
