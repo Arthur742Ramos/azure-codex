@@ -81,11 +81,15 @@ pub enum ResponseItem {
         #[ts(optional)]
         content: Option<Vec<ReasoningItemContent>>,
         encrypted_content: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        /// Anthropic-specific: signature for extended thinking verification.
+        /// Always skip serializing - Anthropic request builder handles this manually.
+        #[serde(default, skip_serializing)]
+        #[ts(skip)]
         thinking_signature: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        /// Anthropic-specific: block type ("thinking" or "redacted_thinking").
+        /// Always skip serializing - Anthropic request builder handles this manually.
+        #[serde(default, skip_serializing)]
+        #[ts(skip)]
         thinking_block_type: Option<String>,
     },
     LocalShellCall {
