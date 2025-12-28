@@ -386,8 +386,48 @@ pub(super) fn find_family_for_model(slug: &str) -> ModelFamily {
             truncation_policy: TruncationPolicy::Bytes(10_000),
             context_window: Some(CONTEXT_WINDOW_272K),
         )
+    // Claude models on Azure AI Services
+    } else if is_claude_model(&slug.to_lowercase()) {
+        model_family!(
+            slug, "claude",
+            apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
+            context_window: Some(200_000),
+        )
     } else {
         derive_default_model_family(slug)
+    }
+}
+
+/// Check if the given slug (already lowercased) is a known Claude model.
+/// Matches patterns like "claude-3-opus", "claude-3.5-sonnet", "claude-4", "claude3", etc.
+fn is_claude_model(slug: &str) -> bool {
+    slug.starts_with("claude")
+}
+
+#[cfg(test)]
+mod claude_tests {
+    use super::is_claude_model;
+
+    #[test]
+    fn test_claude_model_detection() {
+        // Standard Claude model names
+        assert!(is_claude_model("claude-3-opus"));
+        assert!(is_claude_model("claude-3.5-sonnet"));
+        assert!(is_claude_model("claude-4"));
+        assert!(is_claude_model("claude-3-5-sonnet-20241022"));
+
+        // Compact naming (no hyphen after claude)
+        assert!(is_claude_model("claude3"));
+        assert!(is_claude_model("claude4"));
+
+        // Just "claude" should match (could be a deployment alias)
+        assert!(is_claude_model("claude"));
+
+        // Non-Claude models should not match
+        assert!(!is_claude_model("gpt-4"));
+        assert!(!is_claude_model("gpt-5.1-codex"));
+        assert!(!is_claude_model("notclaude"));
+        assert!(!is_claude_model("my-claude-model")); // doesn't start with "claude"
     }
 }
 

@@ -19,6 +19,7 @@ use crate::codex::Session;
 use crate::codex::TurnContext;
 use crate::codex_delegate::run_codex_conversation_one_shot;
 use crate::config::Constrained;
+use crate::model_provider_info::WireApi;
 use crate::review_format::format_review_findings_block;
 use crate::review_format::render_review_output_text;
 use crate::state::TaskKind;
@@ -260,7 +261,21 @@ async fn start_review_conversation(
     // Set explicit review rubric for the sub-agent
     sub_agent_config.base_instructions = Some(crate::REVIEW_PROMPT.to_string());
 
-    sub_agent_config.model = Some(config.review_model.clone());
+    // For Azure (both OpenAI and Anthropic), the default review_model (gpt-5.1-codex-max)
+    // likely won't exist as a deployment, so use the main model instead. For standard
+    // OpenAI, use the configured review_model which may be optimized for code review.
+    let is_azure = config.azure_endpoint.is_some();
+    let is_anthropic = config.model_provider.wire_api == WireApi::Anthropic;
+    let use_main_model = is_azure || is_anthropic;
+    if use_main_model && config.model.is_some() {
+        tracing::debug!(
+            "Using main model {:?} for review (Azure/Anthropic provider)",
+            config.model
+        );
+        sub_agent_config.model = config.model.clone();
+    } else {
+        sub_agent_config.model = Some(config.review_model.clone());
+    }
     (run_codex_conversation_one_shot(
         sub_agent_config,
         session.auth_manager(),

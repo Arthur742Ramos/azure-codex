@@ -40,3 +40,6 @@ pub mod fuzzy_match;
 pub mod approval_presets;
 // Shared OSS provider utilities used by TUI and exec
 pub mod oss;
+
+// Shared text preview utilities used by TUI crates
+pub mod text_preview;

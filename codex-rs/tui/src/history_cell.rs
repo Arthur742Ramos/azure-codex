@@ -1679,10 +1679,12 @@ pub(crate) fn new_reasoning_summary_block(full_reasoning_buffer: String) -> Box<
             }
         }
     }
+    // For raw thinking (e.g., Claude extended thinking), show a condensed preview
+    // instead of hiding. Use false for transcript_only to display in the UI.
     Box::new(ReasoningSummaryCell::new(
         "".to_string(),
         full_reasoning_buffer.to_string(),
-        true,
+        false,
     ))
 }
 

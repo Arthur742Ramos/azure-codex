@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use codex_app_server_protocol::AuthMode;
 use codex_backend_client::Client as BackendClient;
+use codex_common::text_preview::extract_thinking_preview;
 use codex_core::config::Config;
 use codex_core::config::ConstraintResult;
 use codex_core::config::types::Notifications;
@@ -525,13 +526,16 @@ impl ChatWidget {
         // For reasoning deltas, do not stream to history. Accumulate the
         // current reasoning block and extract the first bold element
         // (between **/**) as the chunk header. Show this header as status.
+        // For raw thinking (e.g., Claude extended thinking), fall back to
+        // extracting the first sentence as a status preview.
         self.reasoning_buffer.push_str(&delta);
 
         if let Some(header) = extract_first_bold(&self.reasoning_buffer) {
             // Update the shimmer header to the extracted reasoning chunk header.
             self.set_status_header(header);
-        } else {
-            // Fallback while we don't yet have a bold header: leave existing header as-is.
+        } else if let Some(preview) = extract_thinking_preview(&self.reasoning_buffer) {
+            // Fallback for raw thinking: show a preview of the thinking content.
+            self.set_status_header(format!("Thinking: {preview}"));
         }
         self.request_redraw();
     }

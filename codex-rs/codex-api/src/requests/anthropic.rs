@@ -467,7 +467,8 @@ impl<'a> AnthropicRequestBuilder<'a> {
             .iter()
             .filter_map(|c| match c {
                 ContentItem::InputText { text } | ContentItem::OutputText { text } => {
-                    // Anthropic requires non-whitespace text in content blocks
+                    // Anthropic requires non-whitespace text in content blocks.
+                    // Empty or whitespace-only content is filtered out.
                     if text.trim().is_empty() {
                         None
                     } else {
