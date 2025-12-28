@@ -1636,8 +1636,12 @@ impl App {
                 self.config.disable_mouse_capture = !enabled;
                 tui.frame_requester().schedule_frame();
             }
-            AppEvent::StartLoop { max_iterations } => {
-                self.chat_widget.start_loop_mode(max_iterations);
+            AppEvent::StartLoop {
+                max_iterations,
+                completion_phrase,
+            } => {
+                self.chat_widget
+                    .start_loop_mode(max_iterations, completion_phrase);
             }
             AppEvent::StartFileSearch(query) => {
                 if !query.is_empty() {

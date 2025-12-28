@@ -94,6 +94,15 @@ pub struct Cli {
     /// Maximum number of iterations for loop mode (0 = unlimited).
     #[arg(long = "max-iterations", default_value_t = 10, requires = "loop_mode")]
     pub max_iterations: u32,
+
+    /// Phrase that stops the loop when detected in agent output.
+    /// Useful for unlimited iterations to auto-stop when the agent signals completion.
+    #[arg(
+        long = "completion-phrase",
+        value_name = "PHRASE",
+        requires = "loop_mode"
+    )]
+    pub completion_phrase: Option<String>,
 }
 
 #[derive(Debug, clap::Subcommand)]

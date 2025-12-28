@@ -188,6 +188,8 @@ pub(crate) enum AppEvent {
     /// The next submitted prompt will be repeated until max iterations or /cancel-loop.
     StartLoop {
         max_iterations: u32,
+        /// Optional phrase that, if detected in agent output, will stop the loop.
+        completion_phrase: Option<String>,
     },
 }
 

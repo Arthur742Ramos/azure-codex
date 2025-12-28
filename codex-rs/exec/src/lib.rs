@@ -93,6 +93,7 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         config_overrides,
         loop_mode,
         max_iterations,
+        completion_phrase,
     } = cli;
 
     let (stdout_with_ansi, stderr_with_ansi) = match color {
@@ -458,6 +459,7 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
     let mut error_seen = false;
     let mut loop_iteration: u32 = 1;
     let loop_prompt = prompt_summary.clone();
+    let mut last_agent_message: Option<String> = None;
 
     if loop_mode {
         eprintln!(
@@ -484,6 +486,10 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         if matches!(event.msg, EventMsg::Error(_)) {
             error_seen = true;
         }
+        // Capture agent messages for completion phrase detection in loop mode
+        if let EventMsg::AgentMessage(ref agent_event) = event.msg {
+            last_agent_message = Some(agent_event.message.clone());
+        }
         let shutdown: CodexStatus = event_processor.process_event(event);
         match shutdown {
             CodexStatus::Running => continue,
@@ -499,8 +505,21 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
                         continue;
                     }
 
+                    // Check for completion phrase (case-insensitive)
+                    if let Some(ref phrase) = completion_phrase
+                        && let Some(ref msg) = last_agent_message
+                        && msg.to_lowercase().contains(&phrase.to_lowercase())
+                    {
+                        eprintln!(
+                            "Loop completed: detected completion phrase \"{phrase}\" in agent output."
+                        );
+                        conversation.submit(Op::Shutdown).await?;
+                        continue;
+                    }
+
                     // Continue the loop
                     loop_iteration += 1;
+                    last_agent_message = None; // Reset for next iteration
                     eprintln!(
                         "Loop iteration {}{}",
                         loop_iteration,

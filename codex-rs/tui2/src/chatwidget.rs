@@ -3440,6 +3440,10 @@ impl ChatWidget {
         });
     }
 
+    /// Default completion phrase for auto-detection.
+    /// The loop will stop when the agent outputs this phrase (case-insensitive check).
+    const DEFAULT_COMPLETION_PHRASE: &str = "LOOP_COMPLETE";
+
     /// Opens a popup to configure and start an autonomous loop.
     fn open_loop_popup(&mut self) {
         let mut items: Vec<SelectionItem> = Vec::new();
@@ -3449,7 +3453,10 @@ impl ChatWidget {
             name: "Quick loop (10 iterations)".to_string(),
             description: Some("Run the next prompt in a loop for up to 10 iterations".into()),
             actions: vec![Box::new(|tx: &AppEventSender| {
-                tx.send(AppEvent::StartLoop { max_iterations: 10 });
+                tx.send(AppEvent::StartLoop {
+                    max_iterations: 10,
+                    completion_phrase: None,
+                });
             })],
             dismiss_on_select: true,
             ..Default::default()
@@ -3460,7 +3467,10 @@ impl ChatWidget {
             name: "Extended loop (25 iterations)".to_string(),
             description: Some("Run the next prompt in a loop for up to 25 iterations".into()),
             actions: vec![Box::new(|tx: &AppEventSender| {
-                tx.send(AppEvent::StartLoop { max_iterations: 25 });
+                tx.send(AppEvent::StartLoop {
+                    max_iterations: 25,
+                    completion_phrase: None,
+                });
             })],
             dismiss_on_select: true,
             ..Default::default()
@@ -3471,18 +3481,38 @@ impl ChatWidget {
             name: "Long loop (50 iterations)".to_string(),
             description: Some("Run the next prompt in a loop for up to 50 iterations".into()),
             actions: vec![Box::new(|tx: &AppEventSender| {
-                tx.send(AppEvent::StartLoop { max_iterations: 50 });
+                tx.send(AppEvent::StartLoop {
+                    max_iterations: 50,
+                    completion_phrase: None,
+                });
             })],
             dismiss_on_select: true,
             ..Default::default()
         });
 
-        // Unlimited (be careful!)
+        // Unlimited with auto-detection (recommended for unlimited)
         items.push(SelectionItem {
-            name: "Unlimited loop (use with caution)".to_string(),
-            description: Some("Run until completion or /cancel-loop".into()),
+            name: "Unlimited + auto-stop on LOOP_COMPLETE".to_string(),
+            description: Some("Run until agent outputs 'LOOP_COMPLETE' or /cancel-loop".into()),
             actions: vec![Box::new(|tx: &AppEventSender| {
-                tx.send(AppEvent::StartLoop { max_iterations: 0 });
+                tx.send(AppEvent::StartLoop {
+                    max_iterations: 0,
+                    completion_phrase: Some(Self::DEFAULT_COMPLETION_PHRASE.to_string()),
+                });
+            })],
+            dismiss_on_select: true,
+            ..Default::default()
+        });
+
+        // Unlimited without auto-detection (manual control)
+        items.push(SelectionItem {
+            name: "Unlimited (manual stop only)".to_string(),
+            description: Some("Run until /cancel-loop - use with caution!".into()),
+            actions: vec![Box::new(|tx: &AppEventSender| {
+                tx.send(AppEvent::StartLoop {
+                    max_iterations: 0,
+                    completion_phrase: None,
+                });
             })],
             dismiss_on_select: true,
             ..Default::default()
@@ -3498,21 +3528,35 @@ impl ChatWidget {
         });
     }
 
-    /// Activates loop mode with the specified max iterations.
+    /// Activates loop mode with the specified max iterations and optional completion phrase.
     /// The next submitted prompt will be used as the loop prompt.
-    pub(crate) fn start_loop_mode(&mut self, max_iterations: u32) {
+    pub(crate) fn start_loop_mode(
+        &mut self,
+        max_iterations: u32,
+        completion_phrase: Option<String>,
+    ) {
         self.loop_state = LoopState {
             active: false, // Will be set to true when prompt is submitted
             prompt: String::new(),
             current_iteration: 0,
             max_iterations,
-            completion_phrase: None,
+            completion_phrase,
         };
         // Set a flag to indicate we're waiting for the loop prompt
+        let iter_msg = if max_iterations == 0 {
+            "unlimited".to_string()
+        } else {
+            max_iterations.to_string()
+        };
+        let phrase_msg = self
+            .loop_state
+            .completion_phrase
+            .as_ref()
+            .map(|p| format!(" Will stop on: \"{p}\""))
+            .unwrap_or_default();
         self.add_info_message(
             format!(
-                "Loop mode armed (max {} iterations). Enter your prompt to begin the loop. Use /cancel-loop to abort.",
-                if max_iterations == 0 { "unlimited".to_string() } else { max_iterations.to_string() }
+                "Loop mode armed (max {iter_msg} iterations).{phrase_msg} Enter your prompt to begin. Use /cancel-loop to abort."
             ),
             None,
         );
@@ -3540,10 +3584,10 @@ impl ChatWidget {
             return;
         }
 
-        // Check if completion phrase was detected
+        // Check if completion phrase was detected (case-insensitive)
         if let Some(ref phrase) = self.loop_state.completion_phrase
             && let Some(msg) = last_agent_message
-            && msg.contains(phrase)
+            && msg.to_lowercase().contains(&phrase.to_lowercase())
         {
             self.add_info_message(
                 format!(
