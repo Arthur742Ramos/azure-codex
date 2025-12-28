@@ -839,6 +839,7 @@ fn is_azure_ai_services_endpoint(url: &str) -> bool {
     let lower = url.to_lowercase();
     lower.contains("services.ai.azure.com")
         || lower.contains("models.ai.azure.com")
+        || lower.contains("cognitiveservices.azure.com")
         || lower.contains("/anthropic/")
 }
 
@@ -854,13 +855,20 @@ fn adjust_url_for_azure_ai_services(base_url: &str) -> String {
 
     // Extract the base endpoint and add /anthropic/v1
     // Expected input: https://{resource}.services.ai.azure.com
-    // Expected output: https://{resource}.services.ai.azure.com/anthropic/v1
-    if url.contains("services.ai.azure.com") {
-        // Strip any existing path components
-        if let Some(idx) = url.find("services.ai.azure.com") {
-            let end_idx = idx + "services.ai.azure.com".len();
-            let base = &url[..end_idx];
-            return format!("{base}/anthropic/v1");
+    //             or: https://{resource}.cognitiveservices.azure.com
+    // Expected output: https://{resource}.{domain}/anthropic/v1
+    for domain in [
+        "services.ai.azure.com",
+        "cognitiveservices.azure.com",
+        "models.ai.azure.com",
+    ] {
+        if url.contains(domain) {
+            // Strip any existing path components
+            if let Some(idx) = url.find(domain) {
+                let end_idx = idx + domain.len();
+                let base = &url[..end_idx];
+                return format!("{base}/anthropic/v1");
+            }
         }
     }
 

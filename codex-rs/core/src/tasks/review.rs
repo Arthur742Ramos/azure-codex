@@ -12,6 +12,7 @@ use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::ExitedReviewModeEvent;
 use codex_protocol::protocol::ItemCompletedEvent;
 use codex_protocol::protocol::ReviewOutputEvent;
+use codex_protocol::protocol::TaskStartedEvent;
 use codex_protocol::protocol::WarningEvent;
 use tokio_util::sync::CancellationToken;
 
@@ -54,6 +55,15 @@ impl SessionTask for ReviewTask {
         input: Vec<UserInput>,
         cancellation_token: CancellationToken,
     ) -> Option<String> {
+        // Emit TaskStarted so the TUI shows progress indicators (e.g., "Working...")
+        let event = EventMsg::TaskStarted(TaskStartedEvent {
+            model_context_window: ctx.client.get_model_context_window(),
+        });
+        session
+            .clone_session()
+            .send_event(ctx.as_ref(), event)
+            .await;
+
         let output = if self.auto_fix {
             review_with_auto_fix(
                 session.clone(),

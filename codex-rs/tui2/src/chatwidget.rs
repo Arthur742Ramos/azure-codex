@@ -337,6 +337,9 @@ pub(crate) struct ChatWidget {
     needs_final_message_separator: bool,
     // Whether a `/diff` computation is currently running (used to show/hide a transient status).
     diff_in_progress: bool,
+    // Whether a real task (like review) is running, separate from MCP startup.
+    // This prevents MCP startup completion from turning off task_running.
+    has_real_task: bool,
 
     last_rendered_width: std::cell::Cell<Option<usize>>,
     // Feedback sink for /feedback
@@ -543,6 +546,7 @@ impl ChatWidget {
     fn on_task_started(&mut self) {
         self.bottom_pane.clear_ctrl_c_quit_hint();
         self.bottom_pane.set_task_running(true);
+        self.has_real_task = true;
         self.retry_status_header = None;
         self.bottom_pane.set_interrupt_hint_visible(true);
         self.set_status_header(String::from("Working"));
@@ -556,6 +560,7 @@ impl ChatWidget {
         self.flush_answer_stream_with_separator();
         // Mark task stopped and request redraw now that all content is in history.
         self.bottom_pane.set_task_running(false);
+        self.has_real_task = false;
         self.running_commands.clear();
         self.suppressed_exec_calls.clear();
         self.last_unified_wait = None;
@@ -777,7 +782,11 @@ impl ChatWidget {
         }
 
         self.mcp_startup_status = None;
-        self.bottom_pane.set_task_running(false);
+        // Only turn off task_running if no real task (like review) is active.
+        // Otherwise, the MCP completion would incorrectly stop the progress indicator.
+        if !self.has_real_task {
+            self.bottom_pane.set_task_running(false);
+        }
         self.maybe_send_next_queued_input();
         self.request_redraw();
     }
@@ -1357,6 +1366,7 @@ impl ChatWidget {
             pre_review_token_info: None,
             needs_final_message_separator: false,
             diff_in_progress: false,
+            has_real_task: false,
             last_rendered_width: std::cell::Cell::new(None),
             feedback,
             current_rollout_path: None,
@@ -1445,6 +1455,7 @@ impl ChatWidget {
             pre_review_token_info: None,
             needs_final_message_separator: false,
             diff_in_progress: false,
+            has_real_task: false,
             last_rendered_width: std::cell::Cell::new(None),
             feedback,
             current_rollout_path: None,

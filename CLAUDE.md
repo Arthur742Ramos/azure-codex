@@ -385,7 +385,87 @@ Op::OverrideTurnContext(TurnContextOverride {
 
 ## Testing
 
-### Local Testing with Azure
+### IMPORTANT: Test Changes Before Finalizing
+
+**You MUST test your changes using `codex-exec` before considering any feature complete.** This is a non-interactive binary that allows testing prompts and model responses without manual interaction.
+
+#### Quick Testing with codex-exec
+
+```bash
+# Set test config directory
+export AZURE_CODEX_HOME="Q:/src/azure-codex/test-config"
+
+# Build codex-exec (debug is faster for iteration)
+cargo build -p codex-exec
+
+# Test a simple prompt
+./codex-rs/target/debug/codex-exec.exe --skip-git-repo-check "Say hello"
+
+# Test with JSON output (for parsing responses)
+./codex-rs/target/debug/codex-exec.exe --skip-git-repo-check --json "Say hello"
+
+# Test with a specific model
+./codex-rs/target/debug/codex-exec.exe --skip-git-repo-check -m "gpt-5.2" "Say hello"
+./codex-rs/target/debug/codex-exec.exe --skip-git-repo-check -m "claude-opus-4-5" "Say hello"
+```
+
+#### Test Scripts (Recommended)
+
+Use the provided test scripts for easier testing:
+
+```powershell
+# PowerShell (Windows)
+.\scripts\test-codex.ps1 -Prompt "Say hello"
+.\scripts\test-codex.ps1 -Prompt "Say hello" -Model "claude-opus-4-5"
+.\scripts\test-codex.ps1 -Prompt "Say hello" -Json
+```
+
+```bash
+# Bash
+./scripts/test-codex.sh "Say hello"
+./scripts/test-codex.sh "Say hello" -m "claude-opus-4-5"
+./scripts/quick-test.sh "Hello"
+```
+
+#### Model Testing Requirements
+
+When testing model-related changes, **test with BOTH provider types**:
+
+| Provider | Model | Use Case |
+|----------|-------|----------|
+| Azure OpenAI | `gpt-5.2` | GPT models (Chat Completions API) |
+| Azure AI Services | `claude-opus-4-5` | Claude models (Anthropic API) |
+
+```bash
+# Test GPT (Azure OpenAI)
+./codex-rs/target/debug/codex-exec.exe --skip-git-repo-check -m "gpt-5.2" "Hello"
+
+# Test Claude (Azure AI Services)
+./codex-rs/target/debug/codex-exec.exe --skip-git-repo-check -m "claude-opus-4-5" "Hello"
+```
+
+#### Query Available Models
+
+You can query Azure to discover available model deployments:
+
+```bash
+# List AI Services deployments (Claude + GPT)
+az cognitiveservices account deployment list \
+  --name <account-name> \
+  --resource-group <resource-group> \
+  --query "[].{name:name, model:properties.model.name}" -o table
+```
+
+#### What to Verify
+
+1. **No errors**: Command completes without 404s or auth failures
+2. **Token usage**: Token count should be displayed (e.g., "tokens used: 11,112")
+3. **Response content**: Model returns sensible output
+4. **Progress indicators**: For long-running tasks, "Working..." should appear
+
+See `scripts/TESTING.md` for comprehensive testing documentation.
+
+### Local Testing with Azure (Interactive)
 
 1. Login: `az login`
 2. Set config:

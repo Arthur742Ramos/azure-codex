@@ -11,6 +11,7 @@ use codex_client::StreamResponse;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ReasoningItemContent;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::protocol::TokenUsage;
 use eventsource_stream::Eventsource;
 use futures::Stream;
 use futures::StreamExt;
@@ -62,10 +63,39 @@ pub async fn process_anthropic_sse<S>(
         redacted_data: Option<String>,
     }
 
+    /// State for tracking token usage across the stream.
+    #[derive(Default, Debug)]
+    struct UsageState {
+        input_tokens: i64,
+        output_tokens: i64,
+        cache_creation_input_tokens: i64,
+        cache_read_input_tokens: i64,
+        /// Tokens used for extended thinking/reasoning (tracked separately).
+        reasoning_output_tokens: i64,
+    }
+
+    impl UsageState {
+        /// Convert to TokenUsage if any data has been recorded, otherwise None.
+        fn to_option(&self) -> Option<TokenUsage> {
+            if self.input_tokens == 0 && self.output_tokens == 0 {
+                return None;
+            }
+            let total = self.input_tokens + self.output_tokens;
+            Some(TokenUsage {
+                input_tokens: self.input_tokens,
+                cached_input_tokens: self.cache_read_input_tokens,
+                output_tokens: self.output_tokens,
+                reasoning_output_tokens: self.reasoning_output_tokens,
+                total_tokens: total,
+            })
+        }
+    }
+
     let mut assistant_item: Option<ResponseItem> = None;
     let mut tool_uses: HashMap<usize, ToolUseState> = HashMap::new();
     let mut tool_use_order: Vec<usize> = Vec::new();
     let mut thinking_states: HashMap<usize, ThinkingState> = HashMap::new();
+    let mut usage_state = UsageState::default();
     let mut completed_sent = false;
 
     loop {
@@ -91,7 +121,7 @@ pub async fn process_anthropic_sse<S>(
                     let _ = tx_event
                         .send(Ok(ResponseEvent::Completed {
                             response_id: String::new(),
-                            token_usage: None,
+                            token_usage: usage_state.to_option(),
                         }))
                         .await;
                 }
@@ -126,7 +156,29 @@ pub async fn process_anthropic_sse<S>(
 
         match event_type {
             "message_start" => {
-                // Initialize message tracking
+                // Initialize message tracking and parse input token usage
+                if let Some(message) = value.get("message")
+                    && let Some(usage) = message.get("usage")
+                {
+                    if let Some(input) = usage
+                        .get("input_tokens")
+                        .and_then(serde_json::Value::as_i64)
+                    {
+                        usage_state.input_tokens = input;
+                    }
+                    if let Some(cache_creation) = usage
+                        .get("cache_creation_input_tokens")
+                        .and_then(serde_json::Value::as_i64)
+                    {
+                        usage_state.cache_creation_input_tokens = cache_creation;
+                    }
+                    if let Some(cache_read) = usage
+                        .get("cache_read_input_tokens")
+                        .and_then(serde_json::Value::as_i64)
+                    {
+                        usage_state.cache_read_input_tokens = cache_read;
+                    }
+                }
                 let _ = tx_event.send(Ok(ResponseEvent::Created)).await;
             }
             "content_block_start" => {
@@ -319,6 +371,15 @@ pub async fn process_anthropic_sse<S>(
                 // Tool use blocks wait for message_delta with stop_reason for proper ordering
             }
             "message_delta" => {
+                // Parse output token usage from message_delta
+                if let Some(usage) = value.get("usage")
+                    && let Some(output) = usage
+                        .get("output_tokens")
+                        .and_then(serde_json::Value::as_i64)
+                {
+                    usage_state.output_tokens = output;
+                }
+
                 let delta = value.get("delta");
 
                 if let Some(d) = delta {
@@ -337,7 +398,7 @@ pub async fn process_anthropic_sse<S>(
                                 let _ = tx_event
                                     .send(Ok(ResponseEvent::Completed {
                                         response_id: String::new(),
-                                        token_usage: None,
+                                        token_usage: usage_state.to_option(),
                                     }))
                                     .await;
                                 completed_sent = true;
@@ -389,7 +450,7 @@ pub async fn process_anthropic_sse<S>(
                     let _ = tx_event
                         .send(Ok(ResponseEvent::Completed {
                             response_id: String::new(),
-                            token_usage: None,
+                            token_usage: usage_state.to_option(),
                         }))
                         .await;
                     completed_sent = true;

@@ -142,3 +142,55 @@ If you don’t have the tool:
   let request = mock.single_request();
   // assert using request.function_call_output(call_id) or request.json_body() or other helpers.
   ```
+
+### End-to-end testing with codex-exec (REQUIRED)
+
+**IMPORTANT**: Before finalizing any changes that affect API calls, model handling, or user-facing behavior, you MUST test with `codex-exec`.
+
+#### Setup and basic usage
+
+```bash
+# Set test config directory
+export AZURE_CODEX_HOME="Q:/src/azure-codex/test-config"
+
+# Build codex-exec
+cargo build -p codex-exec
+
+# Test a prompt
+./codex-rs/target/debug/codex-exec.exe --skip-git-repo-check "Say hello"
+```
+
+#### Test both model providers
+
+When testing model-related changes, always test BOTH provider types:
+
+```bash
+# Test GPT (Azure OpenAI - Chat Completions API)
+./codex-rs/target/debug/codex-exec.exe --skip-git-repo-check -m "gpt-5.2" "Hello"
+
+# Test Claude (Azure AI Services - Anthropic API)
+./codex-rs/target/debug/codex-exec.exe --skip-git-repo-check -m "claude-opus-4-5" "Hello"
+```
+
+#### Test scripts
+
+Use the provided test scripts for easier testing:
+
+```powershell
+# PowerShell
+.\scripts\test-codex.ps1 -Prompt "Say hello" -Model "claude-opus-4-5"
+```
+
+```bash
+# Bash
+./scripts/test-codex.sh "Say hello" -m "claude-opus-4-5"
+```
+
+#### Verification checklist
+
+1. **No errors**: Command completes without 404s or auth failures
+2. **Token usage**: Token count is displayed (e.g., "tokens used: 11,112")
+3. **Response content**: Model returns sensible output
+4. **Progress indicators**: For long-running tasks, "Working..." appears
+
+See `scripts/TESTING.md` for full documentation.
