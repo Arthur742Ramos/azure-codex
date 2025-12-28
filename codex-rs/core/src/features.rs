@@ -326,17 +326,13 @@ pub const FEATURES: &[FeatureSpec] = &[
         stage: Stage::Stable,
         default_enabled: false,
     },
-    // Beta program. Rendered in the `/experimental` menu for users.
     FeatureSpec {
         id: Feature::UnifiedExec,
         key: "unified_exec",
-        stage: Stage::Beta {
-            name: "Background terminal",
-            menu_description: "Run long-running terminal commands in the background.",
-            announcement: "NEW! Try Background terminals for long running processes. Enable in /experimental!",
-        },
-        default_enabled: false,
+        stage: Stage::Stable,
+        default_enabled: true,
     },
+    // Beta program. Rendered in the `/experimental` menu for users.
     FeatureSpec {
         id: Feature::ShellSnapshot,
         key: "shell_snapshot",
