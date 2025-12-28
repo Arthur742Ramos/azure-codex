@@ -18,6 +18,8 @@ pub enum SlashCommand {
     Skills,
     Review,
     ReviewFix,
+    Loop,
+    CancelLoop,
     New,
     Resume,
     Init,
@@ -46,6 +48,8 @@ impl SlashCommand {
             SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
             SlashCommand::Review => "review my current changes and find issues",
             SlashCommand::ReviewFix => "review my changes, fix issues, and re-check until clean",
+            SlashCommand::Loop => "run a task in an autonomous loop until completion",
+            SlashCommand::CancelLoop => "stop the current autonomous loop",
             SlashCommand::Resume => "resume a saved chat",
             // SlashCommand::Undo => "ask Codex to undo a turn",
             SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
@@ -83,6 +87,7 @@ impl SlashCommand {
             | SlashCommand::Approvals
             | SlashCommand::Review
             | SlashCommand::ReviewFix
+            | SlashCommand::Loop
             | SlashCommand::Logout => false,
             SlashCommand::Diff
             | SlashCommand::Mention
@@ -91,6 +96,7 @@ impl SlashCommand {
             | SlashCommand::Mcp
             | SlashCommand::ToggleMouseMode
             | SlashCommand::Feedback
+            | SlashCommand::CancelLoop
             | SlashCommand::Quit
             | SlashCommand::Exit => true,
             SlashCommand::Rollout => true,

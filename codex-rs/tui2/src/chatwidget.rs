@@ -346,11 +346,29 @@ pub(crate) struct ChatWidget {
     feedback: codex_feedback::CodexFeedback,
     // Current session rollout path (if known)
     current_rollout_path: Option<PathBuf>,
+    // Autonomous loop state (Ralph Wiggum-style)
+    loop_state: LoopState,
 }
 
 struct UserMessage {
     text: String,
     image_paths: Vec<PathBuf>,
+}
+
+/// State for the autonomous loop feature (Ralph Wiggum-style).
+/// Allows the agent to work on a task repeatedly without human intervention.
+#[derive(Default)]
+struct LoopState {
+    /// Whether the loop is currently active.
+    active: bool,
+    /// The original prompt to re-inject after each iteration.
+    prompt: String,
+    /// Current iteration number (1-indexed).
+    current_iteration: u32,
+    /// Maximum number of iterations before stopping (0 = unlimited).
+    max_iterations: u32,
+    /// Optional completion phrase - if the agent outputs this, stop the loop.
+    completion_phrase: Option<String>,
 }
 
 impl From<String> for UserMessage {
@@ -565,6 +583,9 @@ impl ChatWidget {
         self.suppressed_exec_calls.clear();
         self.last_unified_wait = None;
         self.request_redraw();
+
+        // Check if we should continue an autonomous loop
+        self.maybe_continue_loop(last_agent_message.as_deref());
 
         // If there is a queued user message, send exactly one now to begin the next turn.
         self.maybe_send_next_queued_input();
@@ -1370,6 +1391,7 @@ impl ChatWidget {
             last_rendered_width: std::cell::Cell::new(None),
             feedback,
             current_rollout_path: None,
+            loop_state: LoopState::default(),
         };
 
         widget.prefetch_rate_limits();
@@ -1459,6 +1481,7 @@ impl ChatWidget {
             last_rendered_width: std::cell::Cell::new(None),
             feedback,
             current_rollout_path: None,
+            loop_state: LoopState::default(),
         };
 
         widget.prefetch_rate_limits();
@@ -1602,6 +1625,12 @@ impl ChatWidget {
             }
             SlashCommand::ReviewFix => {
                 self.open_review_popup(true);
+            }
+            SlashCommand::Loop => {
+                self.open_loop_popup();
+            }
+            SlashCommand::CancelLoop => {
+                self.cancel_loop();
             }
             SlashCommand::Model => {
                 self.open_model_popup();
@@ -1766,6 +1795,24 @@ impl ChatWidget {
         let UserMessage { text, image_paths } = user_message;
         if text.is_empty() && image_paths.is_empty() {
             return;
+        }
+
+        // If loop mode is active and we haven't captured the prompt yet, capture it
+        if self.loop_state.active && self.loop_state.prompt.is_empty() {
+            self.loop_state.prompt = text.clone();
+            self.loop_state.current_iteration = 1;
+            let max = self.loop_state.max_iterations;
+            self.add_info_message(
+                format!(
+                    "Loop started: iteration 1{}",
+                    if max > 0 {
+                        format!("/{max}")
+                    } else {
+                        String::new()
+                    }
+                ),
+                None,
+            );
         }
 
         let mut items: Vec<UserInput> = Vec::new();
@@ -3391,6 +3438,160 @@ impl ChatWidget {
             items,
             ..Default::default()
         });
+    }
+
+    /// Opens a popup to configure and start an autonomous loop.
+    fn open_loop_popup(&mut self) {
+        let mut items: Vec<SelectionItem> = Vec::new();
+
+        // Quick loop with default settings (10 iterations)
+        items.push(SelectionItem {
+            name: "Quick loop (10 iterations)".to_string(),
+            description: Some("Run the next prompt in a loop for up to 10 iterations".into()),
+            actions: vec![Box::new(|tx: &AppEventSender| {
+                tx.send(AppEvent::StartLoop { max_iterations: 10 });
+            })],
+            dismiss_on_select: true,
+            ..Default::default()
+        });
+
+        // Extended loop (25 iterations)
+        items.push(SelectionItem {
+            name: "Extended loop (25 iterations)".to_string(),
+            description: Some("Run the next prompt in a loop for up to 25 iterations".into()),
+            actions: vec![Box::new(|tx: &AppEventSender| {
+                tx.send(AppEvent::StartLoop { max_iterations: 25 });
+            })],
+            dismiss_on_select: true,
+            ..Default::default()
+        });
+
+        // Long loop (50 iterations)
+        items.push(SelectionItem {
+            name: "Long loop (50 iterations)".to_string(),
+            description: Some("Run the next prompt in a loop for up to 50 iterations".into()),
+            actions: vec![Box::new(|tx: &AppEventSender| {
+                tx.send(AppEvent::StartLoop { max_iterations: 50 });
+            })],
+            dismiss_on_select: true,
+            ..Default::default()
+        });
+
+        // Unlimited (be careful!)
+        items.push(SelectionItem {
+            name: "Unlimited loop (use with caution)".to_string(),
+            description: Some("Run until completion or /cancel-loop".into()),
+            actions: vec![Box::new(|tx: &AppEventSender| {
+                tx.send(AppEvent::StartLoop { max_iterations: 0 });
+            })],
+            dismiss_on_select: true,
+            ..Default::default()
+        });
+
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            title: Some("Autonomous Loop (Ralph Wiggum)".into()),
+            footer_hint: Some(
+                "Enter your prompt after selecting. Use /cancel-loop to stop.".into(),
+            ),
+            items,
+            ..Default::default()
+        });
+    }
+
+    /// Activates loop mode with the specified max iterations.
+    /// The next submitted prompt will be used as the loop prompt.
+    pub(crate) fn start_loop_mode(&mut self, max_iterations: u32) {
+        self.loop_state = LoopState {
+            active: false, // Will be set to true when prompt is submitted
+            prompt: String::new(),
+            current_iteration: 0,
+            max_iterations,
+            completion_phrase: None,
+        };
+        // Set a flag to indicate we're waiting for the loop prompt
+        self.add_info_message(
+            format!(
+                "Loop mode armed (max {} iterations). Enter your prompt to begin the loop. Use /cancel-loop to abort.",
+                if max_iterations == 0 { "unlimited".to_string() } else { max_iterations.to_string() }
+            ),
+            None,
+        );
+        self.loop_state.active = true;
+    }
+
+    /// Cancels any active loop.
+    fn cancel_loop(&mut self) {
+        if self.loop_state.active {
+            let iterations = self.loop_state.current_iteration;
+            self.loop_state = LoopState::default();
+            self.add_info_message(
+                format!("Loop cancelled after {iterations} iteration(s)."),
+                None,
+            );
+        } else {
+            self.add_info_message("No active loop to cancel.".to_string(), None);
+        }
+        self.request_redraw();
+    }
+
+    /// Called when task completes to potentially continue the loop.
+    fn maybe_continue_loop(&mut self, last_agent_message: Option<&str>) {
+        if !self.loop_state.active || self.loop_state.prompt.is_empty() {
+            return;
+        }
+
+        // Check if completion phrase was detected
+        if let Some(ref phrase) = self.loop_state.completion_phrase
+            && let Some(msg) = last_agent_message
+            && msg.contains(phrase)
+        {
+            self.add_info_message(
+                format!(
+                    "Loop completed: detected completion phrase after {} iteration(s).",
+                    self.loop_state.current_iteration
+                ),
+                None,
+            );
+            self.loop_state = LoopState::default();
+            return;
+        }
+
+        // Check if we've reached max iterations
+        if self.loop_state.max_iterations > 0
+            && self.loop_state.current_iteration >= self.loop_state.max_iterations
+        {
+            self.add_info_message(
+                format!(
+                    "Loop completed: reached maximum of {} iteration(s).",
+                    self.loop_state.max_iterations
+                ),
+                None,
+            );
+            self.loop_state = LoopState::default();
+            return;
+        }
+
+        // Continue the loop - increment iteration and re-submit prompt
+        self.loop_state.current_iteration += 1;
+        let iteration = self.loop_state.current_iteration;
+        let max = self.loop_state.max_iterations;
+        let prompt = self.loop_state.prompt.clone();
+
+        self.add_info_message(
+            format!(
+                "Loop iteration {}{} starting...",
+                iteration,
+                if max > 0 {
+                    format!("/{max}")
+                } else {
+                    String::new()
+                }
+            ),
+            None,
+        );
+
+        // Re-submit the prompt
+        self.submit_user_message(prompt.into());
     }
 
     pub(crate) async fn show_review_branch_picker(&mut self, cwd: &Path, auto_fix: bool) {

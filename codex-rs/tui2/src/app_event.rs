@@ -183,6 +183,12 @@ pub(crate) enum AppEvent {
     /// is available. When enabled, the app handles mouse events for scrolling
     /// and text selection.
     ToggleMouseCapture,
+
+    /// Start an autonomous loop with the specified max iterations.
+    /// The next submitted prompt will be repeated until max iterations or /cancel-loop.
+    StartLoop {
+        max_iterations: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -85,6 +85,15 @@ pub struct Cli {
     /// if `-` is used), instructions are read from stdin.
     #[arg(value_name = "PROMPT", value_hint = clap::ValueHint::Other)]
     pub prompt: Option<String>,
+
+    /// Run the prompt in an autonomous loop (Ralph Wiggum style).
+    /// The agent will repeat the task until max-iterations or completion.
+    #[arg(long = "loop", default_value_t = false)]
+    pub loop_mode: bool,
+
+    /// Maximum number of iterations for loop mode (0 = unlimited).
+    #[arg(long = "max-iterations", default_value_t = 10, requires = "loop_mode")]
+    pub max_iterations: u32,
 }
 
 #[derive(Debug, clap::Subcommand)]

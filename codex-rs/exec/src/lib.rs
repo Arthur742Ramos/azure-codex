@@ -91,6 +91,8 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         prompt,
         output_schema: output_schema_path,
         config_overrides,
+        loop_mode,
+        max_iterations,
     } = cli;
 
     let (stdout_with_ansi, stderr_with_ansi) = match color {
@@ -431,10 +433,10 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
             let task_id = conversation
                 .submit(Op::UserTurn {
                     items,
-                    cwd: default_cwd,
+                    cwd: default_cwd.clone(),
                     approval_policy: default_approval_policy,
                     sandbox_policy: default_sandbox_policy.clone(),
-                    model: default_model,
+                    model: default_model.clone(),
                     effort: default_effort,
                     summary: default_summary,
                     final_output_json_schema: output_schema,
@@ -454,6 +456,20 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
     // Track whether a fatal error was reported by the server so we can
     // exit with a non-zero status for automation-friendly signaling.
     let mut error_seen = false;
+    let mut loop_iteration: u32 = 1;
+    let loop_prompt = prompt_summary.clone();
+
+    if loop_mode {
+        eprintln!(
+            "Loop mode enabled: iteration 1{}",
+            if max_iterations > 0 {
+                format!("/{max_iterations}")
+            } else {
+                String::new()
+            }
+        );
+    }
+
     while let Some(event) = rx.recv().await {
         if let EventMsg::ElicitationRequest(ev) = &event.msg {
             // Automatically cancel elicitation requests in exec mode.
@@ -472,6 +488,47 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         match shutdown {
             CodexStatus::Running => continue,
             CodexStatus::InitiateShutdown => {
+                // Task completed - check if we should continue looping
+                if loop_mode {
+                    // Check if we've reached max iterations
+                    if max_iterations > 0 && loop_iteration >= max_iterations {
+                        eprintln!(
+                            "Loop completed: reached maximum of {max_iterations} iteration(s)."
+                        );
+                        conversation.submit(Op::Shutdown).await?;
+                        continue;
+                    }
+
+                    // Continue the loop
+                    loop_iteration += 1;
+                    eprintln!(
+                        "Loop iteration {}{}",
+                        loop_iteration,
+                        if max_iterations > 0 {
+                            format!("/{max_iterations}")
+                        } else {
+                            String::new()
+                        }
+                    );
+
+                    // Resubmit the prompt
+                    let items = vec![UserInput::Text {
+                        text: loop_prompt.clone(),
+                    }];
+                    conversation
+                        .submit(Op::UserTurn {
+                            items,
+                            cwd: default_cwd.clone(),
+                            approval_policy: default_approval_policy,
+                            sandbox_policy: default_sandbox_policy.clone(),
+                            model: default_model.clone(),
+                            effort: default_effort,
+                            summary: default_summary,
+                            final_output_json_schema: None,
+                        })
+                        .await?;
+                    continue;
+                }
                 conversation.submit(Op::Shutdown).await?;
             }
             CodexStatus::Shutdown => {
