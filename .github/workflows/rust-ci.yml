@@ -277,8 +277,9 @@ jobs:
         if: ${{ matrix.target == 'x86_64-unknown-linux-gnu' && matrix.profile != 'release' }}
         continue-on-error: true
         run: |
-          find . -name Cargo.toml -mindepth 2 -maxdepth 2 -print0 \
+          find . -name Cargo.toml -mindepth 2 -maxdepth 2 \
             ! -path './tui/Cargo.toml' \
+            -print0 \
             | xargs -0 -I{} bash -c 'cd "$(dirname "{}")" && cargo check --profile ${{ matrix.profile }}'
 
       # Save caches explicitly; make non-fatal so cache packaging
