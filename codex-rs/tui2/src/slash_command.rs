@@ -112,10 +112,18 @@ impl SlashCommand {
     }
 }
 
-/// Return all built-in commands in a Vec paired with their command string.
+/// Return all built-in commands in a Vec paired with their command string.     
 pub fn built_in_slash_commands() -> Vec<(&'static str, SlashCommand)> {
     SlashCommand::iter()
         .filter(|command| command.is_visible())
         .map(|c| (c.command(), c))
         .collect()
+}
+
+/// Return all recognized built-in command names, including non-displayed
+/// aliases (useful for parsing / validation).
+pub fn built_in_slash_commands_for_matching() -> Vec<(&'static str, SlashCommand)> {
+    let mut commands = built_in_slash_commands();
+    commands.extend([("review-and-fix", SlashCommand::ReviewFix)]);
+    commands
 }

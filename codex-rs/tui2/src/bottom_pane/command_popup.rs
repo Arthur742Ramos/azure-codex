@@ -142,7 +142,9 @@ impl CommandPopup {
                 out.push((CommandItem::UserPrompt(idx), Some(indices), score));
             }
         }
-        // When filtering, sort by ascending score and then by name for stability.
+        // When filtering, sort by ascending score and then prefer shorter names
+        // for convenience (e.g. "/c" should favor "/compact" over "/cancel-loop"),
+        // then by name for stability.
         out.sort_by(|a, b| {
             a.2.cmp(&b.2).then_with(|| {
                 let an = match a.0 {
@@ -153,7 +155,7 @@ impl CommandPopup {
                     CommandItem::Builtin(c) => c.command(),
                     CommandItem::UserPrompt(i) => &self.prompts[i].name,
                 };
-                an.cmp(bn)
+                an.len().cmp(&bn.len()).then_with(|| an.cmp(bn))
             })
         });
         out

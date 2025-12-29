@@ -43,7 +43,7 @@ use crate::render::Insets;
 use crate::render::RectExt;
 use crate::render::renderable::Renderable;
 use crate::slash_command::SlashCommand;
-use crate::slash_command::built_in_slash_commands;
+use crate::slash_command::built_in_slash_commands_for_matching;
 use crate::style::user_message_style;
 use codex_common::fuzzy_match::fuzzy_match;
 use codex_protocol::custom_prompts::CustomPrompt;
@@ -1110,7 +1110,7 @@ impl ChatComposer {
                 let first_line = self.textarea.text().lines().next().unwrap_or("");
                 if let Some((name, rest)) = parse_slash_name(first_line)
                     && rest.is_empty()
-                    && let Some((_n, cmd)) = built_in_slash_commands()
+                    && let Some((_n, cmd)) = built_in_slash_commands_for_matching()
                         .into_iter()
                         .find(|(n, _)| *n == name)
                 {
@@ -1177,7 +1177,7 @@ impl ChatComposer {
                 if let Some((name, _rest)) = parse_slash_name(&text) {
                     let treat_as_plain_text = input_starts_with_space || name.contains('/');
                     if !treat_as_plain_text {
-                        let is_builtin = built_in_slash_commands()
+                        let is_builtin = built_in_slash_commands_for_matching()
                             .into_iter()
                             .any(|(command_name, _)| command_name == name);
                         let prompt_prefix = format!("{PROMPTS_CMD_PREFIX}:");
@@ -1668,7 +1668,7 @@ impl ChatComposer {
             return rest_after_name.is_empty();
         }
 
-        let builtin_match = built_in_slash_commands()
+        let builtin_match = built_in_slash_commands_for_matching()
             .into_iter()
             .any(|(cmd_name, _)| fuzzy_match(cmd_name, name).is_some());
 

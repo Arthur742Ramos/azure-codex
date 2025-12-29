@@ -1,5 +1,7 @@
 Goal (incl. success criteria):
-- Restore Claude extended thinking support without disabling it; success = requests preserve signed thinking blocks and satisfy Anthropic ordering/format rules while keeping tool_use/tool_result adjacency, and no "invalid signature" errors.
+- Improve TUI `/loop` behavior; success = (1) loop stops on task errors by default, (2) queued user input cancels loop instead of interleaving, (3) completion phrase detection is more reliable, (4) README documents `/loop` + `/cancel-loop`.
+- Evaluate (and improve if needed) the TUI slash command the user calls “review-and-fix”; success = command name/UX/documentation match expectations and behavior is correct.
+- Ensure changes are CI-ready before commit/push; success = local checks match CI expectations, and there are no obvious workflow failures pending.
 - Maintain a compaction-safe session briefing in this repo via this ledger; success = entries stay current and the assistant uses it each turn.
 
 Constraints/Assumptions:
@@ -11,45 +13,32 @@ Key decisions:
 
 State:
   - Done:
-  - Implemented Anthropic tool_use/tool_result adjacency handling and added regression tests.
-  - Added signed-thinking support (signature/type capture in SSE; request builder emits signed thinking blocks; tests + docs updated).
-  - Adjusted Anthropic request builder to avoid invalid signed thinking blocks (use ReasoningText only; treat missing block_type+encrypted_content as redacted) and added a test.
-  - Ran `just fmt` in `codex-rs` (imports_granularity warning on stable).
-  - Built debug `codex-cli` (initial timeout; retry succeeded).
+  - (Prior work) Implemented Anthropic tool_use/tool_result adjacency handling + regression tests.
+  - (Prior work) Added signed-thinking support + tests/docs; adjusted request builder to avoid invalid signed thinking blocks; ran `just fmt`; built debug `codex-cli`.
+  - Implemented TUI `/loop` improvements (cancel on error, cancel on queued input, completion phrase detection uses streamed output buffer).
+  - Fixed slash command tab-complete ranking so `/c` favors `/compact` over `/cancel-loop`.
+  - Updated the affected chatwidget snapshot and ran `cargo test -p codex-tui2` (PASS).
+  - Ran `codex-exec` smoke tests for GPT + Claude; MCP `cloudbuild` startup failed with AADSTS90009 but the prompts still completed.
   - Now:
-  - Confirm debug build status to the user; then run a minimal Claude prompt with the debug build to validate the signature fix.
+  - Ensure `/review-and-fix` works as an alias for `/review-fix` without impacting popup display.
+  - Fix user-visible edge case: dispatching a bare slash command should not accidentally carry image attachments into a later message (removed unsafe fast-path).
   - Next:
-  - Identify root cause (signature/content/type mismatch or history serialization).
-  - Implement fix, then run the debug build and a minimal prompt test.
-  - After user OK, run `just fix -p ...` and per-crate tests.
+  - If user wants: run `just fix -p codex-tui2` (requires explicit OK per `AGENTS.md`).
+  - After commit/push: monitor GitHub Actions `rust-ci`/`codespell`/`cargo-deny` outcomes (UNCONFIRMED: exact required checks).
 
 Open questions (UNCONFIRMED if needed):
-- Is there a specific prompt or tool sequence that reproduces the "invalid signature" error?
-- Does it only happen on Azure AI Services Claude, or also on standard Anthropic endpoints?
-- Are multiple tool calls being issued in a single assistant turn when the error triggers?
-- Do we already capture signed thinking blocks in responses (including `signature`) and retain them for the next request?
-- Should we auto-fallback when signatures are missing (e.g., legacy history), or hard-fail?
-- What Claude endpoint/model/auth details should be used for the prompt test?
+- Confirmed: user is asking about the TUI slash command `/loop`.
+- Confirmed: `/review-and-fix` is now supported as an alias for `/review-fix`.
+- Do you expect loop to stop on any `EventMsg::Error`, or keep trying until max iterations?
 
 Working set (files/ids/commands):
 - `AGENTS.md`
 - `CONTINUITY.md`
-- `codex-rs/`
-- `codex-rs/codex-api/src/requests/anthropic.rs`
-- `codex-rs/codex-api/src/sse/anthropic.rs`
-- `codex-rs/codex-api/src/sse/chat.rs`
-- `codex-rs/codex-api/src/endpoint/chat.rs`
-- `codex-rs/core/src/conversation_manager.rs`
-- `codex-rs/core/src/context_manager/history_tests.rs`
-- `codex-rs/core/src/event_mapping.rs`
-- `codex-rs/core/tests/chat_completions_payload.rs`
-- `codex-rs/core/tests/suite/client.rs`
-- `codex-rs/protocol/src/models.rs`
-- `docs/config.md`
-- Command (needs OK): `just fix -p codex-api` (in `codex-rs`)
-- Command (needs OK): `just fix -p codex-core` (in `codex-rs`)
-- Command (needs OK): `just fix -p codex-protocol` (in `codex-rs`)
-- Command (needs OK): `cargo test -p codex-api` (in `codex-rs`)
-- Command (needs OK): `cargo test -p codex-core` (in `codex-rs`)
-- Command (needs OK): `cargo test -p codex-protocol` (in `codex-rs`)
-- Command (needs OK): `cargo test --all-features` (in `codex-rs`)
+- `codex-rs/tui2/src/chatwidget.rs`
+- `codex-rs/tui2/src/bottom_pane/command_popup.rs`
+- `codex-rs/tui2/src/bottom_pane/chat_composer.rs`
+- `codex-rs/tui2/src/bottom_pane/mod.rs`
+- `codex-rs/tui2/src/slash_command.rs`
+- `codex-rs/tui2/src/chatwidget/tests.rs`
+- `codex-rs/tui2/src/chatwidget/snapshots/codex_tui2__chatwidget__tests__deltas_then_same_final_message_are_rendered_snapshot.snap`
+- `README.md`

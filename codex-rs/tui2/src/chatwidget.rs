@@ -367,8 +367,12 @@ struct LoopState {
     current_iteration: u32,
     /// Maximum number of iterations before stopping (0 = unlimited).
     max_iterations: u32,
-    /// Optional completion phrase - if the agent outputs this, stop the loop.
+    /// Optional completion phrase - if the agent outputs this, stop the loop.  
     completion_phrase: Option<String>,
+    /// Lowercased copy of `completion_phrase` for cheaper case-insensitive matching.
+    completion_phrase_lower: Option<String>,
+    /// Rolling, lowercased window of streamed agent output for completion phrase detection.
+    agent_output_lower: String,
 }
 
 impl From<String> for UserMessage {
@@ -398,6 +402,8 @@ fn create_initial_user_message(text: String, image_paths: Vec<PathBuf>) -> Optio
 }
 
 impl ChatWidget {
+    const LOOP_AGENT_OUTPUT_WINDOW_MAX_CHARS: usize = 16 * 1024;
+
     fn flush_answer_stream_with_separator(&mut self) {
         if let Some(mut controller) = self.stream_controller.take()
             && let Some(cell) = controller.finalize()
@@ -507,6 +513,7 @@ impl ChatWidget {
     }
 
     fn on_agent_message(&mut self, message: String) {
+        self.record_loop_agent_output(&message);
         // If we have a stream_controller, then the final agent message is redundant and will be a
         // duplicate of what has already been streamed.
         if self.stream_controller.is_none() {
@@ -518,6 +525,7 @@ impl ChatWidget {
     }
 
     fn on_agent_message_delta(&mut self, delta: String) {
+        self.record_loop_agent_output(&delta);
         self.handle_streaming_delta(delta);
     }
 
@@ -570,6 +578,9 @@ impl ChatWidget {
         self.set_status_header(String::from("Working"));
         self.full_reasoning_buffer.clear();
         self.reasoning_buffer.clear();
+        if self.loop_state.active && !self.loop_state.prompt.is_empty() {
+            self.loop_state.agent_output_lower.clear();
+        }
         self.request_redraw();
     }
 
@@ -584,11 +595,24 @@ impl ChatWidget {
         self.last_unified_wait = None;
         self.request_redraw();
 
-        // Check if we should continue an autonomous loop
-        self.maybe_continue_loop(last_agent_message.as_deref());
+        let loop_is_running = self.loop_state.active && !self.loop_state.prompt.is_empty();
+        let has_queued_input = !self.queued_user_messages.is_empty();
+        let should_cancel_loop_for_queued_input = loop_is_running && has_queued_input;
+        if should_cancel_loop_for_queued_input {
+            self.cancel_loop_with_reason("queued input received");
+        }
+
+        let continued = if should_cancel_loop_for_queued_input {
+            false
+        } else {
+            self.maybe_continue_loop(last_agent_message.as_deref())
+        };
 
         // If there is a queued user message, send exactly one now to begin the next turn.
-        self.maybe_send_next_queued_input();
+        // Never interleave queued input with an active loop iteration.
+        if !continued {
+            self.maybe_send_next_queued_input();
+        }
         // Emit a notification when the turn completes (suppressed if focused).
         self.notify(Notification::AgentTurnComplete {
             response: last_agent_message.unwrap_or_default(),
@@ -728,6 +752,9 @@ impl ChatWidget {
 
     fn on_error(&mut self, message: String) {
         self.finalize_turn();
+        if self.loop_state.active && !self.loop_state.prompt.is_empty() {
+            self.cancel_loop_with_reason("task failed");
+        }
         self.add_to_history(history_cell::new_error_event(message));
         self.request_redraw();
 
@@ -3535,12 +3562,15 @@ impl ChatWidget {
         max_iterations: u32,
         completion_phrase: Option<String>,
     ) {
+        let completion_phrase_lower = completion_phrase.as_ref().map(|p| p.to_lowercase());
         self.loop_state = LoopState {
             active: false, // Will be set to true when prompt is submitted
             prompt: String::new(),
             current_iteration: 0,
             max_iterations,
             completion_phrase,
+            completion_phrase_lower,
+            agent_output_lower: String::new(),
         };
         // Set a flag to indicate we're waiting for the loop prompt
         let iter_msg = if max_iterations == 0 {
@@ -3578,16 +3608,34 @@ impl ChatWidget {
         self.request_redraw();
     }
 
-    /// Called when task completes to potentially continue the loop.
-    fn maybe_continue_loop(&mut self, last_agent_message: Option<&str>) {
-        if !self.loop_state.active || self.loop_state.prompt.is_empty() {
+    fn cancel_loop_with_reason(&mut self, reason: &str) {
+        if !self.loop_state.active {
             return;
         }
 
+        let iterations = self.loop_state.current_iteration;
+        self.loop_state = LoopState::default();
+        if iterations > 0 {
+            self.add_info_message(
+                format!("Loop cancelled after {iterations} iteration(s): {reason}."),
+                None,
+            );
+        } else {
+            self.add_info_message(format!("Loop cancelled: {reason}."), None);
+        }
+        self.request_redraw();
+    }
+
+    /// Called when task completes to potentially continue the loop.
+    fn maybe_continue_loop(&mut self, last_agent_message: Option<&str>) -> bool {
+        if !self.loop_state.active || self.loop_state.prompt.is_empty() {
+            return false;
+        }
+
         // Check if completion phrase was detected (case-insensitive)
-        if let Some(ref phrase) = self.loop_state.completion_phrase
-            && let Some(msg) = last_agent_message
-            && msg.to_lowercase().contains(&phrase.to_lowercase())
+        if let Some(phrase_lower) = self.loop_state.completion_phrase_lower.as_deref()
+            && (last_agent_message.is_some_and(|msg| msg.to_lowercase().contains(phrase_lower))
+                || self.loop_state.agent_output_lower.contains(phrase_lower))
         {
             self.add_info_message(
                 format!(
@@ -3597,7 +3645,7 @@ impl ChatWidget {
                 None,
             );
             self.loop_state = LoopState::default();
-            return;
+            return false;
         }
 
         // Check if we've reached max iterations
@@ -3612,7 +3660,7 @@ impl ChatWidget {
                 None,
             );
             self.loop_state = LoopState::default();
-            return;
+            return false;
         }
 
         // Continue the loop - increment iteration and re-submit prompt
@@ -3620,6 +3668,7 @@ impl ChatWidget {
         let iteration = self.loop_state.current_iteration;
         let max = self.loop_state.max_iterations;
         let prompt = self.loop_state.prompt.clone();
+        self.loop_state.agent_output_lower.clear();
 
         self.add_info_message(
             format!(
@@ -3636,6 +3685,32 @@ impl ChatWidget {
 
         // Re-submit the prompt
         self.submit_user_message(prompt.into());
+        true
+    }
+
+    fn record_loop_agent_output(&mut self, delta: &str) {
+        if !self.loop_state.active || self.loop_state.prompt.is_empty() {
+            return;
+        }
+
+        self.loop_state
+            .agent_output_lower
+            .push_str(&delta.to_lowercase());
+
+        let max = Self::LOOP_AGENT_OUTPUT_WINDOW_MAX_CHARS;
+        let len = self.loop_state.agent_output_lower.len();
+        if len <= max {
+            return;
+        }
+
+        let overflow = len - max;
+        let mut cut = overflow;
+        while cut < self.loop_state.agent_output_lower.len()
+            && !self.loop_state.agent_output_lower.is_char_boundary(cut)
+        {
+            cut += 1;
+        }
+        self.loop_state.agent_output_lower.drain(..cut);
     }
 
     pub(crate) async fn show_review_branch_picker(&mut self, cwd: &Path, auto_fix: bool) {

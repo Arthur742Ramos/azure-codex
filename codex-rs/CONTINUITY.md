@@ -1,24 +1,23 @@
 ﻿# Goal (incl. success criteria):
-Explain what this repository does - COMPLETE
+- UNCONFIRMED: Await user request; provide help in `codex-rs` workspace.
 
 # Constraints/Assumptions:
 - This is Azure Codex, a fork of OpenAI Codex CLI
 - Rust workspace with 50+ crates
 - Optimized for Azure OpenAI Service
 
+- Network access is restricted in tool runs.
+
 # Key decisions:
-- N/A (exploration only)
+- N/A (no active task yet)
 
 # State:
-  - Done: Explored repo structure, README, core crates
-  - Now: Providing detailed explanation to user
-  - Next: Answer user follow-up questions
+  - Done: Read `CONTINUITY.md` and refreshed it for a new session
+  - Now: Waiting for the user to specify what they want to do
+  - Next: Clarify the task scope (bug, feature, refactor, docs, etc.)
 
 # Open questions (UNCONFIRMED if needed):
-- None
+- What do you want help with in this repo?
 
 # Working set (files/ids/commands):
-- codex-rs/README.md
-- codex-rs/Cargo.toml
-- codex-rs/core/src/lib.rs
-- codex-rs/cli/src/main.rs
+- `CONTINUITY.md`

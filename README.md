@@ -298,6 +298,8 @@ export AZURE_OPENAI_API_KEY="your-api-key"
 | `/skills` | Use skills to improve how Codex performs specific tasks |
 | `/review` | Review current changes and find issues |
 | `/review-fix` | Review and auto-fix until no issues remain (up to 5 iterations) |
+| `/loop` | Repeat the next prompt in an autonomous loop |
+| `/cancel-loop` | Stop the current autonomous loop |
 | `/new` | Start a new chat during a conversation |
 | `/resume` | Resume a saved chat |
 | `/init` | Create an `AGENTS.md` file with instructions for Codex |

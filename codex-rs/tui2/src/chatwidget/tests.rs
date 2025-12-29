@@ -957,6 +957,24 @@ async fn empty_enter_during_task_does_not_queue() {
 }
 
 #[tokio::test]
+async fn bare_slash_command_submit_clears_attachments() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(None).await;
+
+    chat.bottom_pane
+        .attach_image(PathBuf::from("/tmp/preview.png"), 24, 42, "png");
+
+    chat.bottom_pane
+        .set_composer_text("/review-and-fix".to_string());
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let images = chat.bottom_pane.take_recent_submission_images();
+    assert!(
+        images.is_empty(),
+        "attachments should be cleared after dispatching a slash command"
+    );
+}
+
+#[tokio::test]
 async fn alt_up_edits_most_recent_queued_message() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(None).await;
 
