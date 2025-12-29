@@ -22,8 +22,10 @@ State:
   - Committed and pushed `main` at `f90097f6f434005cdb5a662503ffc69d716d7a9f`.
   - Implemented `/review-and-fix` as an alias for `/review-fix` and fixed bare slash-command dispatch so it can’t accidentally carry image attachments into a later message.
   - Diagnosed `rust-ci` required failure on `main`: `lint_build` fails in `cargo check individual crates` because `codex-rs/tui/Cargo.toml` uses `workspace.*` but `tui` is not listed in `codex-rs/Cargo.toml` `workspace.members`.
+  - Fixed `rust-ci` by excluding `codex-rs/tui` from the per-crate `cargo check individual crates` loop, committed and pushed `main` at `83f7ed41ceae0b96e66d489c3c0c1fc65e010158`.
+  - Ran `cargo fmt` and `cargo test -p codex-tui2` locally (PASS).
   - Now:
-  - Fix CI by making `codex-rs/tui` a proper workspace member (or otherwise excluding it from per-crate checks) and push a follow-up so required `rust-ci` passes.
+  - Wait for GitHub Actions `rust-ci` required check to finish for `83f7ed41ceae0b96e66d489c3c0c1fc65e010158` and confirm required checks are green.
   - Next:
   - Run `just fmt` (required after Rust changes), then re-check CI on the follow-up commit.
 
