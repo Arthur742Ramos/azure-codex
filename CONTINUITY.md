@@ -1,7 +1,7 @@
 Goal (incl. success criteria):
 - Improve TUI `/loop` behavior; success = (1) loop stops on task errors by default, (2) queued user input cancels loop instead of interleaving, (3) completion phrase detection is more reliable, (4) README documents `/loop` + `/cancel-loop`.
 - Evaluate (and improve if needed) the TUI slash command the user calls “review-and-fix”; success = command name/UX/documentation match expectations and behavior is correct.
-- Ensure changes are CI-ready before commit/push; success = local checks match CI expectations, and there are no obvious workflow failures pending.
+- Ensure changes are CI-ready after commit/push; success = required CI checks are green (or understood/approved if intentionally non-blocking).
 - Maintain a compaction-safe session briefing in this repo via this ledger; success = entries stay current and the assistant uses it each turn.
 
 Constraints/Assumptions:
@@ -19,17 +19,16 @@ State:
   - Fixed slash command tab-complete ranking so `/c` favors `/compact` over `/cancel-loop`.
   - Updated the affected chatwidget snapshot and ran `cargo test -p codex-tui2` (PASS).
   - Ran `codex-exec` smoke tests for GPT + Claude; MCP `cloudbuild` startup failed with AADSTS90009 but the prompts still completed.
+  - Committed and pushed `main` at `f90097f6f434005cdb5a662503ffc69d716d7a9f`.
+  - Implemented `/review-and-fix` as an alias for `/review-fix` and fixed bare slash-command dispatch so it can’t accidentally carry image attachments into a later message.
+  - Diagnosed `rust-ci` required failure on `main`: `lint_build` fails in `cargo check individual crates` because `codex-rs/tui/Cargo.toml` uses `workspace.*` but `tui` is not listed in `codex-rs/Cargo.toml` `workspace.members`.
   - Now:
-  - Ensure `/review-and-fix` works as an alias for `/review-fix` without impacting popup display.
-  - Fix user-visible edge case: dispatching a bare slash command should not accidentally carry image attachments into a later message (removed unsafe fast-path).
+  - Fix CI by making `codex-rs/tui` a proper workspace member (or otherwise excluding it from per-crate checks) and push a follow-up so required `rust-ci` passes.
   - Next:
-  - If user wants: run `just fix -p codex-tui2` (requires explicit OK per `AGENTS.md`).
-  - After commit/push: monitor GitHub Actions `rust-ci`/`codespell`/`cargo-deny` outcomes (UNCONFIRMED: exact required checks).
+  - Run `just fmt` (required after Rust changes), then re-check CI on the follow-up commit.
 
 Open questions (UNCONFIRMED if needed):
-- Confirmed: user is asking about the TUI slash command `/loop`.
-- Confirmed: `/review-and-fix` is now supported as an alias for `/review-fix`.
-- Do you expect loop to stop on any `EventMsg::Error`, or keep trying until max iterations?
+- Are any CI checks required beyond `rust-ci`, `cargo-deny`, and `codespell`? (UNCONFIRMED)
 
 Working set (files/ids/commands):
 - `AGENTS.md`
@@ -42,3 +41,4 @@ Working set (files/ids/commands):
 - `codex-rs/tui2/src/chatwidget/tests.rs`
 - `codex-rs/tui2/src/chatwidget/snapshots/codex_tui2__chatwidget__tests__deltas_then_same_final_message_are_rendered_snapshot.snap`
 - `README.md`
+- GitHub Actions status for `main` at `f90097f6f434005cdb5a662503ffc69d716d7a9f`
