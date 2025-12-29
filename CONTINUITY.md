@@ -22,12 +22,13 @@ State:
   - Committed and pushed `main` at `f90097f6f434005cdb5a662503ffc69d716d7a9f`.
   - Implemented `/review-and-fix` as an alias for `/review-fix` and fixed bare slash-command dispatch so it can’t accidentally carry image attachments into a later message.
   - Diagnosed `rust-ci` required failure on `main`: `lint_build` fails in `cargo check individual crates` because `codex-rs/tui/Cargo.toml` uses `workspace.*` but `tui` is not listed in `codex-rs/Cargo.toml` `workspace.members`.
-  - Fixed `rust-ci` by excluding `codex-rs/tui` from the per-crate `cargo check individual crates` loop, committed and pushed `main` at `83f7ed41ceae0b96e66d489c3c0c1fc65e010158`.
+  - Fixed `rust-ci` by fixing the per-crate `cargo check individual crates` loop to reliably exclude `codex-rs/tui` (`find ... ! -path ... -print0`), committed and pushed `main` at `9cab553cdea699a72f6992e06d2edd1eb964783b`.
   - Ran `cargo fmt` and `cargo test -p codex-tui2` locally (PASS).
+  - CI status for `9cab553cdea699a72f6992e06d2edd1eb964783b`: `rust-ci` SUCCESS (required), `codespell` SUCCESS, `cargo-deny` SUCCESS.
   - Now:
-  - Wait for GitHub Actions `rust-ci` required check to finish for `83f7ed41ceae0b96e66d489c3c0c1fc65e010158` and confirm required checks are green.
+  - Confirm no further changes needed.
   - Next:
-  - Run `just fmt` (required after Rust changes), then re-check CI on the follow-up commit.
+  - (Optional) If requested: run `just fix -p codex-tui2`.
 
 Open questions (UNCONFIRMED if needed):
 - Are any CI checks required beyond `rust-ci`, `cargo-deny`, and `codespell`? (UNCONFIRMED)
