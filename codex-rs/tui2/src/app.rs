@@ -69,6 +69,8 @@ use ratatui::widgets::Clear;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::WidgetRef;
 use ratatui::widgets::Wrap;
+use std::cell::Ref;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -326,6 +328,8 @@ pub(crate) struct App {
     transcript_view_top: usize,
     transcript_total_lines: usize,
     transcript_copy_ui: TranscriptCopyUi,
+    transcript_cache: RefCell<Option<CachedTranscript>>,
+    transcript_revision: u64,
 
     // Pager overlay state (Transcript or Static like Diff)
     pub(crate) overlay: Option<Overlay>,
@@ -352,6 +356,13 @@ pub(crate) struct App {
 
     // One-shot suppression of the next world-writable scan after user confirmation.
     skip_world_writable_scan_once: bool,
+}
+
+struct CachedTranscript {
+    width: u16,
+    revision: u64,
+    transcript: crate::transcript_render::TranscriptLines,
+    is_user_cell: Vec<bool>,
 }
 impl App {
     async fn shutdown_current_conversation(&mut self) {
@@ -518,6 +529,8 @@ impl App {
             file_search,
             enhanced_keys_supported,
             transcript_cells: Vec::new(),
+            transcript_cache: RefCell::new(None),
+            transcript_revision: 0,
             transcript_scroll: TranscriptScroll::default(),
             transcript_selection: TranscriptSelection::default(),
             transcript_multi_click: TranscriptMultiClick::default(),
@@ -674,10 +687,9 @@ impl App {
                             self.copy_selection_key(),
                         );
                     } else {
-                        let cells = self.transcript_cells.clone();
                         tui.draw(tui.terminal.size()?.height, |frame| {
                             let chat_height = self.chat_widget.desired_height(frame.area().width);
-                            let chat_top = self.render_transcript_cells(frame, &cells, chat_height);
+                            let chat_top = self.render_transcript_cells(frame, chat_height);
                             let chat_area = Rect {
                                 x: frame.area().x,
                                 y: chat_top,
@@ -733,12 +745,7 @@ impl App {
         Ok(true)
     }
 
-    pub(crate) fn render_transcript_cells(
-        &mut self,
-        frame: &mut Frame,
-        cells: &[Arc<dyn HistoryCell>],
-        chat_height: u16,
-    ) -> u16 {
+    pub(crate) fn render_transcript_cells(&mut self, frame: &mut Frame, chat_height: u16) -> u16 {
         let area = frame.area();
         if area.width == 0 || area.height == 0 {
             self.transcript_scroll = TranscriptScroll::default();
@@ -763,30 +770,34 @@ impl App {
             height: max_transcript_height,
         };
 
-        let transcript =
-            crate::transcript_render::build_wrapped_transcript_lines(cells, transcript_area.width);
-        let (lines, line_meta) = (transcript.lines, transcript.meta);
-        if lines.is_empty() {
+        let transcript = self.cached_transcript(transcript_area.width);
+        if transcript.transcript.lines.is_empty() {
+            drop(transcript);
             Clear.render_ref(transcript_area, frame.buffer);
             self.transcript_scroll = TranscriptScroll::default();
             self.transcript_view_top = 0;
             self.transcript_total_lines = 0;
             return area.y;
         }
-
-        let is_user_cell: Vec<bool> = cells
-            .iter()
-            .map(|c| c.as_any().is::<UserHistoryCell>())
-            .collect();
+        let lines = &transcript.transcript.lines;
+        let line_meta = &transcript.transcript.meta;
 
         let total_lines = lines.len();
-        self.transcript_total_lines = total_lines;
         let max_visible = std::cmp::min(max_transcript_height as usize, total_lines);
         let max_start = total_lines.saturating_sub(max_visible);
+        let (scroll_state, top_offset) = self.transcript_scroll.resolve_top(line_meta, max_start);
 
-        let (scroll_state, top_offset) = self.transcript_scroll.resolve_top(&line_meta, max_start);
+        // Drop the transcript borrow before assigning to self fields
+        drop(transcript);
+        self.transcript_total_lines = total_lines;
         self.transcript_scroll = scroll_state;
         self.transcript_view_top = top_offset;
+
+        // Re-borrow for rendering (cache hit is fast since we just populated it)
+        let transcript = self.cached_transcript(transcript_area.width);
+        let lines = &transcript.transcript.lines;
+        let line_meta = &transcript.transcript.meta;
+        let is_user_cell = &transcript.is_user_cell;
         let transcript_scrolled = !matches!(self.transcript_scroll, TranscriptScroll::ToBottom);
         let show_transcript_rail = transcript_area.width >= 50;
 
@@ -877,6 +888,9 @@ impl App {
                 }
             }
         }
+
+        // Drop the transcript borrow before calling methods that need &mut self
+        drop(transcript);
 
         self.apply_transcript_selection(transcript_area, frame.buffer);
 
@@ -1180,6 +1194,44 @@ impl App {
         Some((transcript_height as usize, width))
     }
 
+    fn invalidate_transcript_cache(&mut self) {
+        self.transcript_revision = self.transcript_revision.wrapping_add(1);
+        *self.transcript_cache.borrow_mut() = None;
+    }
+
+    fn cached_transcript(&self, width: u16) -> Ref<'_, CachedTranscript> {
+        let is_streaming = self.chat_widget.is_streaming();
+        // During streaming, the last cell's content may change between frames,
+        // so we always rebuild to ensure the display reflects the latest state.
+        let needs_rebuild = self.transcript_cache.borrow().as_ref().is_none_or(|cache| {
+            cache.width != width || cache.revision != self.transcript_revision || is_streaming
+        });
+
+        if needs_rebuild {
+            let transcript = crate::transcript_render::build_wrapped_transcript_lines(
+                &self.transcript_cells,
+                width,
+            );
+            let is_user_cell = self
+                .transcript_cells
+                .iter()
+                .map(|cell| cell.as_any().is::<UserHistoryCell>())
+                .collect();
+            *self.transcript_cache.borrow_mut() = Some(CachedTranscript {
+                width,
+                revision: self.transcript_revision,
+                transcript,
+                is_user_cell,
+            });
+        }
+
+        Ref::map(self.transcript_cache.borrow(), |opt| {
+            // SAFETY: We just ensured the cache is populated above
+            #[allow(clippy::unwrap_used)]
+            opt.as_ref().unwrap()
+        })
+    }
+
     /// Scroll the transcript by a number of visual lines.
     ///
     /// This is the shared implementation behind mouse wheel movement and PgUp/PgDn keys in
@@ -1201,12 +1253,14 @@ impl App {
             return;
         }
 
-        let transcript =
-            crate::transcript_render::build_wrapped_transcript_lines(&self.transcript_cells, width);
-        let line_meta = transcript.meta;
-        self.transcript_scroll =
-            self.transcript_scroll
-                .scrolled_by(delta_lines, &line_meta, visible_lines);
+        let transcript = self.cached_transcript(width);
+        let new_scroll = self.transcript_scroll.scrolled_by(
+            delta_lines,
+            &transcript.transcript.meta,
+            visible_lines,
+        );
+        drop(transcript);
+        self.transcript_scroll = new_scroll;
 
         if schedule_frame {
             // Request a redraw; the frame scheduler coalesces bursts and clamps to 60fps.
@@ -1226,10 +1280,9 @@ impl App {
             return;
         }
 
-        let transcript =
-            crate::transcript_render::build_wrapped_transcript_lines(&self.transcript_cells, width);
-        let (lines, line_meta) = (transcript.lines, transcript.meta);
-        if lines.is_empty() || line_meta.is_empty() {
+        let transcript = self.cached_transcript(width);
+        let lines = &transcript.transcript.lines;
+        if lines.is_empty() || transcript.transcript.meta.is_empty() {
             return;
         }
 
@@ -1240,6 +1293,8 @@ impl App {
         }
 
         let max_start = total_lines.saturating_sub(max_visible);
+
+        // Check current scroll state before computing new anchor
         let top_offset = match self.transcript_scroll {
             TranscriptScroll::ToBottom => max_start,
             TranscriptScroll::Scrolled { .. } => {
@@ -1248,7 +1303,10 @@ impl App {
             }
         };
 
-        if let Some(scroll_state) = TranscriptScroll::anchor_for(&line_meta, top_offset) {
+        let new_scroll = TranscriptScroll::anchor_for(&transcript.transcript.meta, top_offset);
+        drop(transcript);
+
+        if let Some(scroll_state) = new_scroll {
             self.transcript_scroll = scroll_state;
         }
     }
@@ -1541,6 +1599,7 @@ impl App {
                     tui.frame_requester().schedule_frame();
                 }
                 self.transcript_cells.push(cell.clone());
+                self.invalidate_transcript_cache();
                 if self.use_terminal_scrollback_transcript(tui) {
                     let mut display =
                         cell.transcript_lines(tui.terminal.last_known_screen_size.width);
@@ -2244,6 +2303,8 @@ mod tests {
             transcript_copy_ui: TranscriptCopyUi::new_with_shortcut(
                 CopySelectionShortcut::CtrlShiftC,
             ),
+            transcript_cache: RefCell::new(None),
+            transcript_revision: 0,
             overlay: None,
             deferred_history_lines: Vec::new(),
             has_emitted_history_lines: false,
@@ -2294,6 +2355,8 @@ mod tests {
                 transcript_copy_ui: TranscriptCopyUi::new_with_shortcut(
                     CopySelectionShortcut::CtrlShiftC,
                 ),
+                transcript_cache: RefCell::new(None),
+                transcript_revision: 0,
                 overlay: None,
                 deferred_history_lines: Vec::new(),
                 has_emitted_history_lines: false,

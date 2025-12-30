@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 
 use codex_app_server_protocol::AuthMode;
 use codex_backend_client::Client as BackendClient;
@@ -119,6 +120,7 @@ use crate::render::renderable::RenderableExt;
 use crate::render::renderable::RenderableItem;
 use crate::slash_command::SlashCommand;
 use crate::status::RateLimitSnapshotDisplay;
+use crate::status::StatusRequestMetrics;
 use crate::text_formatting::truncate_text;
 use crate::tui::FrameRequester;
 mod interrupts;
@@ -166,6 +168,11 @@ impl UnifiedExecWaitState {
     fn is_duplicate(&self, command_display: &str) -> bool {
         self.command_display == command_display
     }
+}
+
+struct RequestMetricsInFlight {
+    started_at: Instant,
+    first_token_at: Option<Instant>,
 }
 
 const RATE_LIMIT_WARNING_THRESHOLDS: [f64; 3] = [75.0, 90.0, 95.0];
@@ -340,6 +347,8 @@ pub(crate) struct ChatWidget {
     // Whether a real task (like review) is running, separate from MCP startup.
     // This prevents MCP startup completion from turning off task_running.
     has_real_task: bool,
+    request_metrics: Option<RequestMetricsInFlight>,
+    last_request_metrics: Option<StatusRequestMetrics>,
 
     last_rendered_width: std::cell::Cell<Option<usize>>,
     // Feedback sink for /feedback
@@ -513,6 +522,7 @@ impl ChatWidget {
     }
 
     fn on_agent_message(&mut self, message: String) {
+        self.mark_first_token();
         self.record_loop_agent_output(&message);
         // If we have a stream_controller, then the final agent message is redundant and will be a
         // duplicate of what has already been streamed.
@@ -525,11 +535,13 @@ impl ChatWidget {
     }
 
     fn on_agent_message_delta(&mut self, delta: String) {
+        self.mark_first_token();
         self.record_loop_agent_output(&delta);
         self.handle_streaming_delta(delta);
     }
 
     fn on_agent_reasoning_delta(&mut self, delta: String) {
+        self.mark_first_token();
         // For reasoning deltas, do not stream to history. Accumulate the
         // current reasoning block and extract the first bold element
         // (between **/**) as the chunk header. Show this header as status.
@@ -573,6 +585,10 @@ impl ChatWidget {
         self.bottom_pane.clear_ctrl_c_quit_hint();
         self.bottom_pane.set_task_running(true);
         self.has_real_task = true;
+        self.request_metrics = Some(RequestMetricsInFlight {
+            started_at: Instant::now(),
+            first_token_at: None,
+        });
         self.retry_status_header = None;
         self.bottom_pane.set_interrupt_hint_visible(true);
         self.set_status_header(String::from("Working"));
@@ -587,6 +603,7 @@ impl ChatWidget {
     fn on_task_complete(&mut self, last_agent_message: Option<String>) {
         // If a stream is currently active, finalize it.
         self.flush_answer_stream_with_separator();
+        self.finalize_request_metrics();
         // Mark task stopped and request redraw now that all content is in history.
         self.bottom_pane.set_task_running(false);
         self.has_real_task = false;
@@ -623,7 +640,10 @@ impl ChatWidget {
 
     pub(crate) fn set_token_info(&mut self, info: Option<TokenUsageInfo>) {
         match info {
-            Some(info) => self.apply_token_info(info),
+            Some(info) => {
+                self.apply_token_info(info);
+                self.update_last_request_tokens();
+            }
             None => {
                 self.bottom_pane.set_context_window(None, None);
                 self.token_info = None;
@@ -744,6 +764,7 @@ impl ChatWidget {
         self.suppressed_exec_calls.clear();
         self.last_unified_wait = None;
         self.stream_controller = None;
+        self.request_metrics = None;
         self.maybe_show_pending_rate_limit_prompt();
     }
     pub(crate) fn get_model_family(&self) -> ModelFamily {
@@ -1415,6 +1436,8 @@ impl ChatWidget {
             needs_final_message_separator: false,
             diff_in_progress: false,
             has_real_task: false,
+            request_metrics: None,
+            last_request_metrics: None,
             last_rendered_width: std::cell::Cell::new(None),
             feedback,
             current_rollout_path: None,
@@ -1505,6 +1528,8 @@ impl ChatWidget {
             needs_final_message_separator: false,
             diff_in_progress: false,
             has_real_task: false,
+            request_metrics: None,
+            last_request_metrics: None,
             last_rendered_width: std::cell::Cell::new(None),
             feedback,
             current_rollout_path: None,
@@ -2114,6 +2139,44 @@ impl ChatWidget {
         self.frame_requester.schedule_frame();
     }
 
+    fn mark_first_token(&mut self) {
+        if let Some(metrics) = self.request_metrics.as_mut()
+            && metrics.first_token_at.is_none()
+        {
+            metrics.first_token_at = Some(Instant::now());
+        }
+    }
+
+    fn finalize_request_metrics(&mut self) {
+        let Some(metrics) = self.request_metrics.take() else {
+            return;
+        };
+        let now = Instant::now();
+        let total_duration = now.saturating_duration_since(metrics.started_at);
+        let time_to_first_token = metrics
+            .first_token_at
+            .map(|t| t.saturating_duration_since(metrics.started_at));
+        let token_usage = self
+            .token_info
+            .as_ref()
+            .map(|info| info.last_token_usage.clone());
+        self.last_request_metrics = Some(StatusRequestMetrics {
+            time_to_first_token,
+            total_duration: Some(total_duration),
+            token_usage,
+        });
+    }
+
+    fn update_last_request_tokens(&mut self) {
+        let Some(last) = self.last_request_metrics.as_mut() else {
+            return;
+        };
+        let Some(info) = self.token_info.as_ref() else {
+            return;
+        };
+        last.token_usage = Some(info.last_token_usage.clone());
+    }
+
     fn notify(&mut self, notification: Notification) {
         if !notification.allowed_for(&self.config.tui_notifications) {
             return;
@@ -2196,6 +2259,7 @@ impl ChatWidget {
             &self.model_family,
             total_usage,
             context_usage,
+            self.last_request_metrics.clone(),
             &self.conversation_id,
             self.rate_limit_snapshot.as_ref(),
             self.plan_type,
@@ -3350,6 +3414,10 @@ impl ChatWidget {
     /// disengage auto-follow behavior while responses are streaming.
     pub(crate) fn is_task_running(&self) -> bool {
         self.bottom_pane.is_task_running()
+    }
+
+    pub(crate) fn is_streaming(&self) -> bool {
+        self.stream_controller.is_some()
     }
 
     /// Inform the bottom pane about the current transcript scroll state.

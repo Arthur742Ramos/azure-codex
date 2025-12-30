@@ -1,6 +1,7 @@
 use ratatui::text::Line;
 
 use crate::markdown;
+use std::borrow::Cow;
 
 /// Newline-gated accumulator that renders markdown and commits only fully
 /// completed logical lines.
@@ -33,15 +34,12 @@ impl MarkdownStreamCollector {
     /// since the last commit. When the buffer does not end with a newline, the
     /// final rendered line is considered incomplete and is not emitted.
     pub fn commit_complete_lines(&mut self) -> Vec<Line<'static>> {
-        let source = self.buffer.clone();
-        let last_newline_idx = source.rfind('\n');
-        let source = if let Some(last_newline_idx) = last_newline_idx {
-            source[..=last_newline_idx].to_string()
-        } else {
+        let Some(last_newline_idx) = self.buffer.rfind('\n') else {
             return Vec::new();
         };
+        let source = &self.buffer[..=last_newline_idx];
         let mut rendered: Vec<Line<'static>> = Vec::new();
-        markdown::append_markdown(&source, self.width, &mut rendered);
+        markdown::append_markdown(source, self.width, &mut rendered);
         let mut complete_line_count = rendered.len();
         if complete_line_count > 0
             && crate::render::line_utils::is_blank_line_spaces_only(
@@ -67,16 +65,16 @@ impl MarkdownStreamCollector {
     /// for rendering. Optionally unwraps ```markdown language fences in
     /// non-test builds.
     pub fn finalize_and_drain(&mut self) -> Vec<Line<'static>> {
-        let raw_buffer = self.buffer.clone();
-        let mut source: String = raw_buffer.clone();
-        if !source.ends_with('\n') {
-            source.push('\n');
-        }
+        let source = if self.buffer.ends_with('\n') {
+            Cow::Borrowed(self.buffer.as_str())
+        } else {
+            Cow::Owned(format!("{}\n", self.buffer))
+        };
         tracing::debug!(
-            raw_len = raw_buffer.len(),
+            raw_len = self.buffer.len(),
             source_len = source.len(),
             "markdown finalize (raw length: {}, rendered length: {})",
-            raw_buffer.len(),
+            self.buffer.len(),
             source.len()
         );
         tracing::trace!("markdown finalize (raw source):\n---\n{source}\n---");

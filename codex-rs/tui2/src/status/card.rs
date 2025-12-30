@@ -6,6 +6,7 @@ use crate::version::CODEX_CLI_VERSION;
 use chrono::DateTime;
 use chrono::Local;
 use codex_common::create_config_summary_entries;
+use codex_common::elapsed::format_duration;
 use codex_core::config::Config;
 use codex_core::models_manager::model_family::ModelFamily;
 use codex_core::protocol::NetworkAccess;
@@ -17,6 +18,7 @@ use ratatui::prelude::*;
 use ratatui::style::Stylize;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use super::account::StatusAccountDisplay;
 use super::format::FieldFormatter;
@@ -52,6 +54,13 @@ pub(crate) struct StatusTokenUsageData {
     context_window: Option<StatusContextWindowData>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct StatusRequestMetrics {
+    pub(crate) time_to_first_token: Option<Duration>,
+    pub(crate) total_duration: Option<Duration>,
+    pub(crate) token_usage: Option<TokenUsage>,
+}
+
 #[derive(Debug)]
 struct StatusHistoryCell {
     model_name: String,
@@ -63,6 +72,7 @@ struct StatusHistoryCell {
     account: Option<StatusAccountDisplay>,
     session_id: Option<String>,
     token_usage: StatusTokenUsageData,
+    last_request: Option<StatusRequestMetrics>,
     rate_limits: StatusRateLimitData,
 }
 
@@ -73,6 +83,7 @@ pub(crate) fn new_status_output(
     model_family: &ModelFamily,
     total_usage: &TokenUsage,
     context_usage: Option<&TokenUsage>,
+    last_request: Option<StatusRequestMetrics>,
     session_id: &Option<ConversationId>,
     rate_limits: Option<&RateLimitSnapshotDisplay>,
     plan_type: Option<PlanType>,
@@ -86,6 +97,7 @@ pub(crate) fn new_status_output(
         model_family,
         total_usage,
         context_usage,
+        last_request,
         session_id,
         rate_limits,
         plan_type,
@@ -104,6 +116,7 @@ impl StatusHistoryCell {
         model_family: &ModelFamily,
         total_usage: &TokenUsage,
         context_usage: Option<&TokenUsage>,
+        last_request: Option<StatusRequestMetrics>,
         session_id: &Option<ConversationId>,
         rate_limits: Option<&RateLimitSnapshotDisplay>,
         plan_type: Option<PlanType>,
@@ -158,6 +171,7 @@ impl StatusHistoryCell {
             account,
             session_id,
             token_usage,
+            last_request,
             rate_limits,
         }
     }
@@ -178,6 +192,39 @@ impl StatusHistoryCell {
             Span::from(" output").dim(),
             Span::from(")").dim(),
         ]
+    }
+
+    fn last_request_spans(&self) -> Option<Vec<Span<'static>>> {
+        let metrics = self.last_request.as_ref()?;
+        let mut spans = Vec::new();
+
+        if let Some(first) = metrics.time_to_first_token {
+            spans.push(Span::from(format!("first {}", format_duration(first))));
+        }
+        if let Some(total) = metrics.total_duration {
+            if !spans.is_empty() {
+                spans.push(" • ".dim());
+            }
+            spans.push(Span::from(format!("total {}", format_duration(total))));
+        }
+        if let Some(usage) = metrics.token_usage.as_ref()
+            && !usage.is_zero()
+        {
+            if !spans.is_empty() {
+                spans.push(" • ".dim());
+            }
+            let total_fmt = format_tokens_compact(usage.blended_total());
+            let input_fmt = format_tokens_compact(usage.non_cached_input());
+            let output_fmt = format_tokens_compact(usage.output_tokens);
+            spans.push(Span::from(format!("{total_fmt} tokens")));
+            spans.push(" (".dim());
+            spans.push(Span::from(input_fmt).dim());
+            spans.push(" in + ".dim());
+            spans.push(Span::from(output_fmt).dim());
+            spans.push(" out)".dim());
+        }
+
+        if spans.is_empty() { None } else { Some(spans) }
     }
 
     fn context_window_spans(&self) -> Option<Vec<Span<'static>>> {
@@ -343,6 +390,11 @@ impl HistoryCell for StatusHistoryCell {
             push_label(&mut labels, &mut seen, "Session");
         }
         push_label(&mut labels, &mut seen, "Token usage");
+        if !matches!(self.account, Some(StatusAccountDisplay::ChatGpt { .. }))
+            && self.last_request_spans().is_some()
+        {
+            push_label(&mut labels, &mut seen, "Last request");
+        }
         if self.token_usage.context_window.is_some() {
             push_label(&mut labels, &mut seen, "Context window");
         }
@@ -381,6 +433,12 @@ impl HistoryCell for StatusHistoryCell {
         // Hide token usage only for ChatGPT subscribers
         if !matches!(self.account, Some(StatusAccountDisplay::ChatGpt { .. })) {
             lines.push(formatter.line("Token usage", self.token_usage_spans()));
+        }
+
+        if !matches!(self.account, Some(StatusAccountDisplay::ChatGpt { .. }))
+            && let Some(spans) = self.last_request_spans()
+        {
+            lines.push(formatter.line("Last request", spans));
         }
 
         if let Some(spans) = self.context_window_spans() {
