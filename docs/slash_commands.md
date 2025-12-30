@@ -10,26 +10,28 @@ Slash commands are special commands you can type that start with `/`.
 
 Control Codex’s behavior during an interactive session with slash commands.
 
-| Command         | Purpose                                                                    |
-| --------------- | -------------------------------------------------------------------------- |
-| `/model`        | choose what model and reasoning effort to use                              |
-| `/approvals`    | choose what Codex can do without approval                                  |
-| `/review`       | review my current changes and find issues                                  |
-| `/review-fix`   | review my changes, fix issues, and re-check until clean                    |
-| `/new`          | start a new chat during a conversation                                     |
-| `/resume`       | resume an old chat                                                         |
-| `/init`         | create an AGENTS.md file with instructions for Codex                       |
-| `/compact`      | summarize conversation to prevent hitting the context limit                |
-| `/diff`         | show git diff (including untracked files)                                  |
-| `/mention`      | mention a file                                                             |
-| `/status`       | show current session configuration and token usage                         |
-| `/mcp`          | list configured MCP tools                                                  |
-| `/toggle-mouse-mode` | toggle mouse capture for native terminal scrolling/selection          |
-| `/experimental` | open the experimental menu to enable features from our beta program        |
-| `/skills`       | browse and insert skills (experimental; see [docs/skills.md](./skills.md)) |
-| `/logout`       | log out of Codex                                                           |
-| `/quit`         | exit Codex                                                                 |
-| `/exit`         | exit Codex                                                                 |
-| `/feedback`     | send logs to maintainers                                                   |
+| Command              | Purpose                                                                    |
+| -------------------- | -------------------------------------------------------------------------- |
+| `/model`             | choose what model and reasoning effort to use                              |
+| `/endpoint`          | show or change the Azure OpenAI endpoint (Azure Codex only)                |
+| `/approvals`         | choose what Codex can do without approval                                  |
+| `/skills`            | browse and insert skills (see [docs/skills.md](./skills.md))               |
+| `/review`            | review my current changes and find issues                                  |
+| `/review-fix`        | review my changes, fix issues, and re-check until clean                    |
+| `/loop`              | run a task in an autonomous loop until completion                          |
+| `/cancel-loop`       | stop the current autonomous loop                                           |
+| `/new`               | start a new chat during a conversation                                     |
+| `/resume`            | resume an old chat                                                         |
+| `/init`              | create an AGENTS.md file with instructions for Codex                       |
+| `/compact`           | summarize conversation to prevent hitting the context limit                |
+| `/diff`              | show git diff (including untracked files)                                  |
+| `/mention`           | mention a file                                                             |
+| `/status`            | show current session configuration and token usage                         |
+| `/mcp`               | list configured MCP tools                                                  |
+| `/toggle-mouse-mode` | toggle mouse capture for native terminal scrolling/selection               |
+| `/logout`            | log out of Codex                                                           |
+| `/quit`              | exit Codex                                                                 |
+| `/exit`              | exit Codex                                                                 |
+| `/feedback`          | send logs to maintainers                                                   |
 
 ---

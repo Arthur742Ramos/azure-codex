@@ -11,9 +11,10 @@ This document provides context and instructions for AI assistants (Claude, etc.)
 | Aspect | OpenAI Codex | Azure Codex |
 |--------|--------------|-------------|
 | Authentication | ChatGPT/API Key | Azure Entra ID (CLI, Managed Identity, Service Principal) |
-| Endpoint | api.openai.com | Azure OpenAI endpoints |
+| Endpoint | api.openai.com | Azure OpenAI / Azure AI Services endpoints |
 | Model Discovery | OpenAI models API | Azure deployments API |
-| Wire API | Responses API | Chat Completions API |
+| Wire API | Responses API | Chat Completions API (GPT) / Anthropic API (Claude) |
+| Model Support | OpenAI models only | GPT models + Claude models via Azure AI Services |
 
 ## Project Structure
 
@@ -29,11 +30,13 @@ azure-codex/
 │   │   │   │   ├── azure.rs     # Azure Entra ID auth implementation
 │   │   │   │   └── azure_config.rs # Azure auth configuration
 │   │   │   ├── config/          # Configuration loading
-│   │   │   ├── openai_models/   # Model management
-│   │   │   │   └── models_manager.rs  # Handles both OpenAI and Azure models
+│   │   │   ├── models_manager/  # Model management
+│   │   │   │   ├── manager.rs   # Handles OpenAI, Azure, and Anthropic models
+│   │   │   │   └── model_family.rs  # Model family detection (GPT, Claude, etc.)
 │   │   │   ├── api_bridge.rs    # API abstraction layer
 │   │   │   └── conversation_manager.rs
 │   │   └── Cargo.toml
+│   ├── codex-api/               # API client layer (OpenAI, Azure, Anthropic)
 │   ├── cli/                     # CLI entry point
 │   ├── tui/                     # Terminal UI (legacy)
 │   ├── tui2/                    # Terminal UI (current, preferred)
@@ -58,12 +61,21 @@ azure-codex/
 - Filters to GPT models only
 - Converts deployments to `ModelPreset` for the UI
 
-### 3. Models Manager (`core/src/openai_models/models_manager.rs`)
+### 3. Models Manager (`core/src/models_manager/manager.rs`)
 
-- Handles model listing for both OpenAI and Azure
+- Handles model listing for OpenAI, Azure OpenAI, and Azure AI Services (Anthropic)
 - `ModelsManager::with_azure_endpoint()` creates Azure-aware instance
 - `is_azure()` method to check if using Azure backend
+- `ModelFamily` enum distinguishes GPT, Claude, and other model families
 - Dynamic model switching via `Op::OverrideTurnContext`
+
+### 3a. Claude/Anthropic Support (`codex-api/src/`)
+
+Azure Codex supports Claude models via Azure AI Services:
+- **`endpoint/anthropic.rs`**: Anthropic-specific endpoint handling
+- **`requests/anthropic.rs`**: Request formatting for Anthropic API
+- **`sse/anthropic.rs`**: Server-sent events parsing for Claude responses
+- Supports extended thinking mode for Claude models
 
 ### 4. Configuration (`core/src/config/`)
 
@@ -382,6 +394,23 @@ Op::OverrideTurnContext(TurnContextOverride {
        self.open_endpoint_popup();
    }
    ```
+
+### Notable Azure Codex Features
+
+#### Autonomous Loop Mode (`/loop`)
+
+The `/loop` command runs a task autonomously until completion:
+- Repeats the prompt in a loop until the model indicates completion
+- Detects completion phrases like "task complete", "finished", "done"
+- Use `/cancel-loop` to stop manually
+- Useful for iterative tasks like "fix all lint errors" or "review and fix issues"
+
+#### Review and Auto-Fix (`/review-fix`)
+
+Combines review and fixing in an iterative loop:
+- Reviews current changes for issues
+- Automatically fixes found issues
+- Re-checks until clean (up to 5 iterations)
 
 ## Testing
 

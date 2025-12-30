@@ -26,9 +26,10 @@ State:
   - Ran `cargo fmt` and `cargo test -p codex-tui2` locally (PASS).
   - CI status for `9cab553cdea699a72f6992e06d2edd1eb964783b`: `rust-ci` SUCCESS (required), `codespell` SUCCESS, `cargo-deny` SUCCESS.
   - Now:
-  - Confirm no further changes needed.
+  - Verify `main` HEAD is pushed and required CI checks are green.
   - Next:
-  - (Optional) If requested: run `just fix -p codex-tui2`.
+  - If any required CI fails, diagnose and patch minimally, then re-run CI.
+  - (Optional, requires explicit OK) Run `just fix -p codex-tui2`.
 
 Open questions (UNCONFIRMED if needed):
 - Are any CI checks required beyond `rust-ci`, `cargo-deny`, and `codespell`? (UNCONFIRMED)
@@ -44,4 +45,5 @@ Working set (files/ids/commands):
 - `codex-rs/tui2/src/chatwidget/tests.rs`
 - `codex-rs/tui2/src/chatwidget/snapshots/codex_tui2__chatwidget__tests__deltas_then_same_final_message_are_rendered_snapshot.snap`
 - `README.md`
+- `.github/workflows/rust-ci.yml`
 - GitHub Actions status for `main` at `f90097f6f434005cdb5a662503ffc69d716d7a9f`

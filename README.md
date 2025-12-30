@@ -309,7 +309,7 @@ export AZURE_OPENAI_API_KEY="your-api-key"
 | `/mention` | Mention a file |
 | `/status` | Show current session configuration and token usage |
 | `/mcp` | List configured MCP tools |
-| `/togglemouse` | Toggle mouse capture for native text selection |
+| `/toggle-mouse-mode` | Toggle mouse capture for native text selection |
 | `/logout` | Log out of Codex |
 | `/feedback` | Send logs to maintainers |
 | `/quit` | Exit Azure Codex |
