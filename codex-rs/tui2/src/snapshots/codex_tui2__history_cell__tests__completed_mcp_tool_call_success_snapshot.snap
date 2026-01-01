@@ -2,5 +2,5 @@
 source: tui2/src/history_cell.rs
 expression: rendered
 ---
-● Called search.find_docs({"query":"ratatui styling","limit":3})
+🔌 Called search.find_docs({"query":"ratatui styling","limit":3})
   ╰ Found styling guidance in styles.md

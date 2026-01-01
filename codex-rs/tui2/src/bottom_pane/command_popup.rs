@@ -3,6 +3,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Stylize as _;
 use ratatui::text::Line;
 use ratatui::text::Span;
+use ratatui::widgets::Widget;
 use ratatui::widgets::WidgetRef;
 
 use super::popup_consts::MAX_POPUP_ROWS;
@@ -14,6 +15,7 @@ use crate::render::Insets;
 use crate::render::RectExt;
 use crate::slash_command::SlashCommand;
 use crate::slash_command::built_in_slash_commands;
+use crate::theme;
 use codex_common::fuzzy_match::fuzzy_match;
 use codex_protocol::custom_prompts::CustomPrompt;
 use codex_protocol::custom_prompts::PROMPTS_CMD_PREFIX;
@@ -101,13 +103,17 @@ impl CommandPopup {
 
     /// Determine the preferred height of the popup for a given width.
     /// Accounts for wrapped descriptions so that long tooltips don't overflow.
+    /// Includes 2 rows for top/bottom borders in OpenCode-style container.
     pub(crate) fn calculate_required_height(&self, width: u16) -> u16 {
         use super::selection_popup_common::measure_rows_height;
         let rows = self.rows_from_matches(self.filtered());
         const HEADER_ROWS: u16 = 1;
-        let content_width = width.saturating_sub(2).max(1);
+        const BORDER_ROWS: u16 = 2; // top + bottom borders
+        let content_width = width.saturating_sub(6).max(1); // account for side borders + padding
 
-        HEADER_ROWS + measure_rows_height(&rows, &self.state, MAX_POPUP_ROWS, content_width)
+        BORDER_ROWS
+            + HEADER_ROWS
+            + measure_rows_height(&rows, &self.state, MAX_POPUP_ROWS, content_width)
     }
 
     /// Compute fuzzy-filtered matches over built-in commands and user prompts,
@@ -230,17 +236,60 @@ impl WidgetRef for CommandPopup {
             return;
         }
 
+        let width = inner.width as usize;
+
+        // Render bordered container (OpenCode-style)
+        // Top border with "Commands" label
+        if inner.height >= 1 {
+            let top_row = Rect::new(inner.x, inner.y, inner.width, 1);
+            theme::header_top(width, "Commands").render(top_row, buf);
+        }
+
+        // Bottom border
+        if inner.height >= 2 {
+            let bottom_y = inner.y + inner.height - 1;
+            let bottom_row = Rect::new(inner.x, bottom_y, inner.width, 1);
+            theme::header_bottom(width).render(bottom_row, buf);
+        }
+
+        // Side borders
+        let border_style = theme::input_border_style();
+        for y in (inner.y + 1)..(inner.y + inner.height.saturating_sub(1)) {
+            buf.set_string(inner.x, y, theme::rounded::V, border_style);
+            if inner.width > 1 {
+                buf.set_string(
+                    inner.x + inner.width - 1,
+                    y,
+                    theme::rounded::V,
+                    border_style,
+                );
+            }
+        }
+
+        // Content area inside borders
+        let content_area = Rect {
+            x: inner.x + 2,
+            y: inner.y + 1,
+            width: inner.width.saturating_sub(4),
+            height: inner.height.saturating_sub(2),
+        };
+
+        if content_area.is_empty() {
+            return;
+        }
+
+        // Header row with filter and hints
         let header_area = Rect {
-            x: inner.x,
-            y: inner.y,
-            width: inner.width,
+            x: content_area.x,
+            y: content_area.y,
+            width: content_area.width,
             height: 1,
         };
         let list_area = Rect {
-            x: inner.x,
-            y: inner.y.saturating_add(1),
-            width: inner.width,
-            height: inner.height.saturating_sub(1),
+            x: content_area.x,
+            y: content_area.y.saturating_add(1),
+            width: content_area.width,
+            height: content_area.height.saturating_sub(1),
         };
 
         let filter_display = if self.command_filter.is_empty() {

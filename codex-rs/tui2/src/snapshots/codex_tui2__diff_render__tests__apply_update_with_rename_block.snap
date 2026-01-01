@@ -2,7 +2,7 @@
 source: tui2/src/diff_render.rs
 expression: terminal.backend()
 ---
-"• Renamed old_name.rs → new_name.rs (+1 -1)                                     "
+"📋 Renamed old_name.rs → new_name.rs (+1 -1)                                    " Hidden by multi-width symbols: [(1, " ")]
 "    1  A                                                                        "
 "    2 -B                                                                        "
 "    2 +B changed                                                                "

@@ -2,7 +2,9 @@
 source: tui2/src/chatwidget/tests.rs
 expression: term.backend().vt100().screen().contents()
 ---
->_ Azure Codex  ·  gpt-5.2-codex               ctrl + k commands  ·  ? shortcuts
+╭─ Azure Codex ─────────────────────────────────────────────────────────────────
+│ ● gpt-5.2-codex  ·  ctrl + k commands  ·  ? shortcuts                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
 • Working (0s • esc to interrupt)
   ↳ Hello, world! 0
   ↳ Hello, world! 1
@@ -19,10 +21,8 @@ expression: term.backend().vt100().screen().contents()
   ↳ Hello, world! 12
   ↳ Hello, world! 13
   ↳ Hello, world! 14
-  ↳ Hello, world! 15
-  ↳ Hello, world! 16
 
-
-› Ask Codex to do anything
-
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Ask Codex to do anything                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
   ██████████ 100% left · ? for shortcuts

@@ -1020,7 +1020,8 @@ impl TextArea {
             // Draw base line with default style.
             buf.set_string(area.x, y, &self.text[line_range.clone()], Style::default());
 
-            // Overlay styled segments for elements that intersect this line.
+            // Overlay styled segments for elements (attachments, pastes) that intersect this line.
+            // Elements are rendered with bold cyan for visual distinction.
             for elem in &self.elements {
                 // Compute overlap with displayed slice.
                 let overlap_start = elem.range.start.max(line_range.start);
@@ -1030,7 +1031,10 @@ impl TextArea {
                 }
                 let styled = &self.text[overlap_start..overlap_end];
                 let x_off = self.text[line_range.start..overlap_start].width() as u16;
-                let style = Style::default().fg(Color::Cyan);
+                // Use bold cyan for attachments (more visible, OpenCode-style chip appearance)
+                let style = Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(ratatui::style::Modifier::BOLD);
                 buf.set_string(area.x + x_off, y, styled, style);
             }
         }

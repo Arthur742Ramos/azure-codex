@@ -2417,6 +2417,7 @@ mod tests {
     #[tokio::test]
     async fn transcript_selection_copy_includes_offscreen_lines() {
         let mut app = make_test_app().await;
+        // Use is_first_line=false to avoid the separator line in copy test
         app.transcript_cells = vec![Arc::new(AgentMessageCell::new(
             vec![
                 Line::from("one"),
@@ -2424,7 +2425,7 @@ mod tests {
                 Line::from("three"),
                 Line::from("four"),
             ],
-            true,
+            false,
         ))];
 
         app.transcript_view_top = 2;

@@ -2,8 +2,8 @@
 source: tui2/src/history_cell.rs
 expression: rendered
 ---
-
-› one two
+──  You  ────
+  one two
   three
   four five
   six seven

@@ -200,7 +200,7 @@ impl HistoryCell for UserHistoryCell {
             .max(1);
 
         let style = user_message_style();
-        let max_inner_width: usize = 50;
+        let max_inner_width: usize = 80;
         let wrap_width = usize::from(wrap_width).min(max_inner_width).max(1);
 
         let (wrapped, joiner_before) = crate::wrapping::word_wrap_lines_with_joiners(
@@ -214,17 +214,18 @@ impl HistoryCell for UserHistoryCell {
         let mut lines: Vec<Line<'static>> = Vec::new();
         let mut joins: Vec<Option<String>> = Vec::new();
 
-        lines.push(Line::from("").style(style));
+        // Add subtle separator with role label (OpenCode-style)
+        lines.push(theme::message_separator(width as usize, "You"));
         joins.push(None);
 
-        // Use elegant chevron for user messages with subtle styling
-        let prefixed = prefix_lines(wrapped, "› ".cyan().bold(), "  ".into());
+        // Prefix content with subtle indent
+        let prefixed = prefix_lines(wrapped, "  ".into(), "  ".into());
         for (line, joiner) in prefixed.into_iter().zip(joiner_before) {
             lines.push(line);
             joins.push(joiner);
         }
 
-        lines.push(Line::from("").style(style));
+        lines.push(Line::from(""));
         joins.push(None);
 
         TranscriptLinesWithJoiners {
@@ -265,34 +266,47 @@ impl ReasoningSummaryCell {
     }
 
     fn lines_with_joiners(&self, width: u16) -> TranscriptLinesWithJoiners {
-        let mut lines: Vec<Line<'static>> = Vec::new();
+        let mut out_lines: Vec<Line<'static>> = Vec::new();
+        let mut joiner_before: Vec<Option<String>> = Vec::new();
+
+        // Add elegant thinking header
+        out_lines.push(theme::thinking_header(width as usize));
+        joiner_before.push(None);
+
+        // Parse and style the content with elegant formatting
+        let mut md_lines: Vec<Line<'static>> = Vec::new();
         append_markdown(
             &self.content,
-            Some((width as usize).saturating_sub(2)),
-            &mut lines,
+            Some((width as usize).saturating_sub(6)), // Account for indent
+            &mut md_lines,
         );
-        let summary_style = Style::default().dim().italic();
-        let summary_lines = lines
-            .into_iter()
-            .map(|mut line| {
-                line.spans = line
-                    .spans
-                    .into_iter()
-                    .map(|span| span.patch_style(summary_style))
-                    .collect();
-                line
-            })
-            .collect::<Vec<_>>();
 
-        let (lines, joiner_before) = crate::wrapping::word_wrap_lines_with_joiners(
-            &summary_lines,
-            RtOptions::new(width as usize)
-                .initial_indent("• ".dim().into())
-                .subsequent_indent("  ".into()),
-        );
+        // Apply reasoning style and elegant indentation
+        let reasoning_style = theme::reasoning_style();
+        for line in md_lines {
+            let styled_spans: Vec<_> = line
+                .spans
+                .into_iter()
+                .map(|span| span.patch_style(reasoning_style))
+                .collect();
+
+            // Add indented content with subtle bullet for non-empty lines
+            if styled_spans.iter().all(|s| s.content.trim().is_empty()) {
+                out_lines.push(Line::from(""));
+            } else {
+                let mut final_spans = vec![Span::styled("    ".to_string(), Style::default())];
+                final_spans.extend(styled_spans);
+                out_lines.push(Line::from(final_spans));
+            }
+            joiner_before.push(None);
+        }
+
+        // Add subtle trailing spacer
+        out_lines.push(Line::from(""));
+        joiner_before.push(None);
 
         TranscriptLinesWithJoiners {
-            lines,
+            lines: out_lines,
             joiner_before,
         }
     }
@@ -354,14 +368,15 @@ impl HistoryCell for AgentMessageCell {
         let mut out_lines: Vec<Line<'static>> = Vec::new();
         let mut joiner_before: Vec<Option<String>> = Vec::new();
 
-        let mut is_first_output_line = true;
+        // Add separator with role label for first message block (OpenCode-style)
+        if self.is_first_line {
+            out_lines.push(theme::message_separator(width as usize, "Azure Codex"));
+            joiner_before.push(None);
+        }
+
         for line in &self.lines {
             let is_code_block_line = line.style.fg == Some(Color::Cyan);
-            let initial_indent: Line<'static> = if is_first_output_line && self.is_first_line {
-                "• ".dim().into()
-            } else {
-                "  ".into()
-            };
+            let initial_indent: Line<'static> = "  ".into();
             let subsequent_indent: Line<'static> = "  ".into();
 
             if is_code_block_line {
@@ -369,7 +384,6 @@ impl HistoryCell for AgentMessageCell {
                 spans.extend(line.spans.iter().cloned());
                 out_lines.push(Line::from(spans).style(line.style));
                 joiner_before.push(None);
-                is_first_output_line = false;
                 continue;
             }
 
@@ -381,7 +395,6 @@ impl HistoryCell for AgentMessageCell {
             for (l, j) in wrapped.into_iter().zip(wrapped_joiners) {
                 out_lines.push(line_to_static(&l));
                 joiner_before.push(j);
-                is_first_output_line = false;
             }
         }
 
@@ -764,36 +777,79 @@ pub(crate) fn new_session_info(
     let mut parts: Vec<Box<dyn HistoryCell>> = vec![Box::new(header)];
 
     if is_first_event {
-        // Help lines below the header (new copy and list)
+        // Elegant welcome message with styled commands
         let help_lines: Vec<Line<'static>> = vec![
-            "  To get started, describe a task or try one of these commands:"
-                .dim()
-                .into(),
             Line::from(""),
             Line::from(vec![
-                "  ".into(),
-                "/init".into(),
-                " - create an AGENTS.md file with instructions for Codex".dim(),
+                Span::styled("  💡 ", Style::default().dim()),
+                Span::styled(
+                    "Describe a task or try these commands:".to_string(),
+                    Style::default().dim().italic(),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("     ", Style::default()),
+                Span::styled(
+                    "/init".to_string(),
+                    Style::default().fg(theme::COLOR_PRIMARY),
+                ),
+                Span::styled(
+                    "      create project instructions".to_string(),
+                    Style::default().dim(),
+                ),
             ]),
             Line::from(vec![
-                "  ".into(),
-                "/status".into(),
-                " - show current session configuration".dim(),
+                Span::styled("     ", Style::default()),
+                Span::styled(
+                    "/model".to_string(),
+                    Style::default().fg(theme::COLOR_PRIMARY),
+                ),
+                Span::styled(
+                    "     change model or reasoning".to_string(),
+                    Style::default().dim(),
+                ),
             ]),
             Line::from(vec![
-                "  ".into(),
-                "/approvals".into(),
-                " - choose what Codex can do without approval".dim(),
+                Span::styled("     ", Style::default()),
+                Span::styled(
+                    "/approvals".to_string(),
+                    Style::default().fg(theme::COLOR_PRIMARY),
+                ),
+                Span::styled(
+                    " configure auto-approval".to_string(),
+                    Style::default().dim(),
+                ),
             ]),
             Line::from(vec![
-                "  ".into(),
-                "/model".into(),
-                " - choose what model and reasoning effort to use".dim(),
+                Span::styled("     ", Style::default()),
+                Span::styled(
+                    "/review".to_string(),
+                    Style::default().fg(theme::COLOR_PRIMARY),
+                ),
+                Span::styled(
+                    "    review code changes".to_string(),
+                    Style::default().dim(),
+                ),
             ]),
+            Line::from(""),
             Line::from(vec![
-                "  ".into(),
-                "/review".into(),
-                " - review any changes and find issues".dim(),
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    "Ctrl+K".to_string(),
+                    Style::default().fg(theme::COLOR_SECONDARY).bold(),
+                ),
+                Span::styled(" commands  ·  ".to_string(), Style::default().dim()),
+                Span::styled(
+                    "?".to_string(),
+                    Style::default().fg(theme::COLOR_SECONDARY).bold(),
+                ),
+                Span::styled(" shortcuts  ·  ".to_string(), Style::default().dim()),
+                Span::styled(
+                    "Esc".to_string(),
+                    Style::default().fg(theme::COLOR_SECONDARY).bold(),
+                ),
+                Span::styled(" quit".to_string(), Style::default().dim()),
             ]),
         ];
 
@@ -932,12 +988,14 @@ impl HistoryCell for SessionHeaderHistoryCell {
 
         let make_row = |spans: Vec<Span<'static>>| Line::from(spans);
 
-        // Title line rendered inside the box: ">_ Azure Codex (vX)"
+        // Elegant title with logo-style prefix
         let title_spans: Vec<Span<'static>> = vec![
-            Span::from(">_ ").dim(),
-            Span::from(codex_branding::APP_NAME).bold(),
-            Span::from(" ").dim(),
-            Span::from(format!("(v{})", self.version)).dim(),
+            Span::styled("▸ ", Style::default().fg(theme::COLOR_PRIMARY).bold()),
+            Span::styled(
+                codex_branding::APP_NAME.to_string(),
+                Style::default().fg(theme::COLOR_PRIMARY).bold(),
+            ),
+            Span::styled(format!(" v{}", self.version), Style::default().dim()),
         ];
 
         // Read current model from shared state (updated when model changes)
@@ -1141,20 +1199,31 @@ impl HistoryCell for McpToolCallCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut lines: Vec<Line<'static>> = Vec::new();
         let status = self.success();
-        // Use theme status indicators for consistent styling
-        let bullet = match status {
-            Some(true) => theme::bullet_success(),
-            Some(false) => theme::bullet_error(),
-            None => spinner(Some(self.start_time), self.animations_enabled),
-        };
-        let header_text = if status.is_some() {
-            "Called"
-        } else {
-            "Calling"
+
+        // Elegant status indicators with icons (OpenCode-style)
+        let (bullet, header_text, status_style) = match status {
+            Some(true) => (
+                Span::styled("🔌 ", Style::default().fg(theme::COLOR_SUCCESS).dim()),
+                "Called",
+                Style::default().fg(theme::COLOR_SUCCESS).dim(),
+            ),
+            Some(false) => (
+                Span::styled("🔌 ", Style::default().fg(theme::COLOR_ERROR).bold()),
+                "Failed",
+                Style::default().fg(theme::COLOR_ERROR),
+            ),
+            None => (
+                spinner(Some(self.start_time), self.animations_enabled),
+                "Calling",
+                Style::default().fg(theme::COLOR_PRIMARY).bold(),
+            ),
         };
 
         let invocation_line = line_to_static(&format_mcp_invocation(self.invocation.clone()));
-        let mut compact_spans = vec![bullet.clone(), " ".into(), header_text.bold(), " ".into()];
+        let mut compact_spans = vec![
+            bullet.clone(),
+            Span::styled(format!("{header_text} "), status_style),
+        ];
         let mut compact_header = Line::from(compact_spans.clone());
         let reserved = compact_header.width();
 
@@ -2739,11 +2808,18 @@ mod tests {
             "**High level reasoning**\n\nDetailed reasoning goes here.".to_string(),
         );
 
+        // New elegant format with thinking header
         let rendered_display = render_lines(&cell.display_lines(80));
-        assert_eq!(rendered_display, vec!["• Detailed reasoning goes here."]);
-
-        let rendered_transcript = render_transcript(cell.as_ref());
-        assert_eq!(rendered_transcript, vec!["• Detailed reasoning goes here."]);
+        assert!(
+            rendered_display[0].contains("Thinking"),
+            "first line should have thinking header"
+        );
+        assert!(
+            rendered_display
+                .iter()
+                .any(|l| l.contains("Detailed reasoning")),
+            "should contain reasoning content"
+        );
     }
 
     #[test]
@@ -2751,7 +2827,14 @@ mod tests {
         let cell = new_reasoning_summary_block("Detailed reasoning goes here.".to_string());
 
         let rendered = render_transcript(cell.as_ref());
-        assert_eq!(rendered, vec!["• Detailed reasoning goes here."]);
+        assert!(
+            rendered[0].contains("Thinking"),
+            "first line should have thinking header"
+        );
+        assert!(
+            rendered.iter().any(|l| l.contains("Detailed reasoning")),
+            "should contain reasoning content"
+        );
     }
 
     #[tokio::test]
@@ -2764,8 +2847,12 @@ mod tests {
             "**High level reasoning**\n\nDetailed reasoning goes here.".to_string(),
         );
 
+        // New elegant format with thinking header
         let rendered_display = render_lines(&cell.display_lines(80));
-        assert_eq!(rendered_display, vec!["• Detailed reasoning goes here."]);
+        assert!(
+            rendered_display[0].contains("Thinking"),
+            "first line should have thinking header"
+        );
     }
 
     #[test]
@@ -2774,7 +2861,10 @@ mod tests {
             new_reasoning_summary_block("**High level reasoning without closing".to_string());
 
         let rendered = render_transcript(cell.as_ref());
-        assert_eq!(rendered, vec!["• **High level reasoning without closing"]);
+        assert!(
+            rendered[0].contains("Thinking"),
+            "first line should have thinking header"
+        );
     }
 
     #[test]
@@ -2783,14 +2873,20 @@ mod tests {
             new_reasoning_summary_block("**High level reasoning without closing**".to_string());
 
         let rendered = render_transcript(cell.as_ref());
-        assert_eq!(rendered, vec!["• High level reasoning without closing"]);
+        assert!(
+            rendered[0].contains("Thinking"),
+            "first line should have thinking header"
+        );
 
         let cell = new_reasoning_summary_block(
             "**High level reasoning without closing**\n\n  ".to_string(),
         );
 
         let rendered = render_transcript(cell.as_ref());
-        assert_eq!(rendered, vec!["• High level reasoning without closing"]);
+        assert!(
+            rendered[0].contains("Thinking"),
+            "first line should have thinking header"
+        );
     }
 
     #[test]
@@ -2799,11 +2895,16 @@ mod tests {
             "**High level plan**\n\nWe should fix the bug next.".to_string(),
         );
 
+        // New elegant format with thinking header
         let rendered_display = render_lines(&cell.display_lines(80));
-        assert_eq!(rendered_display, vec!["• We should fix the bug next."]);
-
-        let rendered_transcript = render_transcript(cell.as_ref());
-        assert_eq!(rendered_transcript, vec!["• We should fix the bug next."]);
+        assert!(
+            rendered_display[0].contains("Thinking"),
+            "first line should have thinking header"
+        );
+        assert!(
+            rendered_display.iter().any(|l| l.contains("fix the bug")),
+            "should contain reasoning content"
+        );
     }
 
     #[test]

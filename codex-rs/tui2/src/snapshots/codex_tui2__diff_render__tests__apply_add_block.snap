@@ -2,7 +2,7 @@
 source: tui2/src/diff_render.rs
 expression: terminal.backend()
 ---
-"• Added new_file.txt (+2 -0)                                                    "
+"📝 Added new_file.txt (+2 -0)                                                   " Hidden by multi-width symbols: [(1, " ")]
 "    1 +alpha                                                                    "
 "    2 +beta                                                                     "
 "                                                                                "

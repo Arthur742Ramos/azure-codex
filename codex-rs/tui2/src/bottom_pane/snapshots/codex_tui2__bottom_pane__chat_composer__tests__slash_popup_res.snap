@@ -2,9 +2,9 @@
 source: tui2/src/bottom_pane/chat_composer.rs
 expression: terminal.backend()
 ---
-"                                                            "
-"› /res                                                      "
-"                                                            "
-"                                                            "
-"  /res  ·  tab complete  ·  enter run  ·  esc close         "
-"  /resume  resume a saved chat                              "
+"╭──────────────────────────────────────────────────────────╮"
+"│ /res                                                     │"
+"╰──────────────────────────────────────────────────────────╯"
+"  ╭─ Commands ──────────────────────────────────────────────"
+"  │ /res  ·  tab complete  ·  enter run  ·  esc close      │"
+"  ╰────────────────────────────────────────────────────────╯"

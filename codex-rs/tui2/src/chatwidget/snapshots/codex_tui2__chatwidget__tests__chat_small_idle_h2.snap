@@ -2,5 +2,5 @@
 source: tui2/src/chatwidget/tests.rs
 expression: terminal.backend()
 ---
-">_ Azure Codex  ·  gpt-ctrl + k commands"
-"                                        "
+"╭─ Azure Codex ─────────────────────────"
+"│ ● gpt-5.2-codex                      │"

@@ -401,14 +401,32 @@ where
             self.push_blank_line();
         }
 
-        // Add a visual header for the code block with language tag (only for non-empty language)
+        // Elegant code block header with language tag (OpenCode-style)
         if let Some(ref lang_str) = lang
             && !lang_str.is_empty()
         {
+            // Language-specific icons for common languages
+            let icon = match lang_str.to_lowercase().as_str() {
+                "rust" | "rs" => "🦀",
+                "python" | "py" => "🐍",
+                "javascript" | "js" => "📜",
+                "typescript" | "ts" => "📘",
+                "go" => "🐹",
+                "bash" | "sh" | "shell" | "zsh" => "💻",
+                "json" => "📋",
+                "yaml" | "yml" => "📝",
+                "toml" => "⚙",
+                "sql" => "🗃",
+                "html" => "🌐",
+                "css" => "🎨",
+                "markdown" | "md" => "📄",
+                _ => "📦",
+            };
             let header_line = Line::from(vec![
-                Span::from("┌─ ").dim(),
-                Span::from(lang_str.clone()).cyan(),
-                Span::from(" ─").dim(),
+                Span::from(format!("  {icon} ")).dim(),
+                Span::from(lang_str.clone()).cyan().bold(),
+                Span::from(" ").dim(),
+                Span::from("─".repeat(20)).dim(),
             ]);
             self.push_line(header_line);
         }

@@ -214,38 +214,89 @@ impl HistoryCell for ExecCell {
             if i > 0 {
                 lines.push("".into());
             }
+
+            // Elegant command header (Claude Code-style) - colored circle indicator
+            let success = call.output.as_ref().map(|o| o.exit_code == 0);
+            let (icon, color) = match success {
+                Some(true) => ("●", theme::COLOR_SUCCESS),
+                Some(false) => ("●", theme::COLOR_ERROR),
+                None => ("●", theme::COLOR_PRIMARY),
+            };
+
             let script = strip_bash_lc_and_escape(&call.command);
             let highlighted_script = highlight_bash_to_lines(&script);
+
+            // Use elegant icon prefix instead of $
             let cmd_display = word_wrap_lines(
                 &highlighted_script,
                 RtOptions::new(width as usize)
-                    .initial_indent("$ ".magenta().into())
-                    .subsequent_indent("    ".into()),
+                    .initial_indent(Line::from(vec![Span::styled(
+                        format!("{icon} "),
+                        Style::default().fg(color),
+                    )]))
+                    .subsequent_indent("  ".into()),
             );
             lines.extend(cmd_display);
 
             if let Some(output) = call.output.as_ref() {
                 if !call.is_unified_exec_interaction() {
-                    let wrap_width = width.max(1) as usize;
+                    // Output header separator
+                    if !output.formatted_output.trim().is_empty() {
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("  {} ", theme::rounded::T_RIGHT),
+                                Style::default().dim(),
+                            ),
+                            Span::styled("Output", Style::default().dim()),
+                            Span::styled(
+                                format!(" {}", theme::rounded::H.repeat(20)),
+                                Style::default().dim(),
+                            ),
+                        ]));
+                    }
+
+                    let wrap_width = width.saturating_sub(4).max(1) as usize;
                     let wrap_opts = RtOptions::new(wrap_width);
                     for unwrapped in output.formatted_output.lines().map(ansi_escape_line) {
                         let wrapped = word_wrap_line(&unwrapped, wrap_opts.clone());
-                        push_owned_lines(&wrapped, &mut lines);
+                        // Indent output lines
+                        for line in wrapped {
+                            let mut indented_spans = vec![Span::styled(
+                                format!("  {} ", theme::rounded::V),
+                                Style::default().dim(),
+                            )];
+                            indented_spans.extend(
+                                line.spans
+                                    .into_iter()
+                                    .map(|s| Span::styled(s.content.into_owned(), s.style.dim())),
+                            );
+                            lines.push(Line::from(indented_spans));
+                        }
                     }
                 }
+
+                // Duration and status line
                 let duration = call
                     .duration
                     .map(format_duration)
                     .unwrap_or_else(|| "unknown".to_string());
-                let mut result: Line = if output.exit_code == 0 {
-                    Line::from(theme::checkmark())
+                let result: Line = if output.exit_code == 0 {
+                    Line::from(vec![
+                        Span::styled(format!("  {} ", theme::rounded::BL), Style::default().dim()),
+                        theme::checkmark(),
+                        Span::styled(format!(" {duration}"), Style::default().dim()),
+                    ])
                 } else {
                     Line::from(vec![
+                        Span::styled(format!("  {} ", theme::rounded::BL), Style::default().dim()),
                         theme::crossmark(),
-                        format!(" ({})", output.exit_code).into(),
+                        Span::styled(
+                            format!(" (exit {})", output.exit_code),
+                            Style::default().dim(),
+                        ),
+                        Span::styled(format!(" • {duration}"), Style::default().dim()),
                     ])
                 };
-                result.push_span(format!(" • {duration}").dim());
                 lines.push(result);
             }
         }
@@ -256,19 +307,33 @@ impl HistoryCell for ExecCell {
 impl ExecCell {
     fn exploring_display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut out: Vec<Line<'static>> = Vec::new();
-        out.push(Line::from(vec![
+
+        // Elegant header with icon (OpenCode-style)
+        let action = if self.is_active() {
+            theme::ToolAction::Exploring
+        } else {
+            theme::ToolAction::Explored
+        };
+
+        let header_spans: Vec<Span<'static>> = vec![
             if self.is_active() {
                 spinner(self.active_start_time(), self.animations_enabled())
             } else {
-                theme::bullet_success()
+                Span::styled(
+                    format!("{} ", action.icon()),
+                    Style::default().fg(action.color()).dim(),
+                )
             },
-            " ".into(),
             if self.is_active() {
-                theme::header_span("Exploring")
+                theme::header_span(action.label())
             } else {
-                theme::header_span("Explored")
+                Span::styled(
+                    action.label().to_string(),
+                    Style::default().fg(action.color()).dim(),
+                )
             },
-        ]));
+        ];
+        out.push(Line::from(header_spans));
 
         let mut calls = self.calls.clone();
         let mut out_indented = Vec::new();
@@ -309,30 +374,45 @@ impl ExecCell {
                     .unique();
                 vec![(
                     "Read",
-                    Itertools::intersperse(names.into_iter().map(Into::into), ", ".dim()).collect(),
+                    Itertools::intersperse(
+                        names.into_iter().map(|n| theme::tool_file_path(&n)),
+                        Span::styled(", ", Style::default().dim()),
+                    )
+                    .collect(),
                 )]
             } else {
                 let mut lines = Vec::new();
                 for parsed in &call.parsed {
                     match parsed {
                         ParsedCommand::Read { name, .. } => {
-                            lines.push(("Read", vec![name.clone().into()]));
+                            lines.push(("Read", vec![theme::tool_file_path(name)]));
                         }
                         ParsedCommand::ListFiles { cmd, path } => {
-                            lines.push(("List", vec![path.clone().unwrap_or(cmd.clone()).into()]));
+                            let p = path.clone().unwrap_or(cmd.clone());
+                            lines.push(("List", vec![theme::tool_file_path(&p)]));
                         }
                         ParsedCommand::Search { cmd, query, path } => {
                             let spans = match (query, path) {
                                 (Some(q), Some(p)) => {
-                                    vec![q.clone().into(), " in ".dim(), p.clone().into()]
+                                    vec![
+                                        Span::styled(
+                                            q.clone(),
+                                            Style::default().fg(theme::COLOR_QUERY),
+                                        ),
+                                        Span::styled(" in ", Style::default().dim()),
+                                        theme::tool_file_path(p),
+                                    ]
                                 }
-                                (Some(q), None) => vec![q.clone().into()],
-                                _ => vec![cmd.clone().into()],
+                                (Some(q), None) => vec![Span::styled(
+                                    q.clone(),
+                                    Style::default().fg(theme::COLOR_QUERY),
+                                )],
+                                _ => vec![Span::from(cmd.clone())],
                             };
                             lines.push(("Search", spans));
                         }
                         ParsedCommand::Unknown { cmd } => {
-                            lines.push(("Run", vec![cmd.clone().into()]));
+                            lines.push(("Run", vec![Span::from(cmd.clone())]));
                         }
                     }
                 }
@@ -364,11 +444,27 @@ impl ExecCell {
         };
         let layout = EXEC_DISPLAY_LAYOUT;
         let success = call.output.as_ref().map(|o| o.exit_code == 0);
+
+        // Determine the action type for elegant styling
+        let action = match success {
+            Some(true) => theme::ToolAction::Completed,
+            Some(false) => theme::ToolAction::Failed,
+            None => theme::ToolAction::Running,
+        };
+
+        // Elegant status indicators (OpenCode-style)
         let bullet = match success {
-            Some(true) => theme::bullet_success(),
-            Some(false) => theme::bullet_error(),
+            Some(true) => Span::styled(
+                format!("{} ", action.icon()),
+                Style::default().fg(action.color()).dim(),
+            ),
+            Some(false) => Span::styled(
+                format!("{} ", action.icon()),
+                Style::default().fg(action.color()).bold(),
+            ),
             None => spinner(call.start_time, self.animations_enabled()),
         };
+
         let is_interaction = call.is_unified_exec_interaction();
         let title = if is_interaction {
             ""
@@ -380,15 +476,17 @@ impl ExecCell {
             "Ran"
         };
 
+        // Completed commands are styled more subtly, active ones are prominent
+        let title_span = if self.is_active() {
+            theme::header_span(title)
+        } else {
+            Span::styled(title.to_string(), Style::default().fg(action.color()).dim())
+        };
+
         let mut header_line = if is_interaction {
             Line::from(vec![bullet.clone(), " ".into()])
         } else {
-            Line::from(vec![
-                bullet.clone(),
-                " ".into(),
-                theme::header_span(title),
-                " ".into(),
-            ])
+            Line::from(vec![bullet.clone(), " ".into(), title_span, " ".into()])
         };
         let header_prefix_width = header_line.width();
 
@@ -462,11 +560,11 @@ impl ExecCell {
 
             if raw_output.lines.is_empty() {
                 if !call.is_unified_exec_interaction() {
-                    lines.extend(prefix_lines(
-                        vec![Line::from("(no output)".dim())],
-                        Span::from(layout.output_block.initial_prefix).dim(),
-                        Span::from(layout.output_block.subsequent_prefix),
-                    ));
+                    // Elegant "no output" indicator
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("  {} ", theme::rounded::BL), Style::default().dim()),
+                        Span::styled("(no output)", Style::default().dim().italic()),
+                    ]));
                 }
             } else {
                 // Wrap first so that truncation is applied to on-screen lines
@@ -487,10 +585,23 @@ impl ExecCell {
                     Self::truncate_lines_middle(&wrapped_output, display_limit, raw_output.omitted);
 
                 if !trimmed_output.is_empty() {
+                    // Dim the output for visual hierarchy - command is prominent, output is secondary
+                    let dimmed_output: Vec<Line<'static>> = trimmed_output
+                        .into_iter()
+                        .map(|line| {
+                            Line::from(
+                                line.spans
+                                    .into_iter()
+                                    .map(|s| Span::styled(s.content.into_owned(), s.style.dim()))
+                                    .collect::<Vec<_>>(),
+                            )
+                        })
+                        .collect();
+
                     lines.extend(prefix_lines(
-                        trimmed_output,
+                        dimmed_output,
                         Span::from(layout.output_block.initial_prefix).dim(),
-                        Span::from(layout.output_block.subsequent_prefix),
+                        Span::from(layout.output_block.subsequent_prefix).dim(),
                     ));
                 }
             }
@@ -611,10 +722,11 @@ impl ExecDisplayLayout {
 
 // Use rounded border characters from theme for elegant appearance
 const EXEC_DISPLAY_LAYOUT: ExecDisplayLayout = ExecDisplayLayout::new(
+    // Command continuation uses vertical line for visual connection
     PrefixedBlock::new("  │ ", "  │ "),
     2,
-    // Rounded bottom-left connector for clean visual hierarchy
-    PrefixedBlock::new("  ╰ ", "    "),
+    // Output uses subtle indentation with vertical guide
+    PrefixedBlock::new("  │ ", "  │ "),
     5,
 );
 

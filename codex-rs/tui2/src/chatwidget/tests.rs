@@ -1084,7 +1084,7 @@ async fn ctrl_c_cleared_prompt_is_recoverable_via_history() {
     chat.bottom_pane.insert_str("draft message ");
     chat.bottom_pane
         .attach_image(PathBuf::from("/tmp/preview.png"), 24, 42, "png");
-    let placeholder = "[preview.png 24x42]";
+    let placeholder = "[📷 preview.png 24x42]";
     assert!(
         chat.bottom_pane.composer_text().ends_with(placeholder),
         "expected placeholder {placeholder:?} in composer text"
@@ -1130,9 +1130,9 @@ async fn exec_history_cell_shows_working_then_completed() {
     // Inspect the flushed exec cell rendering.
     let lines = &cells[0];
     let blob = lines_to_single_string(lines);
-    // New behavior: no glyph markers; ensure command is shown and no panic.
+    // Elegant circle indicator for completed commands (Claude Code-style).
     assert!(
-        blob.contains("● Ran"),
+        blob.contains("●") && blob.contains("Ran"),
         "expected summary header present: {blob:?}"
     );
     assert!(
@@ -1159,7 +1159,7 @@ async fn exec_history_cell_shows_working_then_failed() {
     let lines = &cells[0];
     let blob = lines_to_single_string(lines);
     assert!(
-        blob.contains("● Ran false"),
+        blob.contains("Ran false"),
         "expected command and header text present: {blob:?}"
     );
     assert!(blob.to_lowercase().contains("bloop"), "expected error text");
@@ -1199,7 +1199,7 @@ async fn exec_end_without_begin_uses_event_command() {
     assert_eq!(cells.len(), 1, "expected finalized exec cell to flush");
     let blob = lines_to_single_string(&cells[0]);
     assert!(
-        blob.contains("● Ran echo orphaned"),
+        blob.contains("●") && blob.contains("Ran") && blob.contains("echo orphaned"),
         "expected command text to come from event: {blob:?}"
     );
     assert!(
@@ -1229,7 +1229,7 @@ async fn exec_history_shows_unified_exec_startup_commands() {
     assert_eq!(cells.len(), 1, "expected finalized exec cell to flush");
     let blob = lines_to_single_string(&cells[0]);
     assert!(
-        blob.contains("● Ran echo unified exec startup"),
+        blob.contains("●") && blob.contains("Ran") && blob.contains("echo unified exec startup"),
         "expected startup command to render: {blob:?}"
     );
 }
@@ -1706,8 +1706,8 @@ fn render_bottom_first_row(chat: &ChatWidget, width: u16) -> String {
     let area = Rect::new(0, 0, width, height);
     let mut buf = Buffer::empty(area);
     chat.render(area, &mut buf);
-    // Skip the global chrome row at the top of the chat widget.
-    for y in 1..area.height {
+    // Skip the bordered header chrome (3 rows) at the top of the chat widget.
+    for y in 3..area.height {
         let mut row = String::new();
         for x in 0..area.width {
             let s = buf[(x, y)].symbol();

@@ -2,13 +2,16 @@
 source: tui2/src/chatwidget/tests.rs
 expression: popup
 ---
+│ ● gpt-5.2-codex  ·  ctrl + k commands  ·  ? shortcuts                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
   Upload logs?
 
   The following files will be sent:
     • codex-logs.log
 
-› 1. Yes  Share the current Codex session logs with the team for
+▸ › 1. Yes  Share the current Codex session logs with the team for
           troubleshooting.
-  2. No
+    2. No
 
   Press enter to confirm or esc to go back

@@ -9,3 +9,10 @@
 /// - User history lines account for this many columns (e.g., "▌ ") when wrapping.
 pub(crate) const LIVE_PREFIX_COLS: u16 = 2;
 pub(crate) const FOOTER_INDENT_COLS: usize = LIVE_PREFIX_COLS as usize;
+
+// ============================================================================
+// OpenCode-style UI Spacing Constants
+// ============================================================================
+
+/// Number of rows for the branded header container
+pub(crate) const HEADER_HEIGHT: u16 = 3;

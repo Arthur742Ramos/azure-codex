@@ -282,12 +282,23 @@ pub(crate) fn render_rows(
         }
 
         let mut full_line = build_full_line(row, desc_col);
-        if Some(i) == state.selected_idx {
-            // Match previous behavior: cyan + bold for the selected row.
-            // Reset the style first to avoid inheriting dim from keyboard shortcuts.
-            full_line.spans.iter_mut().for_each(|span| {
-                span.style = Style::default().fg(Color::Cyan).bold();
-            });
+        let is_selected = Some(i) == state.selected_idx;
+        if is_selected {
+            // OpenCode-style: selection indicator prefix + cyan highlight
+            let mut styled_spans =
+                vec![Span::styled("▸ ", Style::default().fg(Color::Cyan).bold())];
+            for span in full_line.spans.iter() {
+                styled_spans.push(Span::styled(
+                    span.content.clone().into_owned(),
+                    Style::default().fg(Color::Cyan).bold(),
+                ));
+            }
+            full_line = Line::from(styled_spans);
+        } else {
+            // Unselected: subtle prefix for visual alignment
+            let mut styled_spans = vec![Span::styled("  ", Style::default())];
+            styled_spans.extend(full_line.spans);
+            full_line = Line::from(styled_spans);
         }
 
         // Wrap with subsequent indent aligned to the description column.
@@ -382,10 +393,23 @@ pub(crate) fn render_rows_single_line(
         }
 
         let mut full_line = build_full_line(row, desc_col);
-        if Some(i) == state.selected_idx {
-            full_line.spans.iter_mut().for_each(|span| {
-                span.style = Style::default().fg(Color::Cyan).bold();
-            });
+        let is_selected = Some(i) == state.selected_idx;
+        if is_selected {
+            // OpenCode-style: selection indicator prefix + cyan highlight
+            let mut styled_spans =
+                vec![Span::styled("▸ ", Style::default().fg(Color::Cyan).bold())];
+            for span in full_line.spans.iter() {
+                styled_spans.push(Span::styled(
+                    span.content.clone().into_owned(),
+                    Style::default().fg(Color::Cyan).bold(),
+                ));
+            }
+            full_line = Line::from(styled_spans);
+        } else {
+            // Unselected: subtle prefix for visual alignment
+            let mut styled_spans = vec![Span::styled("  ", Style::default())];
+            styled_spans.extend(full_line.spans);
+            full_line = Line::from(styled_spans);
         }
 
         let full_line = truncate_line_with_ellipsis_if_overflow(full_line, area.width as usize);

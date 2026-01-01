@@ -190,7 +190,9 @@ mod tests {
 
         let streamed: Vec<_> = lines_to_plain_strings(&lines)
             .into_iter()
-            // skip • and 2-space indentation
+            // Filter out the separator line (starts with "──" or contains "Azure Codex")
+            .filter(|s| !s.contains("Azure Codex") && !s.starts_with("──"))
+            // skip 2-space indentation prefix
             .map(|s| s.chars().skip(2).collect::<String>())
             .collect();
 

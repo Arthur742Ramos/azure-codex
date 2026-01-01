@@ -122,7 +122,9 @@ use crate::slash_command::SlashCommand;
 use crate::status::RateLimitSnapshotDisplay;
 use crate::status::StatusRequestMetrics;
 use crate::text_formatting::truncate_text;
+use crate::theme;
 use crate::tui::FrameRequester;
+use crate::ui_consts::HEADER_HEIGHT;
 mod interrupts;
 use self::interrupts::InterruptManager;
 mod agent;
@@ -3914,7 +3916,7 @@ impl ChatWidget {
     }
 
     fn as_renderable(&self) -> RenderableItem<'_> {
-        RenderableItem::Borrowed(&self.bottom_pane).inset(Insets::tlbr(1, 0, 0, 0))
+        RenderableItem::Borrowed(&self.bottom_pane).inset(Insets::tlbr(HEADER_HEIGHT, 0, 0, 0))
     }
 }
 
@@ -3930,33 +3932,49 @@ impl Renderable for ChatWidget {
             return;
         }
 
-        // Top chrome row (brand/model + key hints), intentionally rendered into the
-        // row left empty by the bottom pane's top inset.
-        let header_area = Rect::new(area.x, area.y, area.width, 1);
+        // Top chrome area (bordered header with brand/model + key hints)
+        let header_area = Rect::new(area.x, area.y, area.width, HEADER_HEIGHT);
         let (model, reasoning_effort) = self.model_state.get();
+        let width = header_area.width as usize;
 
-        let mut left_spans: Vec<Span<'static>> =
-            vec![">_ ".dim(), Span::from(codex_branding::APP_NAME).bold()];
-        if header_area.width >= 28 {
-            left_spans.push("  ·  ".dim());
-            left_spans.push(Span::from(model).cyan().bold());
-            if let Some(effort) = reasoning_effort {
-                let label = Self::reasoning_effort_label(effort);
-                left_spans.push("  ·  ".dim());
-                left_spans.push(Span::from(format!("r: {label}")).dim());
-            }
+        // Build content spans for the middle row
+        let mut content_spans: Vec<Span<'static>> = vec![
+            theme::bullet_active(),
+            Span::raw(" "),
+            Span::from(model.clone()).cyan().bold(),
+        ];
+
+        if let Some(effort) = reasoning_effort {
+            let label = Self::reasoning_effort_label(effort);
+            content_spans.push("  ·  ".dim());
+            content_spans.push(Span::from(format!("r: {label}")).dim());
         }
 
+        // Add context window usage indicator if available (OpenCode-style status bar)
+        if let Some(ref info) = self.token_info {
+            let percent_remaining = self.context_remaining_percent(info).unwrap_or(100);
+            let percent_used = 100 - percent_remaining;
+
+            // Compact progress bar (5 chars wide)
+            content_spans.push("  ·  ".dim());
+            content_spans.extend(theme::progress_bar(percent_used, 5));
+            content_spans.push(Span::from(format!(" {percent_used}%")).dim());
+        }
+
+        // Add right-side key hints if there's space
         let right_full: Vec<Span<'static>> = vec![
+            "  ·  ".dim(),
             key_hint::ctrl(KeyCode::Char('k')).into(),
             " commands".dim(),
             "  ·  ".dim(),
             key_hint::plain(KeyCode::Char('?')).into(),
             " shortcuts".dim(),
         ];
-        let right_compact: Vec<Span<'static>> =
-            vec![key_hint::ctrl(KeyCode::Char('k')).into(), " commands".dim()];
-        let right_min: Vec<Span<'static>> = vec![key_hint::ctrl(KeyCode::Char('k')).into()];
+        let right_compact: Vec<Span<'static>> = vec![
+            "  ·  ".dim(),
+            key_hint::ctrl(KeyCode::Char('k')).into(),
+            " commands".dim(),
+        ];
 
         let span_width = |spans: &[Span<'static>]| -> usize {
             spans
@@ -3965,32 +3983,34 @@ impl Renderable for ChatWidget {
                 .sum()
         };
 
-        let header_width = header_area.width as usize;
-        let mut right_spans = right_full;
-        if span_width(&right_spans).saturating_add(8) > header_width {
-            right_spans = right_compact;
-        }
-        if span_width(&right_spans).saturating_add(8) > header_width {
-            right_spans = right_min;
+        let content_width = span_width(&content_spans);
+        let available = width.saturating_sub(content_width + 6); // 6 for border chars
+
+        if span_width(&right_full) <= available {
+            content_spans.extend(right_full);
+        } else if span_width(&right_compact) <= available {
+            content_spans.extend(right_compact);
         }
 
-        let right_width = span_width(&right_spans).min(header_width) as u16;
-        if right_width > 0 && right_width < header_area.width {
-            let left_area = Rect::new(
-                header_area.x,
-                header_area.y,
-                header_area.width - right_width,
-                1,
-            );
-            let right_area = Rect::new(
-                header_area.x + header_area.width - right_width,
-                header_area.y,
-                right_width,
-                1,
-            );
-            Line::from(left_spans).render(left_area, buf);
-            Line::from(right_spans).render(right_area, buf);
+        // Render the 3-row bordered header
+        if header_area.height >= 3 {
+            // Top border with brand label
+            let top_row = Rect::new(header_area.x, header_area.y, header_area.width, 1);
+            theme::header_top(width, codex_branding::APP_NAME).render(top_row, buf);
+
+            // Content row with model info
+            let content_row = Rect::new(header_area.x, header_area.y + 1, header_area.width, 1);
+            theme::header_content(content_spans, width).render(content_row, buf);
+
+            // Bottom border
+            let bottom_row = Rect::new(header_area.x, header_area.y + 2, header_area.width, 1);
+            theme::header_bottom(width).render(bottom_row, buf);
         } else {
+            // Fallback for very small terminals: simple one-line header
+            let mut left_spans: Vec<Span<'static>> =
+                vec![">_ ".dim(), Span::from(codex_branding::APP_NAME).bold()];
+            left_spans.push("  ·  ".dim());
+            left_spans.push(Span::from(model).cyan().bold());
             Line::from(left_spans).render(header_area, buf);
         }
 

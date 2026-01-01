@@ -33,19 +33,19 @@ expression: term.backend().vt100().screen().contents()
 
 
 
-
-
-•     -- Indented code block (4 spaces)
+──  Azure Codex
+────────────────────────────────────────────────────────────────
+      -- Indented code block (4 spaces)
       SELECT *
       FROM "users"
       WHERE "email" LIKE '%@example.com';
 
-  ┌─ markdown ─
+    📄 markdown ────────────────────
   ```sh
   printf 'fenced within fenced\n'
   ```
 
-  ┌─ jsonc ─
+    📦 jsonc ────────────────────
   {
     // comment allowed in jsonc
     "path": "C:\\Program Files\\App",

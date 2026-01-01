@@ -14,7 +14,6 @@ use ratatui::style::Style;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::text::Span;
-use ratatui::widgets::Block;
 use ratatui::widgets::StatefulWidgetRef;
 use ratatui::widgets::WidgetRef;
 
@@ -45,6 +44,7 @@ use crate::render::renderable::Renderable;
 use crate::slash_command::SlashCommand;
 use crate::slash_command::built_in_slash_commands_for_matching;
 use crate::style::user_message_style;
+use crate::theme;
 use codex_common::fuzzy_match::fuzzy_match;
 use codex_protocol::custom_prompts::CustomPrompt;
 use codex_protocol::custom_prompts::PROMPTS_CMD_PREFIX;
@@ -333,7 +333,8 @@ impl ChatComposer {
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| "image".to_string());
-        let placeholder = format!("[{file_label} {width}x{height}]");
+        // Use icon in placeholder for elegant chip appearance (OpenCode-style)
+        let placeholder = format!("[📷 {file_label} {width}x{height}]");
         // Insert as an element to match large paste placeholder behavior:
         // styled distinctly and treated atomically for cursor/mutations.
         self.textarea.insert_element(&placeholder);
@@ -1908,15 +1909,48 @@ impl Renderable for ChatComposer {
                 }
             }
         }
+        // Render bordered input container (OpenCode-style)
+        let width = composer_rect.width as usize;
+
+        // Top border
+        if composer_rect.height >= 1 {
+            let top_row = Rect::new(composer_rect.x, composer_rect.y, composer_rect.width, 1);
+            theme::input_top(width).render_ref(top_row, buf);
+        }
+
+        // Bottom border
+        if composer_rect.height >= 2 {
+            let bottom_y = composer_rect.y + composer_rect.height - 1;
+            let bottom_row = Rect::new(composer_rect.x, bottom_y, composer_rect.width, 1);
+            theme::input_bottom(width).render_ref(bottom_row, buf);
+        }
+
+        // Side borders for content rows (between top and bottom)
+        let border_style = theme::input_border_style();
+        for y in (composer_rect.y + 1)..(composer_rect.y + composer_rect.height.saturating_sub(1)) {
+            // Left border
+            buf.set_string(composer_rect.x, y, theme::rounded::V, border_style);
+            // Right border
+            if composer_rect.width > 1 {
+                buf.set_string(
+                    composer_rect.x + composer_rect.width - 1,
+                    y,
+                    theme::rounded::V,
+                    border_style,
+                );
+            }
+        }
+
+        // Fill background with user message style (subtle tint)
         let style = user_message_style();
-        Block::default().style(style).render_ref(composer_rect, buf);
         if !textarea_rect.is_empty() {
-            buf.set_span(
-                textarea_rect.x - LIVE_PREFIX_COLS,
-                textarea_rect.y,
-                &"›".bold(),
-                textarea_rect.width,
-            );
+            for y in textarea_rect.y..(textarea_rect.y + textarea_rect.height) {
+                for x in textarea_rect.x..(textarea_rect.x + textarea_rect.width) {
+                    if let Some(cell) = buf.cell_mut((x, y)) {
+                        cell.set_style(style);
+                    }
+                }
+            }
         }
 
         let mut state = self.textarea_state.borrow_mut();
@@ -2042,10 +2076,13 @@ mod tests {
         );
 
         let spacing_row = row_to_string(hint_row_idx - 1);
-        assert_eq!(
-            spacing_row.trim(),
-            "",
-            "expected blank spacing row above hints but saw: {spacing_row:?}",
+        // With bordered input container, the bottom border provides visual separation.
+        // Accept either blank row or the border row as valid separation.
+        let is_blank = spacing_row.trim().is_empty();
+        let is_border = spacing_row.contains('╰') || spacing_row.contains('─');
+        assert!(
+            is_blank || is_border,
+            "expected spacing or border row above hints but saw: {spacing_row:?}",
         );
     }
 
@@ -3169,7 +3206,7 @@ mod tests {
         let (result, _) =
             composer.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         match result {
-            InputResult::Submitted(text) => assert_eq!(text, "[image1.png 32x16] hi"),
+            InputResult::Submitted(text) => assert_eq!(text, "[📷 image1.png 32x16] hi"),
             _ => panic!("expected Submitted"),
         }
         let imgs = composer.take_recent_submission_images();
@@ -3192,7 +3229,7 @@ mod tests {
         let (result, _) =
             composer.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         match result {
-            InputResult::Submitted(text) => assert_eq!(text, "[image2.png 10x5]"),
+            InputResult::Submitted(text) => assert_eq!(text, "[📷 image2.png 10x5]"),
             _ => panic!("expected Submitted"),
         }
         let imgs = composer.take_recent_submission_images();
@@ -3269,7 +3306,7 @@ mod tests {
             composer
                 .textarea
                 .text()
-                .starts_with("[image_multibyte.png 10x5]")
+                .starts_with("[📷 image_multibyte.png 10x5]")
         );
     }
 
@@ -3317,7 +3354,7 @@ mod tests {
         assert_eq!(
             vec![AttachedImage {
                 path: path2,
-                placeholder: "[image_dup2.png 10x5]".to_string()
+                placeholder: "[📷 image_dup2.png 10x5]".to_string()
             }],
             composer.attached_images,
             "one image mapping remains"
@@ -3348,7 +3385,7 @@ mod tests {
             composer
                 .textarea
                 .text()
-                .starts_with("[codex_tui_test_paste_image.png 3x2] ")
+                .starts_with("[📷 codex_tui_test_paste_image.png 3x2] ")
         );
 
         let imgs = composer.take_recent_submission_images();

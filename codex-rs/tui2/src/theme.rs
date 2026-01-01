@@ -829,6 +829,667 @@ pub fn breathing_span(elapsed_ms: u128, color: Color) -> Span<'static> {
     Span::styled(frame.to_string(), Style::default().fg(color).bold())
 }
 
+// ============================================================================
+// UI Container Helpers (OpenCode-style polish)
+// ============================================================================
+
+/// Status for tool call cards
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolStatus {
+    Running,
+    Success,
+    Error,
+}
+
+/// Style for input container border (subtle)
+pub fn input_border_style() -> Style {
+    Style::default().fg(COLOR_SUBTLE)
+}
+
+/// Style for attachment chips
+pub fn attachment_chip_style() -> Style {
+    Style::default()
+        .fg(COLOR_PRIMARY)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// Create an attachment chip span with icon
+pub fn attachment_chip(filename: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled("[".to_string(), Style::default().dim()),
+        Span::styled(format!("{} ", icons::FILE_READ), attachment_chip_style()),
+        Span::styled(filename.to_string(), attachment_chip_style()),
+        Span::styled("]".to_string(), Style::default().dim()),
+    ]
+}
+
+/// Tool card border style based on status
+pub fn tool_card_border_style(status: ToolStatus) -> Style {
+    match status {
+        ToolStatus::Running => Style::default().fg(COLOR_PRIMARY),
+        ToolStatus::Success => Style::default().fg(COLOR_SUCCESS).dim(),
+        ToolStatus::Error => Style::default().fg(COLOR_ERROR),
+    }
+}
+
+/// Create a tool card top border with label
+pub fn tool_card_top(width: usize, label: &str, status: ToolStatus) -> Line<'static> {
+    let style = tool_card_border_style(status);
+    let label_len = label.chars().count() + 4; // space + icon + space + label + space
+    let remaining = width.saturating_sub(label_len + 2);
+
+    let status_icon = match status {
+        ToolStatus::Running => icons::RUN,
+        ToolStatus::Success => icons::SUCCESS,
+        ToolStatus::Error => icons::ERROR,
+    };
+
+    Line::from(vec![
+        Span::styled(rounded::TL.to_string(), style),
+        Span::styled(format!("{} {status_icon} {label} ", rounded::H), style),
+        Span::styled(rounded::H.repeat(remaining), style),
+        Span::styled(rounded::TR.to_string(), style),
+    ])
+}
+
+/// Create a tool card content line with side borders
+pub fn tool_card_content(content: &str, width: usize, status: ToolStatus) -> Line<'static> {
+    let style = tool_card_border_style(status);
+    let content_width = content.chars().count();
+    let padding = width.saturating_sub(content_width + 4);
+
+    Line::from(vec![
+        Span::styled(format!("{} ", rounded::V), style),
+        Span::raw(content.to_string()),
+        Span::raw(" ".repeat(padding)),
+        Span::styled(format!(" {}", rounded::V), style),
+    ])
+}
+
+/// Create a tool card separator line
+pub fn tool_card_separator(width: usize, status: ToolStatus) -> Line<'static> {
+    let style = tool_card_border_style(status);
+    let inner = width.saturating_sub(2);
+
+    Line::from(vec![
+        Span::styled(rounded::T_RIGHT.to_string(), style),
+        Span::styled(rounded::H.repeat(inner), style),
+        Span::styled(rounded::T_LEFT.to_string(), style),
+    ])
+}
+
+/// Create a tool card bottom border
+pub fn tool_card_bottom(width: usize, status: ToolStatus) -> Line<'static> {
+    let style = tool_card_border_style(status);
+    let inner = width.saturating_sub(2);
+
+    Line::from(vec![
+        Span::styled(rounded::BL.to_string(), style),
+        Span::styled(rounded::H.repeat(inner), style),
+        Span::styled(rounded::BR.to_string(), style),
+    ])
+}
+
+/// Create a header container top border with label
+pub fn header_top(width: usize, label: &str) -> Line<'static> {
+    let style = Style::default().dim();
+    let label_styled = brand_span(label);
+    let label_len = label.chars().count() + 2;
+    let remaining = width.saturating_sub(label_len + 2);
+
+    Line::from(vec![
+        Span::styled(format!("{}{} ", rounded::TL, rounded::H), style),
+        label_styled,
+        Span::styled(format!(" {}", rounded::H.repeat(remaining)), style),
+        Span::styled(rounded::TR.to_string(), style),
+    ])
+}
+
+/// Create a header content line with side borders
+pub fn header_content(spans: Vec<Span<'static>>, width: usize) -> Line<'static> {
+    let style = Style::default().dim();
+    let content_width: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+    let padding = width.saturating_sub(content_width + 4);
+
+    let mut result = vec![Span::styled(format!("{} ", rounded::V), style)];
+    result.extend(spans);
+    result.push(Span::raw(" ".repeat(padding)));
+    result.push(Span::styled(format!(" {}", rounded::V), style));
+
+    Line::from(result)
+}
+
+/// Create a header bottom border
+pub fn header_bottom(width: usize) -> Line<'static> {
+    let style = Style::default().dim();
+    let inner = width.saturating_sub(2);
+
+    Line::from(vec![
+        Span::styled(rounded::BL.to_string(), style),
+        Span::styled(rounded::H.repeat(inner), style),
+        Span::styled(rounded::BR.to_string(), style),
+    ])
+}
+
+/// Create an input container top border
+pub fn input_top(width: usize) -> Line<'static> {
+    let style = input_border_style();
+    let inner = width.saturating_sub(2);
+
+    Line::from(vec![
+        Span::styled(rounded::TL.to_string(), style),
+        Span::styled(rounded::H.repeat(inner), style),
+        Span::styled(rounded::TR.to_string(), style),
+    ])
+}
+
+/// Create an input container content line with side borders
+pub fn input_content(content: Line<'static>, width: usize) -> Line<'static> {
+    let style = input_border_style();
+    let content_width: usize = content
+        .spans
+        .iter()
+        .map(|s| s.content.chars().count())
+        .sum();
+    let padding = width.saturating_sub(content_width + 4);
+
+    let mut result = vec![Span::styled(format!("{} ", rounded::V), style)];
+    result.extend(content.spans);
+    result.push(Span::raw(" ".repeat(padding)));
+    result.push(Span::styled(format!(" {}", rounded::V), style));
+
+    Line::from(result)
+}
+
+/// Create an input container bottom border
+pub fn input_bottom(width: usize) -> Line<'static> {
+    let style = input_border_style();
+    let inner = width.saturating_sub(2);
+
+    Line::from(vec![
+        Span::styled(rounded::BL.to_string(), style),
+        Span::styled(rounded::H.repeat(inner), style),
+        Span::styled(rounded::BR.to_string(), style),
+    ])
+}
+
+/// Create a message separator with role label
+pub fn message_separator(width: usize, role: &str) -> Line<'static> {
+    let role_span = role_label(role);
+    let role_len = role.chars().count() + 2; // spaces around role
+    let side_len = 2;
+    let right_len = width.saturating_sub(side_len + role_len + 1);
+
+    Line::from(vec![
+        Span::styled(
+            format!("{}{} ", rounded::H, rounded::H),
+            Style::default().dim(),
+        ),
+        role_span,
+        Span::styled(
+            format!(" {}", rounded::H.repeat(right_len)),
+            Style::default().dim(),
+        ),
+    ])
+}
+
+// ============================================================================
+// Chain-of-Thought / Reasoning Styling (OpenCode-inspired)
+// ============================================================================
+
+/// Style for chain-of-thought/reasoning text (subtle, de-emphasized)
+pub fn reasoning_style() -> Style {
+    Style::default().dim().italic().fg(COLOR_SUBTLE)
+}
+
+/// Create a thinking header line
+pub fn thinking_header(width: usize) -> Line<'static> {
+    let label = "Thinking";
+    let label_len = label.chars().count() + 4;
+    let remaining = width.saturating_sub(label_len + 4);
+
+    Line::from(vec![
+        Span::styled("  💭 ", Style::default().fg(COLOR_SUBTLE)),
+        Span::styled(label.to_string(), Style::default().dim().italic()),
+        Span::styled(
+            format!(" {}", "·".repeat(remaining.min(20))),
+            Style::default().dim(),
+        ),
+    ])
+}
+
+/// Create a thinking content line (indented, subtle)
+pub fn thinking_line(content: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("    ".to_string(), Style::default()),
+        Span::styled(content.to_string(), reasoning_style()),
+    ])
+}
+
+/// Create a thinking bullet point
+pub fn thinking_bullet_line(content: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("  · ".to_string(), Style::default().dim()),
+        Span::styled(content.to_string(), reasoning_style()),
+    ])
+}
+
+/// Create a collapsible thinking section header
+pub fn thinking_section(expanded: bool, summary: &str) -> Line<'static> {
+    let indicator = if expanded { "▾" } else { "▸" };
+    Line::from(vec![
+        Span::styled(format!("  {indicator} "), Style::default().dim()),
+        Span::styled("💭 ", Style::default().fg(COLOR_SUBTLE)),
+        Span::styled(summary.to_string(), reasoning_style()),
+    ])
+}
+
+/// Create an elegant empty line for spacing
+pub fn spacer_line() -> Line<'static> {
+    Line::from("")
+}
+
+/// Create a subtle continuation indicator for wrapped content
+pub fn continuation_indicator() -> Span<'static> {
+    Span::styled("  ↳ ".to_string(), Style::default().dim())
+}
+
+// ============================================================================
+// OpenCode-Inspired Visual Enhancements
+// ============================================================================
+
+/// Elegant ASCII art logo for Azure Codex (compact, terminal-friendly)
+pub fn logo_lines() -> Vec<Line<'static>> {
+    vec![
+        Line::from(vec![
+            Span::styled("  ▄▀▀▄ ", Style::default().fg(COLOR_PRIMARY).bold()),
+            Span::styled("Azure Codex", Style::default().fg(COLOR_PRIMARY).bold()),
+        ]),
+        Line::from(vec![
+            Span::styled("  █  █ ", Style::default().fg(COLOR_PRIMARY)),
+            Span::styled("AI Coding Assistant", Style::default().dim()),
+        ]),
+        Line::from(vec![
+            Span::styled("  ▀▄▄▀ ", Style::default().fg(COLOR_PRIMARY)),
+            Span::styled("Powered by Azure AI", Style::default().dim().italic()),
+        ]),
+    ]
+}
+
+/// Create a fancy bordered card with title
+pub fn card_with_title(
+    title: &str,
+    content_lines: Vec<Line<'static>>,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let mut out = Vec::with_capacity(content_lines.len() + 2);
+
+    // Top border with title
+    let title_len = title.chars().count() + 2;
+    let remaining = width.saturating_sub(title_len + 3);
+    out.push(Line::from(vec![
+        Span::styled(
+            format!("{}{} ", rounded::TL, rounded::H),
+            Style::default().dim(),
+        ),
+        Span::styled(title.to_string(), Style::default().bold()),
+        Span::styled(
+            format!(" {}{}", rounded::H.repeat(remaining), rounded::TR),
+            Style::default().dim(),
+        ),
+    ]));
+
+    // Content lines with side borders
+    for line in content_lines {
+        let content_width: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+        let padding = width.saturating_sub(content_width + 4);
+
+        let mut row = vec![Span::styled(
+            format!("{} ", rounded::V),
+            Style::default().dim(),
+        )];
+        row.extend(line.spans);
+        row.push(Span::raw(" ".repeat(padding)));
+        row.push(Span::styled(
+            format!(" {}", rounded::V),
+            Style::default().dim(),
+        ));
+        out.push(Line::from(row));
+    }
+
+    // Bottom border
+    let inner = width.saturating_sub(2);
+    out.push(Line::from(vec![
+        Span::styled(rounded::BL.to_string(), Style::default().dim()),
+        Span::styled(rounded::H.repeat(inner), Style::default().dim()),
+        Span::styled(rounded::BR.to_string(), Style::default().dim()),
+    ]));
+
+    out
+}
+
+/// Create a status line with label (for session info, etc.)
+pub fn status_line(label: &str, status: &str, is_active: bool) -> Line<'static> {
+    let indicator = if is_active {
+        Span::styled("● ", Style::default().fg(COLOR_SUCCESS).bold())
+    } else {
+        Span::styled("○ ", Style::default().dim())
+    };
+
+    Line::from(vec![
+        indicator,
+        Span::styled(format!("{label}: "), Style::default().dim()),
+        if is_active {
+            Span::styled(status.to_string(), Style::default().fg(COLOR_SUCCESS))
+        } else {
+            Span::styled(status.to_string(), Style::default().dim())
+        },
+    ])
+}
+
+/// Create an elegant key binding hint with box styling
+pub fn key_binding_box(key: &str, description: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled("[".to_string(), Style::default().dim()),
+        Span::styled(key.to_string(), Style::default().fg(COLOR_SECONDARY).bold()),
+        Span::styled("]".to_string(), Style::default().dim()),
+        Span::styled(format!(" {description}"), Style::default().dim()),
+    ]
+}
+
+/// Create a subtle divider with optional label
+pub fn divider_with_dots(width: usize, label: Option<&str>) -> Line<'static> {
+    match label {
+        Some(lbl) => {
+            let label_len = lbl.chars().count() + 2;
+            let dots_count = (width.saturating_sub(label_len)) / 2;
+            let remaining = width.saturating_sub(dots_count * 2 + label_len);
+            Line::from(vec![
+                Span::styled("·".repeat(dots_count), Style::default().dim()),
+                Span::styled(format!(" {lbl} "), Style::default().dim().italic()),
+                Span::styled("·".repeat(remaining + dots_count), Style::default().dim()),
+            ])
+        }
+        None => Line::from(vec![Span::styled(
+            "·".repeat(width),
+            Style::default().dim(),
+        )]),
+    }
+}
+
+/// Create an info box line (for tips, hints)
+pub fn info_box_line(content: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("  💡 ", Style::default().fg(COLOR_INFO)),
+        Span::styled(content.to_string(), Style::default().dim().italic()),
+    ])
+}
+
+/// Create a warning box line
+pub fn warning_box_line(content: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("  ⚠️ ", Style::default().fg(COLOR_WARNING).bold()),
+        Span::styled(content.to_string(), Style::default().fg(COLOR_WARNING)),
+    ])
+}
+
+/// Create an elegant scroll indicator
+pub fn scroll_indicator(current: usize, total: usize, height: usize) -> Vec<Span<'static>> {
+    if total <= height {
+        return vec![];
+    }
+
+    let percent = if total > 0 {
+        (current as f64 / total as f64 * 100.0).round() as usize
+    } else {
+        0
+    };
+
+    vec![
+        Span::styled("↕ ".to_string(), Style::default().dim()),
+        Span::styled(format!("{percent}%"), Style::default().dim()),
+    ]
+}
+
+/// Create a compact mode indicator
+pub fn mode_indicator(mode: &str, is_active: bool) -> Vec<Span<'static>> {
+    if is_active {
+        vec![
+            Span::styled("[".to_string(), Style::default().fg(COLOR_PRIMARY)),
+            Span::styled(mode.to_string(), Style::default().fg(COLOR_PRIMARY).bold()),
+            Span::styled("]".to_string(), Style::default().fg(COLOR_PRIMARY)),
+        ]
+    } else {
+        vec![Span::styled(format!("[{mode}]"), Style::default().dim())]
+    }
+}
+
+/// Create an elegant timestamp display
+pub fn timestamp_display(label: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("⏱ ", Style::default().dim()),
+        Span::styled(label.to_string(), Style::default().dim()),
+    ])
+}
+
+/// Quick actions bar for showing available shortcuts
+pub fn quick_actions_bar(actions: &[(&str, &str)]) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (i, (key, desc)) in actions.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled("  ·  ", Style::default().dim()));
+        }
+        spans.push(Span::styled(
+            (*key).to_string(),
+            Style::default().fg(COLOR_SECONDARY).bold(),
+        ));
+        spans.push(Span::styled(format!(" {desc}"), Style::default().dim()));
+    }
+    Line::from(spans)
+}
+
+// ============================================================================
+// Elegant Tool Call Styling (OpenCode-inspired)
+// ============================================================================
+
+/// Tool action type for styling
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolAction {
+    Running,
+    Completed,
+    Failed,
+    Exploring,
+    Explored,
+    Reading,
+    Writing,
+    Searching,
+}
+
+impl ToolAction {
+    /// Get the icon for this action
+    /// Uses elegant circles like Claude Code (● is widely supported)
+    pub fn icon(self) -> &'static str {
+        match self {
+            ToolAction::Running => "●",
+            ToolAction::Completed => "●",
+            ToolAction::Failed => "●",
+            ToolAction::Exploring => "●",
+            ToolAction::Explored => "●",
+            ToolAction::Reading => "●",
+            ToolAction::Writing => "●",
+            ToolAction::Searching => "●",
+        }
+    }
+
+    /// Get the label for this action
+    pub fn label(self) -> &'static str {
+        match self {
+            ToolAction::Running => "Running",
+            ToolAction::Completed => "Ran",
+            ToolAction::Failed => "Failed",
+            ToolAction::Exploring => "Exploring",
+            ToolAction::Explored => "Explored",
+            ToolAction::Reading => "Read",
+            ToolAction::Writing => "Write",
+            ToolAction::Searching => "Search",
+        }
+    }
+
+    /// Get the color for this action
+    pub fn color(self) -> Color {
+        match self {
+            ToolAction::Running | ToolAction::Exploring => COLOR_PRIMARY,
+            ToolAction::Completed | ToolAction::Explored => COLOR_SUCCESS,
+            ToolAction::Failed => COLOR_ERROR,
+            ToolAction::Reading | ToolAction::Searching => COLOR_INFO,
+            ToolAction::Writing => COLOR_ACCENT,
+        }
+    }
+
+    /// Whether this action is in-progress (animated)
+    pub fn is_active(self) -> bool {
+        matches!(self, ToolAction::Running | ToolAction::Exploring)
+    }
+}
+
+/// Create an elegant tool action header line
+pub fn tool_action_header(action: ToolAction, command: &str) -> Vec<Span<'static>> {
+    let color = action.color();
+    let style = if action.is_active() {
+        Style::default().fg(color).bold()
+    } else {
+        Style::default().fg(color).dim()
+    };
+
+    vec![
+        Span::styled(format!("{} ", action.icon()), style),
+        Span::styled(format!("{} ", action.label()), style),
+        Span::styled(command.to_string(), Style::default()),
+    ]
+}
+
+/// Create a compact tool header with icon
+pub fn tool_header_compact(icon: &str, label: &str, detail: &str, color: Color) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(format!("{icon} "), Style::default().fg(color)),
+        Span::styled(format!("{label} "), Style::default().fg(color).bold()),
+        Span::styled(detail.to_string(), Style::default()),
+    ])
+}
+
+/// Create a tool output block header
+pub fn tool_output_header() -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("  {} Output ", rounded::T_RIGHT),
+            Style::default().dim(),
+        ),
+        Span::styled(rounded::H.repeat(30), Style::default().dim()),
+    ])
+}
+
+/// Create a styled output line (indented, dimmed)
+pub fn tool_output_line(content: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("    ", Style::default()),
+        Span::styled(content.to_string(), Style::default().dim()),
+    ])
+}
+
+/// Create an output truncation indicator
+pub fn tool_output_truncated(hidden_lines: usize) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("    ", Style::default()),
+        Span::styled(
+            format!("… +{hidden_lines} more lines"),
+            Style::default().dim().italic(),
+        ),
+    ])
+}
+
+/// Create a tool duration line
+pub fn tool_duration_line(duration: &str, success: bool) -> Line<'static> {
+    let (icon, color) = if success {
+        ("✓", COLOR_SUCCESS)
+    } else {
+        ("✗", COLOR_ERROR)
+    };
+
+    Line::from(vec![
+        Span::styled(format!("  {icon} "), Style::default().fg(color).dim()),
+        Span::styled(format!("Completed in {duration}"), Style::default().dim()),
+    ])
+}
+
+/// Create a tree connector line for hierarchical tool displays
+pub fn tree_connector(is_last: bool) -> Span<'static> {
+    if is_last {
+        Span::styled(format!("  {} ", rounded::BL), Style::default().dim())
+    } else {
+        Span::styled(format!("  {} ", rounded::T_RIGHT), Style::default().dim())
+    }
+}
+
+/// Create a tree continuation line
+pub fn tree_continuation() -> Span<'static> {
+    Span::styled(format!("  {} ", rounded::V), Style::default().dim())
+}
+
+/// Style for file path in tool calls
+pub fn tool_file_path(path: &str) -> Span<'static> {
+    Span::styled(path.to_string(), Style::default().fg(COLOR_PATH))
+}
+
+/// Style for command in tool calls
+pub fn tool_command(cmd: &str) -> Span<'static> {
+    Span::styled(cmd.to_string(), Style::default())
+}
+
+/// Create an elegant file operation line with emoji icons
+pub fn file_operation_line(operation: &str, path: &str) -> Line<'static> {
+    let (icon, color) = match operation.to_lowercase().as_str() {
+        "read" => ("📖", COLOR_INFO),
+        "write" | "edit" => ("✏️", COLOR_ACCENT),
+        "create" => ("📝", COLOR_SUCCESS),
+        "delete" => ("🗑️", COLOR_ERROR),
+        "search" | "grep" => ("🔎", COLOR_QUERY),
+        "list" => ("📁", COLOR_PATH),
+        _ => ("📄", COLOR_INFO),
+    };
+
+    Line::from(vec![
+        Span::styled(format!("{icon} "), Style::default().fg(color)),
+        Span::styled(format!("{operation} "), Style::default().fg(color).bold()),
+        Span::styled(path.to_string(), Style::default().fg(COLOR_PATH)),
+    ])
+}
+
+/// Create a diff file header line (elegant styling)
+pub fn diff_file_header(path: &str, additions: usize, deletions: usize) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("• ", Style::default().dim()),
+        Span::styled(path.to_string(), Style::default().bold()),
+        Span::styled(" (".to_string(), Style::default().dim()),
+        Span::styled(format!("+{additions}"), Style::default().fg(COLOR_SUCCESS)),
+        Span::styled(" ".to_string(), Style::default()),
+        Span::styled(format!("-{deletions}"), Style::default().fg(COLOR_ERROR)),
+        Span::styled(")".to_string(), Style::default().dim()),
+    ])
+}
+
+/// Create an elegant diff change indicator
+pub fn diff_change_indicator(change_type: &str) -> Span<'static> {
+    let (text, color) = match change_type.to_uppercase().as_str() {
+        "A" | "ADD" | "ADDED" => ("A", COLOR_SUCCESS),
+        "D" | "DEL" | "DELETE" | "DELETED" => ("D", COLOR_ERROR),
+        "M" | "MOD" | "MODIFIED" => ("M", COLOR_ACCENT),
+        "R" | "REN" | "RENAMED" => ("R", COLOR_INFO),
+        _ => ("?", COLOR_SUBTLE),
+    };
+
+    Span::styled(text.to_string(), Style::default().fg(color).bold())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

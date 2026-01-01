@@ -139,7 +139,12 @@ fn render_changes_block(rows: Vec<Row>, wrap_cols: usize, cwd: &Path) -> Vec<RtL
     let render_path = |row: &Row, dim_path: bool| -> Vec<RtSpan<'static>> {
         let mut spans = Vec::new();
         let path = display_path_for(&row.path, cwd);
-        spans.push(if dim_path { path.dim() } else { path.into() });
+        // Use cyan for file paths (OpenCode-style)
+        spans.push(if dim_path {
+            RtSpan::styled(path, Style::default().fg(Color::Cyan).dim())
+        } else {
+            RtSpan::styled(path, Style::default().fg(Color::Cyan))
+        });
         if let Some(move_path) = &row.move_path {
             spans.push(if dim_path {
                 " → ".dim()
@@ -147,33 +152,54 @@ fn render_changes_block(rows: Vec<Row>, wrap_cols: usize, cwd: &Path) -> Vec<RtL
                 " → ".into()
             });
             let moved = display_path_for(move_path, cwd);
-            spans.push(if dim_path { moved.dim() } else { moved.into() });
+            spans.push(if dim_path {
+                RtSpan::styled(moved, Style::default().fg(Color::Cyan).dim())
+            } else {
+                RtSpan::styled(moved, Style::default().fg(Color::Cyan))
+            });
         }
         spans
     };
 
-    // Header
+    // Elegant header with icon (OpenCode-style)
     let total_added: usize = rows.iter().map(|r| r.added).sum();
     let total_removed: usize = rows.iter().map(|r| r.removed).sum();
     let file_count = rows.len();
     let noun = if file_count == 1 { "file" } else { "files" };
-    let mut header_spans: Vec<RtSpan<'static>> = vec!["• ".dim()];
+
+    // Use pencil icon for edits
+    let mut header_spans: Vec<RtSpan<'static>> =
+        vec![RtSpan::styled("✏️  ", Style::default().fg(Color::Magenta))];
+
     if let [row] = &rows[..] {
-        let verb = match &row.change {
-            FileChange::Add { .. } => "Added",
-            FileChange::Delete { .. } => "Deleted",
+        let (verb, icon) = match &row.change {
+            FileChange::Add { .. } => ("Added", "📝"),
+            FileChange::Delete { .. } => ("Deleted", "🗑️"),
             FileChange::Update {
                 move_path: Some(_), ..
-            } => "Renamed",
-            _ => "Edited",
+            } => ("Renamed", "📋"),
+            _ => ("Edited", "✏️"),
         };
-        header_spans.push(verb.bold());
+        // Replace first icon with specific one
+        header_spans[0] = RtSpan::styled(
+            format!("{icon} "),
+            Style::default().fg(match verb {
+                "Added" => Color::Green,
+                "Deleted" => Color::Red,
+                "Renamed" => Color::Cyan,
+                _ => Color::Magenta,
+            }),
+        );
+        header_spans.push(RtSpan::styled(verb.to_string(), Style::default().bold()));
         header_spans.push(" ".into());
         header_spans.extend(render_path(row, false));
         header_spans.push(" ".into());
         header_spans.extend(render_line_count_summary(row.added, row.removed));
     } else {
-        header_spans.push("Edited".bold());
+        header_spans.push(RtSpan::styled(
+            "Edited".to_string(),
+            Style::default().bold(),
+        ));
         header_spans.push(format!(" {file_count} {noun} ").into());
         header_spans.extend(render_line_count_summary(total_added, total_removed));
     }
