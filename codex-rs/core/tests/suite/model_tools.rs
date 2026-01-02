@@ -77,7 +77,7 @@ async fn model_selects_expected_tools() {
             "apply_patch".to_string(),
             "view_image".to_string()
         ],
-        "gpt-5-codex should expose the apply_patch tool",
+        "gpt-5-codex should expose exec_command, write_stdin, and apply_patch tools",
     );
 
     let gpt51_codex_tools = collect_tool_identifiers_for_model("gpt-5.1-codex").await;
@@ -93,7 +93,7 @@ async fn model_selects_expected_tools() {
             "apply_patch".to_string(),
             "view_image".to_string()
         ],
-        "gpt-5.1-codex should expose the apply_patch tool",
+        "gpt-5.1-codex should expose exec_command, write_stdin, and apply_patch tools",
     );
 
     let gpt5_tools = collect_tool_identifiers_for_model("gpt-5").await;
@@ -124,7 +124,7 @@ async fn model_selects_expected_tools() {
             "apply_patch".to_string(),
             "view_image".to_string()
         ],
-        "gpt-5.1 should expose the apply_patch tool",
+        "gpt-5.1 should expose exec_command, write_stdin, and apply_patch tools",
     );
     let exp_tools = collect_tool_identifiers_for_model("exp-5.1").await;
     assert_eq!(
