@@ -74,6 +74,7 @@ mod status;
 mod status_indicator_widget;
 mod streaming;
 mod style;
+mod syntax_highlight;
 mod terminal_palette;
 mod text_formatting;
 pub mod theme;
@@ -372,6 +373,12 @@ async fn run_ratatui_app(
     feedback: codex_feedback::CodexFeedback,
 ) -> color_eyre::Result<AppExitInfo> {
     color_eyre::install()?;
+
+    // Initialize theme from config before terminal setup
+    let theme_name = initial_config.tui_theme.as_deref().unwrap_or("azure");
+    let theme = theme::Theme::from_name(theme_name);
+    theme::set_theme(theme);
+    tracing::debug!(theme = theme_name, "Initialized TUI theme");
 
     // Forward panic reports through tracing so they appear in the UI status
     // line, but do not swallow the default/color-eyre panic handler.

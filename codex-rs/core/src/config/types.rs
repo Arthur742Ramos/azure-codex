@@ -388,6 +388,20 @@ impl Default for ScrollInputMode {
 /// Collection of settings that are specific to the TUI.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct Tui {
+    /// Color theme for the TUI.
+    ///
+    /// Available themes:
+    /// - `"azure"` (default): Cyan-focused Azure branding
+    /// - `"catppuccin-mocha"`: Warm, cozy dark theme
+    /// - `"dracula"`: Classic purple/cyan dark theme
+    /// - `"nord"`: Cool, arctic blue theme
+    /// - `"tokyo-night"`: Vibrant Tokyo-inspired theme
+    /// - `"gruvbox-dark"`: Retro warm theme
+    /// - `"azure-light"`: Light variant for light terminal backgrounds
+    /// - `"auto"`: Auto-detect based on terminal background
+    #[serde(default)]
+    pub theme: Option<String>,
+
     /// Enable desktop notifications from the TUI when the terminal is unfocused.
     /// Defaults to `true`.
     #[serde(default)]

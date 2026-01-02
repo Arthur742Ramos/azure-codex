@@ -23,6 +23,8 @@ pub(crate) struct FooterProps {
     pub(crate) is_task_running: bool,
     pub(crate) context_window_percent: Option<i64>,
     pub(crate) context_window_used_tokens: Option<i64>,
+    /// Total tokens used in this session (cumulative, not just context window)
+    pub(crate) total_session_tokens: Option<i64>,
     pub(crate) transcript_scrolled: bool,
     pub(crate) transcript_selection_active: bool,
     pub(crate) transcript_scroll_position: Option<(usize, usize)>,
@@ -93,6 +95,7 @@ fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
             let mut line = context_window_line(
                 props.context_window_percent,
                 props.context_window_used_tokens,
+                props.total_session_tokens,
             );
             line.push_span(" · ".dim());
             line.extend(vec![
@@ -139,6 +142,7 @@ fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
         FooterMode::ContextOnly => vec![context_window_line(
             props.context_window_percent,
             props.context_window_used_tokens,
+            props.total_session_tokens,
         )],
     }
 }
@@ -267,28 +271,49 @@ fn build_columns(entries: Vec<Line<'static>>) -> Vec<Line<'static>> {
         .collect()
 }
 
-fn context_window_line(percent: Option<i64>, used_tokens: Option<i64>) -> Line<'static> {
+fn context_window_line(
+    percent: Option<i64>,
+    used_tokens: Option<i64>,
+    total_session_tokens: Option<i64>,
+) -> Line<'static> {
     // Visual progress bar width (in characters)
     const BAR_WIDTH: usize = 10;
 
+    let mut spans = Vec::new();
+
+    // Always show total session tokens first if available (like Claude Code)
+    if let Some(total) = total_session_tokens {
+        let total_fmt = format_tokens_compact(total);
+        spans.push(Span::from(total_fmt).cyan());
+        spans.push(Span::from(" tokens").dim());
+    }
+
+    // Then show context window status
     if let Some(percent) = percent {
         let percent = percent.clamp(0, 100);
+        if !spans.is_empty() {
+            spans.push(Span::from(" · ").dim());
+        }
         // Show context "remaining" as filled portion (more intuitive)
         // Color based on how much is LEFT: green when lots left, red when little left
-        let mut spans = theme::progress_bar_remaining(percent, BAR_WIDTH);
-        spans.push(Span::from(format!(" {percent}% left")).dim());
+        spans.extend(theme::progress_bar_remaining(percent, BAR_WIDTH));
+        spans.push(Span::from(format!(" {percent}%")).dim());
         return Line::from(spans);
     }
 
-    if let Some(tokens) = used_tokens {
-        let used_fmt = format_tokens_compact(tokens);
-        // Without total context, just show usage text
-        return Line::from(vec![Span::from(format!("{used_fmt} used")).dim()]);
+    if spans.is_empty() {
+        if let Some(tokens) = used_tokens {
+            let used_fmt = format_tokens_compact(tokens);
+            // Without total context, just show usage text
+            return Line::from(vec![Span::from(format!("{used_fmt} used")).dim()]);
+        }
+
+        // Default: show full bar with 100% left
+        let mut default_spans = theme::progress_bar_remaining(100, BAR_WIDTH);
+        default_spans.push(Span::from(" 100% left").dim());
+        return Line::from(default_spans);
     }
 
-    // Default: show full bar with 100% left
-    let mut spans = theme::progress_bar_remaining(100, BAR_WIDTH);
-    spans.push(Span::from(" 100% left").dim());
     Line::from(spans)
 }
 
@@ -477,6 +502,7 @@ mod tests {
                 is_task_running: false,
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -493,6 +519,7 @@ mod tests {
                 is_task_running: false,
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                total_session_tokens: None,
                 transcript_scrolled: true,
                 transcript_selection_active: true,
                 transcript_scroll_position: Some((3, 42)),
@@ -509,6 +536,7 @@ mod tests {
                 is_task_running: false,
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -525,6 +553,7 @@ mod tests {
                 is_task_running: false,
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -541,6 +570,7 @@ mod tests {
                 is_task_running: true,
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -557,6 +587,7 @@ mod tests {
                 is_task_running: false,
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -573,6 +604,7 @@ mod tests {
                 is_task_running: false,
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -589,6 +621,7 @@ mod tests {
                 is_task_running: true,
                 context_window_percent: Some(72),
                 context_window_used_tokens: None,
+                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -605,6 +638,25 @@ mod tests {
                 is_task_running: false,
                 context_window_percent: None,
                 context_window_used_tokens: Some(123_456),
+                total_session_tokens: None,
+                transcript_scrolled: false,
+                transcript_selection_active: false,
+                transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+            },
+        );
+
+        // Test with total session tokens displayed
+        snapshot_footer(
+            "footer_with_session_tokens",
+            FooterProps {
+                mode: FooterMode::ShortcutSummary,
+                esc_backtrack_hint: false,
+                use_shift_enter_hint: false,
+                is_task_running: false,
+                context_window_percent: Some(65),
+                context_window_used_tokens: None,
+                total_session_tokens: Some(42_500),
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,

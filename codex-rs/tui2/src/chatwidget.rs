@@ -647,7 +647,7 @@ impl ChatWidget {
                 self.update_last_request_tokens();
             }
             None => {
-                self.bottom_pane.set_context_window(None, None);
+                self.bottom_pane.set_context_window(None, None, None);
                 self.token_info = None;
             }
         }
@@ -656,7 +656,10 @@ impl ChatWidget {
     fn apply_token_info(&mut self, info: TokenUsageInfo) {
         let percent = self.context_remaining_percent(&info);
         let used_tokens = self.context_used_tokens(&info, percent.is_some());
-        self.bottom_pane.set_context_window(percent, used_tokens);
+        // Get total session tokens (cumulative blended total)
+        let total_session_tokens = Some(info.total_token_usage.blended_total());
+        self.bottom_pane
+            .set_context_window(percent, used_tokens, total_session_tokens);
         self.token_info = Some(info);
     }
 
@@ -682,7 +685,7 @@ impl ChatWidget {
             match saved {
                 Some(info) => self.apply_token_info(info),
                 None => {
-                    self.bottom_pane.set_context_window(None, None);
+                    self.bottom_pane.set_context_window(None, None, None);
                     self.token_info = None;
                 }
             }
@@ -1603,9 +1606,22 @@ impl ChatWidget {
             _ => {
                 match self.bottom_pane.handle_key_event(key_event) {
                     InputResult::Submitted(text) => {
+                        // Check for bash mode: if text starts with `!`, run as shell command
+                        let final_text = if let Some(cmd) = text.strip_prefix('!') {
+                            let cmd = cmd.trim();
+                            if cmd.is_empty() {
+                                text // Empty command, just pass through
+                            } else {
+                                // Convert to a prompt that asks the model to run the command
+                                format!("Run this shell command and show me the output: `{cmd}`")
+                            }
+                        } else {
+                            text
+                        };
+
                         // If a task is running, queue the user input to be sent after the turn completes.
                         let user_message = UserMessage {
-                            text,
+                            text: final_text,
                             image_paths: self.bottom_pane.take_recent_submission_images(),
                         };
                         self.queue_user_message(user_message);

@@ -16,6 +16,13 @@ use color_eyre::eyre::Result;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
+use nucleo_matcher::Config;
+use nucleo_matcher::Matcher;
+use nucleo_matcher::Utf32Str;
+use nucleo_matcher::pattern::AtomKind;
+use nucleo_matcher::pattern::CaseMatching;
+use nucleo_matcher::pattern::Normalization;
+use nucleo_matcher::pattern::Pattern;
 use ratatui::layout::Constraint;
 use ratatui::layout::Layout;
 use ratatui::layout::Rect;
@@ -447,11 +454,48 @@ impl PickerState {
         if self.query.is_empty() {
             self.filtered_rows = base_iter.cloned().collect();
         } else {
-            let q = self.query.to_lowercase();
-            self.filtered_rows = base_iter
-                .filter(|r| r.preview.to_lowercase().contains(&q))
-                .cloned()
+            // Use fuzzy matching for better search experience
+            let mut matcher = Matcher::new(Config::DEFAULT);
+            let pattern = Pattern::new(
+                &self.query,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            );
+
+            let mut scored_rows: Vec<(Row, u32)> = base_iter
+                .filter_map(|row| {
+                    // Match against preview, git branch, and cwd
+                    let mut preview_buf = vec![];
+                    let preview_haystack = Utf32Str::new(&row.preview, &mut preview_buf);
+                    let preview_score = pattern.score(preview_haystack, &mut matcher);
+
+                    let branch_score = row.git_branch.as_ref().and_then(|b| {
+                        let mut buf = vec![];
+                        let h = Utf32Str::new(b, &mut buf);
+                        pattern.score(h, &mut matcher)
+                    });
+
+                    let cwd_score = row.cwd.as_ref().and_then(|c| {
+                        let s = c.to_string_lossy();
+                        let mut buf = vec![];
+                        let h = Utf32Str::new(&s, &mut buf);
+                        pattern.score(h, &mut matcher)
+                    });
+
+                    // Combine scores - take the best match
+                    let best_score = [preview_score, branch_score, cwd_score]
+                        .into_iter()
+                        .flatten()
+                        .max();
+
+                    best_score.map(|score| (row.clone(), score))
+                })
                 .collect();
+
+            // Sort by score (highest first)
+            scored_rows.sort_by(|a, b| b.1.cmp(&a.1));
+            self.filtered_rows = scored_rows.into_iter().map(|(row, _)| row).collect();
         }
         if self.selected >= self.filtered_rows.len() {
             self.selected = self.filtered_rows.len().saturating_sub(1);

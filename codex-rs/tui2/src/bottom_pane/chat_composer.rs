@@ -30,6 +30,7 @@ use super::footer::reset_mode_after_activity;
 use super::footer::toggle_shortcut_mode;
 use super::paste_burst::CharDecision;
 use super::paste_burst::PasteBurst;
+use super::paste_burst::should_auto_attach;
 use super::skill_popup::SkillPopup;
 use crate::bottom_pane::paste_burst::FlushResult;
 use crate::bottom_pane::prompt_args::expand_custom_prompt;
@@ -120,6 +121,8 @@ pub(crate) struct ChatComposer {
     footer_mode: FooterMode,
     footer_hint_override: Option<Vec<(String, String)>>,
     context_window_percent: Option<i64>,
+    /// Total tokens used in the session (cumulative)
+    total_session_tokens: Option<i64>,
     context_window_used_tokens: Option<i64>,
     transcript_scrolled: bool,
     transcript_selection_active: bool,
@@ -173,6 +176,7 @@ impl ChatComposer {
             footer_mode: FooterMode::ShortcutSummary,
             footer_hint_override: None,
             context_window_percent: None,
+            total_session_tokens: None,
             context_window_used_tokens: None,
             transcript_scrolled: false,
             transcript_selection_active: false,
@@ -251,6 +255,13 @@ impl ChatComposer {
     pub fn handle_paste(&mut self, pasted: String) -> bool {
         let char_count = pasted.chars().count();
         if char_count > LARGE_PASTE_CHAR_THRESHOLD {
+            // Very large pastes (>1000 chars) always get placeholder
+            let placeholder = self.next_large_paste_placeholder(char_count);
+            self.textarea.insert_element(&placeholder);
+            self.pending_pastes.push((placeholder, pasted));
+        } else if should_auto_attach(&pasted) {
+            // Multi-line pastes (4+ lines or 200+ chars) also get placeholder
+            // This improves readability for code snippets (OpenCode-inspired)
             let placeholder = self.next_large_paste_placeholder(char_count);
             self.textarea.insert_element(&placeholder);
             self.pending_pastes.push((placeholder, pasted));
@@ -1557,6 +1568,7 @@ impl ChatComposer {
             is_task_running: self.is_task_running,
             context_window_percent: self.context_window_percent,
             context_window_used_tokens: self.context_window_used_tokens,
+            total_session_tokens: self.total_session_tokens,
             transcript_scrolled: self.transcript_scrolled,
             transcript_selection_active: self.transcript_selection_active,
             transcript_scroll_position: self.transcript_scroll_position,
@@ -1813,13 +1825,21 @@ impl ChatComposer {
         self.is_task_running = running;
     }
 
-    pub(crate) fn set_context_window(&mut self, percent: Option<i64>, used_tokens: Option<i64>) {
-        if self.context_window_percent == percent && self.context_window_used_tokens == used_tokens
+    pub(crate) fn set_context_window(
+        &mut self,
+        percent: Option<i64>,
+        used_tokens: Option<i64>,
+        total_session_tokens: Option<i64>,
+    ) {
+        if self.context_window_percent == percent
+            && self.context_window_used_tokens == used_tokens
+            && self.total_session_tokens == total_session_tokens
         {
             return;
         }
         self.context_window_percent = percent;
         self.context_window_used_tokens = used_tokens;
+        self.total_session_tokens = total_session_tokens;
     }
 
     pub(crate) fn set_esc_backtrack_hint(&mut self, show: bool) {

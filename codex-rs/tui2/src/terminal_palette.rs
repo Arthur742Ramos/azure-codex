@@ -47,6 +47,23 @@ pub fn default_bg() -> Option<(u8, u8, u8)> {
     default_colors().map(|c| c.bg)
 }
 
+/// Detect if the terminal has a light background.
+///
+/// Uses the terminal's reported background color to calculate perceived luminance.
+/// Returns `true` if the background appears light (luminance > 0.5), `false` otherwise.
+/// If the terminal background cannot be queried, defaults to `false` (dark background).
+pub fn is_light_background() -> bool {
+    if let Some((r, g, b)) = default_bg() {
+        // Calculate perceived luminance using ITU-R BT.601 luma coefficients
+        // This is the same formula used by WCAG for contrast calculations
+        let luminance = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) / 255.0;
+        luminance > 0.5
+    } else {
+        // Default to dark background assumption
+        false
+    }
+}
+
 #[cfg(all(unix, not(test)))]
 mod imp {
     use super::DefaultColors;

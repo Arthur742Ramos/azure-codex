@@ -18,6 +18,10 @@ use crate::render::line_utils::prefix_lines;
 use crate::render::renderable::ColumnRenderable;
 use crate::render::renderable::InsetRenderable;
 use crate::render::renderable::Renderable;
+use crate::syntax_highlight::LineHighlighter;
+use crate::syntax_highlight::find_syntax_for_file;
+use crate::terminal_palette::best_color;
+use crate::terminal_palette::is_light_background;
 use codex_core::git_info::get_git_repo_root;
 use codex_core::protocol::FileChange;
 
@@ -233,7 +237,7 @@ fn render_changes_block(rows: Vec<Row>, wrap_cols: usize, cwd: &Path) -> Vec<RtL
         }
 
         let mut lines = vec![];
-        render_change(&r.change, &mut lines, wrap_cols - 4);
+        render_change_with_syntax(&r.change, &r.path, &mut lines, wrap_cols - 4);
         out.extend(prefix_lines(lines, "    ".into(), "    ".into()));
     }
 
@@ -332,6 +336,131 @@ fn render_change(change: &FileChange, out: &mut Vec<RtLine<'static>>, width: usi
                                     new_ln,
                                     DiffLineType::Context,
                                     s,
+                                    width,
+                                    line_number_width,
+                                ));
+                                old_ln += 1;
+                                new_ln += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Render a file change with syntax highlighting enabled
+fn render_change_with_syntax(
+    change: &FileChange,
+    path: &Path,
+    out: &mut Vec<RtLine<'static>>,
+    width: usize,
+) {
+    // Try to get a syntax highlighter for this file type
+    let mut highlighter = find_syntax_for_file(path).map(LineHighlighter::new);
+
+    match change {
+        FileChange::Add { content } => {
+            let line_number_width = line_number_width(content.lines().count());
+            for (i, raw) in content.lines().enumerate() {
+                let highlighted = highlighter.as_mut().map(|h| h.highlight_line(raw));
+                out.extend(push_wrapped_diff_line_highlighted(
+                    i + 1,
+                    DiffLineType::Insert,
+                    raw,
+                    highlighted,
+                    width,
+                    line_number_width,
+                ));
+            }
+        }
+        FileChange::Delete { content } => {
+            let line_number_width = line_number_width(content.lines().count());
+            for (i, raw) in content.lines().enumerate() {
+                let highlighted = highlighter.as_mut().map(|h| h.highlight_line(raw));
+                out.extend(push_wrapped_diff_line_highlighted(
+                    i + 1,
+                    DiffLineType::Delete,
+                    raw,
+                    highlighted,
+                    width,
+                    line_number_width,
+                ));
+            }
+        }
+        FileChange::Update { unified_diff, .. } => {
+            if let Ok(patch) = diffy::Patch::from_str(unified_diff) {
+                let mut max_line_number = 0;
+                for h in patch.hunks() {
+                    let mut old_ln = h.old_range().start();
+                    let mut new_ln = h.new_range().start();
+                    for l in h.lines() {
+                        match l {
+                            diffy::Line::Insert(_) => {
+                                max_line_number = max_line_number.max(new_ln);
+                                new_ln += 1;
+                            }
+                            diffy::Line::Delete(_) => {
+                                max_line_number = max_line_number.max(old_ln);
+                                old_ln += 1;
+                            }
+                            diffy::Line::Context(_) => {
+                                max_line_number = max_line_number.max(new_ln);
+                                old_ln += 1;
+                                new_ln += 1;
+                            }
+                        }
+                    }
+                }
+                let line_number_width = line_number_width(max_line_number);
+                let mut is_first_hunk = true;
+                for h in patch.hunks() {
+                    if !is_first_hunk {
+                        let spacer = format!("{:width$} ", "", width = line_number_width.max(1));
+                        let spacer_span = RtSpan::styled(spacer, style_gutter());
+                        out.push(RtLine::from(vec![spacer_span, "⋮".dim()]));
+                    }
+                    is_first_hunk = false;
+
+                    let mut old_ln = h.old_range().start();
+                    let mut new_ln = h.new_range().start();
+                    for l in h.lines() {
+                        match l {
+                            diffy::Line::Insert(text) => {
+                                let s = text.trim_end_matches('\n');
+                                let highlighted = highlighter.as_mut().map(|h| h.highlight_line(s));
+                                out.extend(push_wrapped_diff_line_highlighted(
+                                    new_ln,
+                                    DiffLineType::Insert,
+                                    s,
+                                    highlighted,
+                                    width,
+                                    line_number_width,
+                                ));
+                                new_ln += 1;
+                            }
+                            diffy::Line::Delete(text) => {
+                                let s = text.trim_end_matches('\n');
+                                let highlighted = highlighter.as_mut().map(|h| h.highlight_line(s));
+                                out.extend(push_wrapped_diff_line_highlighted(
+                                    old_ln,
+                                    DiffLineType::Delete,
+                                    s,
+                                    highlighted,
+                                    width,
+                                    line_number_width,
+                                ));
+                                old_ln += 1;
+                            }
+                            diffy::Line::Context(text) => {
+                                let s = text.trim_end_matches('\n');
+                                let highlighted = highlighter.as_mut().map(|h| h.highlight_line(s));
+                                out.extend(push_wrapped_diff_line_highlighted(
+                                    new_ln,
+                                    DiffLineType::Context,
+                                    s,
+                                    highlighted,
                                     width,
                                     line_number_width,
                                 ));
@@ -450,6 +579,101 @@ fn push_wrapped_diff_line(
     lines
 }
 
+/// Push a diff line with optional syntax highlighting.
+///
+/// If `highlighted_spans` is Some, the syntax highlighting foreground colors
+/// are combined with the diff background colors. If None, falls back to plain
+/// diff styling.
+fn push_wrapped_diff_line_highlighted(
+    line_number: usize,
+    kind: DiffLineType,
+    text: &str,
+    highlighted_spans: Option<Vec<RtSpan<'static>>>,
+    width: usize,
+    line_number_width: usize,
+) -> Vec<RtLine<'static>> {
+    // If no syntax highlighting, fall back to plain version
+    let Some(spans) = highlighted_spans else {
+        return push_wrapped_diff_line(line_number, kind, text, width, line_number_width);
+    };
+
+    // If no spans or empty text, also fall back
+    if spans.is_empty() || text.is_empty() {
+        return push_wrapped_diff_line(line_number, kind, text, width, line_number_width);
+    }
+
+    let ln_str = line_number.to_string();
+    let gutter_width = line_number_width.max(1);
+    let prefix_cols = gutter_width + 1;
+
+    let (sign_char, bg_color) = match kind {
+        DiffLineType::Insert => ('+', Some(bg_add())),
+        DiffLineType::Delete => ('-', Some(bg_del())),
+        DiffLineType::Context => (' ', None),
+    };
+
+    // Build the output lines
+    let mut lines: Vec<RtLine<'static>> = Vec::new();
+
+    // Compute available width for content (minus gutter and sign)
+    let available_content_cols = width.saturating_sub(prefix_cols + 1).max(1);
+
+    // Flatten syntax-highlighted spans into a single line with background applied
+    let styled_spans: Vec<RtSpan<'static>> = spans
+        .into_iter()
+        .map(|span| {
+            let mut style = span.style;
+            if let Some(bg) = bg_color {
+                style = style.bg(bg);
+            }
+            RtSpan::styled(span.content.into_owned(), style)
+        })
+        .collect();
+
+    // For now, render without wrapping for highlighted content
+    // (wrapping syntax-highlighted spans is complex and usually not needed
+    // since most code lines are shorter than terminal width)
+    let content_len: usize = styled_spans.iter().map(|s| s.content.chars().count()).sum();
+
+    if content_len <= available_content_cols {
+        // Content fits on one line
+        let gutter = format!("{ln_str:>gutter_width$} ");
+        let sign_style = if let Some(bg) = bg_color {
+            Style::default().bg(bg)
+        } else {
+            Style::default()
+        };
+
+        let mut line_spans = vec![
+            RtSpan::styled(gutter, style_gutter()),
+            RtSpan::styled(sign_char.to_string(), sign_style),
+        ];
+        line_spans.extend(styled_spans);
+        lines.push(RtLine::from(line_spans));
+    } else {
+        // Content is longer - fall back to simple wrapping without preserving
+        // syntax highlighting for continuation lines (complexity tradeoff)
+        let line_style = match kind {
+            DiffLineType::Insert => style_add(),
+            DiffLineType::Delete => style_del(),
+            DiffLineType::Context => style_context(),
+        };
+
+        let gutter = format!("{ln_str:>gutter_width$} ");
+        let mut line_spans = vec![
+            RtSpan::styled(gutter, style_gutter()),
+            RtSpan::styled(sign_char.to_string(), line_style),
+        ];
+        line_spans.extend(styled_spans);
+        lines.push(RtLine::from(line_spans));
+
+        // If the line is very long, we could add wrapping here, but for
+        // simplicity we let ratatui/terminal handle horizontal scrolling
+    }
+
+    lines
+}
+
 fn line_number_width(max_line_number: usize) -> usize {
     if max_line_number == 0 {
         1
@@ -466,12 +690,34 @@ fn style_context() -> Style {
     Style::default()
 }
 
+/// Background color for additions - subtle dark green tint
+fn bg_add() -> Color {
+    if is_light_background() {
+        // Light background: pale green tint
+        best_color((220, 255, 220))
+    } else {
+        // Dark background: very dark green tint
+        best_color((25, 45, 25))
+    }
+}
+
+/// Background color for deletions - subtle dark red tint
+fn bg_del() -> Color {
+    if is_light_background() {
+        // Light background: pale red/pink tint
+        best_color((255, 220, 220))
+    } else {
+        // Dark background: very dark red tint
+        best_color((50, 25, 25))
+    }
+}
+
 fn style_add() -> Style {
-    Style::default().fg(Color::Green)
+    Style::default().fg(Color::Green).bg(bg_add())
 }
 
 fn style_del() -> Style {
-    Style::default().fg(Color::Red)
+    Style::default().fg(Color::Red).bg(bg_del())
 }
 
 #[cfg(test)]

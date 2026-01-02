@@ -7,6 +7,10 @@ const PASTE_BURST_MIN_CHARS: u16 = 3;
 const PASTE_BURST_CHAR_INTERVAL: Duration = Duration::from_millis(8);
 const PASTE_ENTER_SUPPRESS_WINDOW: Duration = Duration::from_millis(120);
 
+// Thresholds for auto-converting large pastes to text attachments (OpenCode-inspired)
+const PASTE_AUTO_ATTACH_MIN_LINES: usize = 4;
+const PASTE_AUTO_ATTACH_MIN_CHARS: usize = 200;
+
 #[derive(Default)]
 pub(crate) struct PasteBurst {
     last_plain_char_time: Option<Instant>,
@@ -264,4 +268,68 @@ pub(crate) fn retro_start_index(before: &str, retro_chars: usize) -> usize {
         .nth(retro_chars.saturating_sub(1))
         .map(|(idx, _)| idx)
         .unwrap_or(0)
+}
+
+/// Check if pasted content is large enough to warrant automatic attachment.
+///
+/// Returns true if the content has more than `PASTE_AUTO_ATTACH_MIN_LINES` lines
+/// OR more than `PASTE_AUTO_ATTACH_MIN_CHARS` characters.
+///
+/// This is inspired by OpenCode's behavior of automatically converting large
+/// pastes into text attachments for better readability.
+pub fn should_auto_attach(content: &str) -> bool {
+    let line_count = content.lines().count();
+    let char_count = content.chars().count();
+    line_count >= PASTE_AUTO_ATTACH_MIN_LINES || char_count >= PASTE_AUTO_ATTACH_MIN_CHARS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_auto_attach_short_single_line() {
+        // Short single-line pastes should NOT auto-attach
+        assert!(!should_auto_attach("hello world"));
+        assert!(!should_auto_attach("short text"));
+        assert!(!should_auto_attach(""));
+    }
+
+    #[test]
+    fn should_auto_attach_multiline_triggers() {
+        // 4+ lines should trigger auto-attach regardless of char count
+        let four_lines = "line1\nline2\nline3\nline4";
+        assert!(should_auto_attach(four_lines));
+
+        let five_lines = "a\nb\nc\nd\ne";
+        assert!(should_auto_attach(five_lines));
+    }
+
+    #[test]
+    fn should_auto_attach_three_lines_not_enough() {
+        // 3 lines should NOT auto-attach (unless chars exceed threshold)
+        let three_lines = "line1\nline2\nline3";
+        assert!(!should_auto_attach(three_lines));
+    }
+
+    #[test]
+    fn should_auto_attach_long_single_line_triggers() {
+        // 200+ chars on a single line should trigger auto-attach
+        let long_line = "x".repeat(200);
+        assert!(should_auto_attach(&long_line));
+
+        let just_under = "x".repeat(199);
+        assert!(!should_auto_attach(&just_under));
+    }
+
+    #[test]
+    fn should_auto_attach_code_snippet() {
+        // Typical code snippet with 4+ lines
+        let code = r#"fn main() {
+    let x = 42;
+    println!("{}", x);
+    return;
+}"#;
+        assert!(should_auto_attach(code));
+    }
 }

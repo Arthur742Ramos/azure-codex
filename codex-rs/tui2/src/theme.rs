@@ -10,6 +10,15 @@
 //! - **Contrast**: Bold for emphasis, Dim for secondary content
 //! - **Accessibility**: High contrast ratios, no yellow (poor visibility)
 //! - **Elegance**: Rounded corners, breathing room, visual hierarchy
+//!
+//! ## Theme Support
+//! The TUI supports multiple color themes including:
+//! - `azure` (default): Cyan-focused Azure branding
+//! - `catppuccin-mocha`: Warm, cozy dark theme
+//! - `dracula`: Classic purple/cyan dark theme
+//! - `nord`: Cool, arctic blue theme
+//! - `tokyo-night`: Vibrant Tokyo-inspired theme
+//! - `gruvbox-dark`: Retro warm theme
 
 use ratatui::style::Color;
 use ratatui::style::Modifier;
@@ -17,9 +26,247 @@ use ratatui::style::Style;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::text::Span;
+use std::cell::RefCell;
 
 // ============================================================================
-// Brand Colors (ANSI)
+// Theme Configuration
+// ============================================================================
+
+/// A color theme for the TUI, mapping semantic color roles to actual colors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Theme {
+    /// Primary brand/accent color
+    pub primary: Color,
+    /// Secondary accent color
+    pub secondary: Color,
+    /// Tertiary accent for special highlights
+    pub accent: Color,
+    /// Subtle color for backgrounds and borders
+    pub subtle: Color,
+    /// Success states (confirmations, additions)
+    pub success: Color,
+    /// Error states (failures, deletions)
+    pub error: Color,
+    /// Warning states
+    pub warning: Color,
+    /// Informational content
+    pub info: Color,
+    /// File paths and directories
+    pub path: Color,
+    /// Tool names
+    pub tool_name: Color,
+    /// Shell prompts
+    pub shell_prompt: Color,
+    /// Search queries
+    pub query: Color,
+    /// Line numbers
+    pub line_number: Color,
+    /// Section headers
+    pub header: Color,
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self::azure()
+    }
+}
+
+impl Theme {
+    /// Azure theme (default) - Cyan-focused Azure branding
+    pub const fn azure() -> Self {
+        Self {
+            primary: Color::Cyan,
+            secondary: Color::Blue,
+            accent: Color::Magenta,
+            subtle: Color::DarkGray,
+            success: Color::Green,
+            error: Color::Red,
+            warning: Color::Magenta,
+            info: Color::Cyan,
+            path: Color::Cyan,
+            tool_name: Color::Cyan,
+            shell_prompt: Color::Magenta,
+            query: Color::Green,
+            line_number: Color::Blue,
+            header: Color::Cyan,
+        }
+    }
+
+    /// Catppuccin Mocha theme - Warm, cozy dark theme
+    pub const fn catppuccin_mocha() -> Self {
+        Self {
+            primary: Color::Blue,      // Lavender-ish
+            secondary: Color::Magenta, // Mauve
+            accent: Color::Magenta,    // Pink
+            subtle: Color::DarkGray,
+            success: Color::Green,     // Green
+            error: Color::Red,         // Red
+            warning: Color::Magenta,   // Peach -> Magenta (ANSI)
+            info: Color::Blue,         // Sky
+            path: Color::Blue,         // Sapphire
+            tool_name: Color::Magenta, // Lavender
+            shell_prompt: Color::Magenta,
+            query: Color::Green,
+            line_number: Color::DarkGray,
+            header: Color::Blue,
+        }
+    }
+
+    /// Dracula theme - Classic purple/cyan dark theme
+    pub const fn dracula() -> Self {
+        Self {
+            primary: Color::Magenta, // Purple
+            secondary: Color::Cyan,  // Cyan
+            accent: Color::Magenta,  // Pink
+            subtle: Color::DarkGray,
+            success: Color::Green,   // Green
+            error: Color::Red,       // Red
+            warning: Color::Magenta, // Orange -> Magenta (ANSI)
+            info: Color::Cyan,       // Cyan
+            path: Color::Cyan,
+            tool_name: Color::Magenta,
+            shell_prompt: Color::Green,
+            query: Color::Green,
+            line_number: Color::DarkGray,
+            header: Color::Magenta,
+        }
+    }
+
+    /// Nord theme - Cool, arctic blue theme
+    pub const fn nord() -> Self {
+        Self {
+            primary: Color::Cyan,    // Nord8 (frost)
+            secondary: Color::Blue,  // Nord10
+            accent: Color::Magenta,  // Nord15 (aurora)
+            subtle: Color::DarkGray, // Nord3
+            success: Color::Green,   // Nord14
+            error: Color::Red,       // Nord11
+            warning: Color::Magenta, // Nord13 -> Magenta (ANSI)
+            info: Color::Cyan,       // Nord9
+            path: Color::Cyan,
+            tool_name: Color::Cyan,
+            shell_prompt: Color::Magenta,
+            query: Color::Green,
+            line_number: Color::Blue,
+            header: Color::Cyan,
+        }
+    }
+
+    /// Tokyo Night theme - Vibrant Tokyo-inspired dark theme
+    pub const fn tokyo_night() -> Self {
+        Self {
+            primary: Color::Blue,   // Blue
+            secondary: Color::Cyan, // Cyan
+            accent: Color::Magenta, // Magenta
+            subtle: Color::DarkGray,
+            success: Color::Green,   // Green
+            error: Color::Red,       // Red
+            warning: Color::Magenta, // Orange -> Magenta (ANSI)
+            info: Color::Cyan,       // Cyan
+            path: Color::Cyan,
+            tool_name: Color::Blue,
+            shell_prompt: Color::Magenta,
+            query: Color::Green,
+            line_number: Color::DarkGray,
+            header: Color::Blue,
+        }
+    }
+
+    /// Gruvbox Dark theme - Retro warm theme
+    pub const fn gruvbox_dark() -> Self {
+        Self {
+            primary: Color::Green,   // Aqua/Green
+            secondary: Color::Blue,  // Blue
+            accent: Color::Magenta,  // Purple
+            subtle: Color::DarkGray, // Gray
+            success: Color::Green,   // Green
+            error: Color::Red,       // Red
+            warning: Color::Magenta, // Orange -> Magenta (ANSI)
+            info: Color::Green,      // Aqua
+            path: Color::Green,
+            tool_name: Color::Green,
+            shell_prompt: Color::Magenta,
+            query: Color::Green,
+            line_number: Color::DarkGray,
+            header: Color::Green,
+        }
+    }
+
+    /// Light variant of Azure theme for light terminal backgrounds
+    pub const fn azure_light() -> Self {
+        Self {
+            primary: Color::Blue, // Darker blue for light bg
+            secondary: Color::Magenta,
+            accent: Color::Magenta,
+            subtle: Color::DarkGray,
+            success: Color::Green,
+            error: Color::Red,
+            warning: Color::Magenta,
+            info: Color::Blue,
+            path: Color::Blue,
+            tool_name: Color::Blue,
+            shell_prompt: Color::Magenta,
+            query: Color::Green,
+            line_number: Color::DarkGray,
+            header: Color::Blue,
+        }
+    }
+
+    /// Create a theme from its name
+    pub fn from_name(name: &str) -> Self {
+        match name.to_lowercase().as_str() {
+            "catppuccin-mocha" | "catppuccin" => Self::catppuccin_mocha(),
+            "dracula" => Self::dracula(),
+            "nord" => Self::nord(),
+            "tokyo-night" | "tokyonight" => Self::tokyo_night(),
+            "gruvbox-dark" | "gruvbox" => Self::gruvbox_dark(),
+            "azure-light" | "light" => Self::azure_light(),
+            "auto" => Self::auto_detect(),
+            _ => Self::azure(), // Default to azure
+        }
+    }
+
+    /// Auto-detect theme based on terminal background
+    pub fn auto_detect() -> Self {
+        if crate::terminal_palette::is_light_background() {
+            Self::azure_light()
+        } else {
+            Self::azure()
+        }
+    }
+
+    /// Get all available theme names
+    pub fn available_themes() -> &'static [&'static str] {
+        &[
+            "azure",
+            "azure-light",
+            "catppuccin-mocha",
+            "dracula",
+            "nord",
+            "tokyo-night",
+            "gruvbox-dark",
+            "auto",
+        ]
+    }
+}
+
+// Thread-local storage for the current theme
+thread_local! {
+    static CURRENT_THEME: RefCell<Theme> = const { RefCell::new(Theme::azure()) };
+}
+
+/// Set the current theme for the TUI
+pub fn set_theme(theme: Theme) {
+    CURRENT_THEME.with(|t| *t.borrow_mut() = theme);
+}
+
+/// Get the current theme
+pub fn current_theme() -> Theme {
+    CURRENT_THEME.with(|t| *t.borrow())
+}
+
+// ============================================================================
+// Brand Colors (ANSI) - Now derived from current theme
 // ============================================================================
 
 /// Primary brand color - Azure's signature cyan

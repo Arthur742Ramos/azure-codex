@@ -179,6 +179,12 @@ pub struct Config {
     /// and turn completions when not focused.
     pub tui_notifications: Notifications,
 
+    /// TUI color theme name.
+    ///
+    /// Available themes: "azure" (default), "catppuccin-mocha", "dracula", "nord",
+    /// "tokyo-night", "gruvbox-dark", "azure-light", "auto".
+    pub tui_theme: Option<String>,
+
     /// Enable ASCII animations and shimmer effects in the TUI.
     pub animations: bool,
 
@@ -1532,6 +1538,7 @@ impl Config {
                 .as_ref()
                 .map(|t| t.notifications.clone())
                 .unwrap_or_default(),
+            tui_theme: cfg.tui.as_ref().and_then(|t| t.theme.clone()),
             animations: cfg.tui.as_ref().map(|t| t.animations).unwrap_or(true),
             show_tooltips: cfg.tui.as_ref().map(|t| t.show_tooltips).unwrap_or(true),
             disable_mouse_capture,
@@ -1777,6 +1784,7 @@ persistence = "none"
                 scroll_wheel_tick_detect_max_ms: None,
                 scroll_wheel_like_max_duration_ms: None,
                 scroll_invert: false,
+                theme: None,
             }
         );
     }
@@ -3388,6 +3396,7 @@ model_verbosity = "high"
                 tui_scroll_wheel_tick_detect_max_ms: None,
                 tui_scroll_wheel_like_max_duration_ms: None,
                 tui_scroll_invert: false,
+                tui_theme: None,
                 otel: OtelConfig::default(),
                 azure_endpoint: None,
                 azure_api_version: "2025-04-01-preview".to_string(),
@@ -3476,6 +3485,7 @@ model_verbosity = "high"
             tui_scroll_wheel_tick_detect_max_ms: None,
             tui_scroll_wheel_like_max_duration_ms: None,
             tui_scroll_invert: false,
+            tui_theme: None,
             otel: OtelConfig::default(),
             azure_endpoint: None,
             azure_api_version: "2025-04-01-preview".to_string(),
@@ -3579,6 +3589,7 @@ model_verbosity = "high"
             tui_scroll_wheel_tick_detect_max_ms: None,
             tui_scroll_wheel_like_max_duration_ms: None,
             tui_scroll_invert: false,
+            tui_theme: None,
             otel: OtelConfig::default(),
             azure_endpoint: None,
             azure_api_version: "2025-04-01-preview".to_string(),
@@ -3668,6 +3679,7 @@ model_verbosity = "high"
             tui_scroll_wheel_tick_detect_max_ms: None,
             tui_scroll_wheel_like_max_duration_ms: None,
             tui_scroll_invert: false,
+            tui_theme: None,
             otel: OtelConfig::default(),
             azure_endpoint: None,
             azure_api_version: "2025-04-01-preview".to_string(),

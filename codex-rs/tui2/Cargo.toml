@@ -71,6 +71,7 @@ shlex = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 supports-color = { workspace = true }
+syntect = { workspace = true }
 tempfile = { workspace = true }
 textwrap = { workspace = true }
 tokio = { workspace = true, features = [
@@ -92,6 +93,9 @@ tree-sitter-highlight = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 url = { workspace = true }
+
+# Fuzzy matching for slash commands and session picker
+nucleo-matcher = { workspace = true }
 
 codex-windows-sandbox = { workspace = true }
 tokio-util = { workspace = true, features = ["time"] }
