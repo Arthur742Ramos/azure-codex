@@ -104,6 +104,7 @@ use crate::diff_render::display_path_for;
 use crate::exec_cell::CommandOutput;
 use crate::exec_cell::ExecCell;
 use crate::exec_cell::new_active_exec_command;
+use crate::exec_command::strip_bash_lc_and_escape;
 use crate::get_git_diff::get_git_diff;
 use crate::history_cell;
 use crate::history_cell::AgentMessageCell;
@@ -170,6 +171,14 @@ impl UnifiedExecWaitState {
     fn is_duplicate(&self, command_display: &str) -> bool {
         self.command_display == command_display
     }
+}
+
+/// Summary of a background terminal session for /ps display.
+struct UnifiedExecSessionSummary {
+    /// The process_id or call_id used as a unique key.
+    key: String,
+    /// Human-readable command display string.
+    command_display: String,
 }
 
 struct RequestMetricsInFlight {
@@ -315,6 +324,8 @@ pub(crate) struct ChatWidget {
     running_commands: HashMap<String, RunningCommand>,
     suppressed_exec_calls: HashSet<String>,
     last_unified_wait: Option<UnifiedExecWaitState>,
+    /// Active background terminal sessions (UnifiedExec) for /ps display.
+    unified_exec_sessions: Vec<UnifiedExecSessionSummary>,
     task_complete_pending: bool,
     mcp_startup_status: Option<HashMap<String, McpStartupStatus>>,
     // Queue of interruptive UI events deferred during an active write cycle
@@ -1146,6 +1157,14 @@ impl ChatWidget {
             Some(rc) => (rc.command, rc.parsed_cmd, rc.source),
             None => (ev.command.clone(), ev.parsed_cmd.clone(), ev.source),
         };
+
+        // Remove background terminal session from /ps list when it ends
+        if source == ExecCommandSource::UnifiedExecStartup {
+            let key = ev.process_id.clone().unwrap_or_else(|| ev.call_id.clone());
+            self.unified_exec_sessions
+                .retain(|session| session.key != key);
+        }
+
         let is_unified_exec_interaction =
             matches!(source, ExecCommandSource::UnifiedExecInteraction);
 
@@ -1268,6 +1287,25 @@ impl ChatWidget {
                 source: ev.source,
             },
         );
+
+        // Track background terminal sessions (UnifiedExecStartup) for /ps
+        if ev.source == ExecCommandSource::UnifiedExecStartup {
+            let key = ev.process_id.clone().unwrap_or_else(|| ev.call_id.clone());
+            let command_display = strip_bash_lc_and_escape(&ev.command);
+            if let Some(existing) = self
+                .unified_exec_sessions
+                .iter_mut()
+                .find(|session| session.key == key)
+            {
+                existing.command_display = command_display;
+            } else {
+                self.unified_exec_sessions.push(UnifiedExecSessionSummary {
+                    key,
+                    command_display,
+                });
+            }
+        }
+
         let is_wait_interaction = matches!(ev.source, ExecCommandSource::UnifiedExecInteraction)
             && ev
                 .interaction_input
@@ -1424,6 +1462,7 @@ impl ChatWidget {
             running_commands: HashMap::new(),
             suppressed_exec_calls: HashSet::new(),
             last_unified_wait: None,
+            unified_exec_sessions: Vec::new(),
             task_complete_pending: false,
             mcp_startup_status: None,
             interrupts: InterruptManager::new(),
@@ -1516,6 +1555,7 @@ impl ChatWidget {
             running_commands: HashMap::new(),
             suppressed_exec_calls: HashSet::new(),
             last_unified_wait: None,
+            unified_exec_sessions: Vec::new(),
             task_complete_pending: false,
             mcp_startup_status: None,
             interrupts: InterruptManager::new(),
@@ -1752,6 +1792,9 @@ impl ChatWidget {
             }
             SlashCommand::Status => {
                 self.add_status_output();
+            }
+            SlashCommand::Ps => {
+                self.add_ps_output();
             }
             SlashCommand::Mcp => {
                 self.add_mcp_output();
@@ -2285,6 +2328,40 @@ impl ChatWidget {
             self.model_family.get_model_slug(),
         ));
     }
+
+    pub(crate) fn add_ps_output(&mut self) {
+        let session_count = self.unified_exec_sessions.len();
+        let mut lines: Vec<Line<'static>> = Vec::with_capacity(3 + session_count);
+
+        lines.push(Line::from(vec![Span::from("/ps").magenta()]));
+
+        // Show count in header when there are active sessions
+        let header = if session_count > 0 {
+            format!("Background terminals ({session_count})")
+        } else {
+            "Background terminals".to_string()
+        };
+        lines.push(Line::from(vec![Span::from(header).bold()]));
+        lines.push(Line::default());
+
+        if self.unified_exec_sessions.is_empty() {
+            lines.push(Line::from(vec![
+                Span::from("  • No background terminals running.").italic(),
+            ]));
+        } else {
+            for session in &self.unified_exec_sessions {
+                // Truncate long commands using Unicode-safe grapheme truncation
+                let display = truncate_text(&session.command_display, 60);
+                lines.push(Line::from(vec![
+                    Span::from("  • "),
+                    Span::from(display).cyan(),
+                ]));
+            }
+        }
+
+        self.add_plain_history_lines(lines);
+    }
+
     fn stop_rate_limit_poller(&mut self) {
         if let Some(handle) = self.rate_limit_poller.take() {
             handle.abort();

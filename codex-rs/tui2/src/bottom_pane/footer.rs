@@ -3,8 +3,6 @@ use crate::clipboard_paste::is_probably_wsl;
 use crate::key_hint;
 use crate::key_hint::KeyBinding;
 use crate::render::line_utils::prefix_lines;
-use crate::status::format_tokens_compact;
-use crate::theme;
 use crate::ui_consts::FOOTER_INDENT_COLS;
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
@@ -21,10 +19,6 @@ pub(crate) struct FooterProps {
     pub(crate) esc_backtrack_hint: bool,
     pub(crate) use_shift_enter_hint: bool,
     pub(crate) is_task_running: bool,
-    pub(crate) context_window_percent: Option<i64>,
-    pub(crate) context_window_used_tokens: Option<i64>,
-    /// Total tokens used in this session (cumulative, not just context window)
-    pub(crate) total_session_tokens: Option<i64>,
     pub(crate) transcript_scrolled: bool,
     pub(crate) transcript_selection_active: bool,
     pub(crate) transcript_scroll_position: Option<(usize, usize)>,
@@ -83,22 +77,14 @@ pub(crate) fn render_footer(area: Rect, buf: &mut Buffer, props: FooterProps) {
 }
 
 fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
-    // Show the context indicator on the left, appended after the primary hint
-    // (e.g., "? for shortcuts"). Keep it visible even when typing (i.e., when
-    // the shortcut hint is hidden). Hide it only for the multi-line
-    // ShortcutOverlay.
+    // Context window indicator is now shown in the header bar, so the footer
+    // only displays keyboard shortcut hints.
     match props.mode {
         FooterMode::CtrlCReminder => vec![ctrl_c_reminder_line(CtrlCReminderState {
             is_task_running: props.is_task_running,
         })],
         FooterMode::ShortcutSummary => {
-            let mut line = context_window_line(
-                props.context_window_percent,
-                props.context_window_used_tokens,
-                props.total_session_tokens,
-            );
-            line.push_span(" · ".dim());
-            line.extend(vec![
+            let mut line = Line::from(vec![
                 key_hint::plain(KeyCode::Char('?')).into(),
                 " for shortcuts".dim(),
             ]);
@@ -139,11 +125,13 @@ fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
             shortcut_overlay_lines(state)
         }
         FooterMode::EscHint => vec![esc_hint_line(props.esc_backtrack_hint)],
-        FooterMode::ContextOnly => vec![context_window_line(
-            props.context_window_percent,
-            props.context_window_used_tokens,
-            props.total_session_tokens,
-        )],
+        FooterMode::ContextOnly => {
+            // Context info is now in the header; show minimal shortcut hint instead
+            vec![Line::from(vec![
+                key_hint::plain(KeyCode::Char('?')).into(),
+                " for shortcuts".dim(),
+            ])]
+        }
     }
 }
 
@@ -269,52 +257,6 @@ fn build_columns(entries: Vec<Line<'static>>) -> Vec<Line<'static>> {
             line.dim()
         })
         .collect()
-}
-
-fn context_window_line(
-    percent: Option<i64>,
-    used_tokens: Option<i64>,
-    total_session_tokens: Option<i64>,
-) -> Line<'static> {
-    // Visual progress bar width (in characters)
-    const BAR_WIDTH: usize = 10;
-
-    let mut spans = Vec::new();
-
-    // Always show total session tokens first if available (like Claude Code)
-    if let Some(total) = total_session_tokens {
-        let total_fmt = format_tokens_compact(total);
-        spans.push(Span::from(total_fmt).cyan());
-        spans.push(Span::from(" tokens").dim());
-    }
-
-    // Then show context window status
-    if let Some(percent) = percent {
-        let percent = percent.clamp(0, 100);
-        if !spans.is_empty() {
-            spans.push(Span::from(" · ").dim());
-        }
-        // Show context "remaining" as filled portion (more intuitive)
-        // Color based on how much is LEFT: green when lots left, red when little left
-        spans.extend(theme::progress_bar_remaining(percent, BAR_WIDTH));
-        spans.push(Span::from(format!(" {percent}%")).dim());
-        return Line::from(spans);
-    }
-
-    if spans.is_empty() {
-        if let Some(tokens) = used_tokens {
-            let used_fmt = format_tokens_compact(tokens);
-            // Without total context, just show usage text
-            return Line::from(vec![Span::from(format!("{used_fmt} used")).dim()]);
-        }
-
-        // Default: show full bar with 100% left
-        let mut default_spans = theme::progress_bar_remaining(100, BAR_WIDTH);
-        default_spans.push(Span::from(" 100% left").dim());
-        return Line::from(default_spans);
-    }
-
-    Line::from(spans)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -500,9 +442,6 @@ mod tests {
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
                 is_task_running: false,
-                context_window_percent: None,
-                context_window_used_tokens: None,
-                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -517,9 +456,6 @@ mod tests {
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
                 is_task_running: false,
-                context_window_percent: None,
-                context_window_used_tokens: None,
-                total_session_tokens: None,
                 transcript_scrolled: true,
                 transcript_selection_active: true,
                 transcript_scroll_position: Some((3, 42)),
@@ -534,9 +470,6 @@ mod tests {
                 esc_backtrack_hint: true,
                 use_shift_enter_hint: true,
                 is_task_running: false,
-                context_window_percent: None,
-                context_window_used_tokens: None,
-                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -551,9 +484,6 @@ mod tests {
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
                 is_task_running: false,
-                context_window_percent: None,
-                context_window_used_tokens: None,
-                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -568,9 +498,6 @@ mod tests {
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
                 is_task_running: true,
-                context_window_percent: None,
-                context_window_used_tokens: None,
-                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -585,9 +512,6 @@ mod tests {
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
                 is_task_running: false,
-                context_window_percent: None,
-                context_window_used_tokens: None,
-                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -602,9 +526,6 @@ mod tests {
                 esc_backtrack_hint: true,
                 use_shift_enter_hint: false,
                 is_task_running: false,
-                context_window_percent: None,
-                context_window_used_tokens: None,
-                total_session_tokens: None,
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
@@ -613,50 +534,12 @@ mod tests {
         );
 
         snapshot_footer(
-            "footer_shortcuts_context_running",
+            "footer_shortcuts_task_running",
             FooterProps {
                 mode: FooterMode::ShortcutSummary,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
                 is_task_running: true,
-                context_window_percent: Some(72),
-                context_window_used_tokens: None,
-                total_session_tokens: None,
-                transcript_scrolled: false,
-                transcript_selection_active: false,
-                transcript_scroll_position: None,
-                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
-            },
-        );
-
-        snapshot_footer(
-            "footer_context_tokens_used",
-            FooterProps {
-                mode: FooterMode::ShortcutSummary,
-                esc_backtrack_hint: false,
-                use_shift_enter_hint: false,
-                is_task_running: false,
-                context_window_percent: None,
-                context_window_used_tokens: Some(123_456),
-                total_session_tokens: None,
-                transcript_scrolled: false,
-                transcript_selection_active: false,
-                transcript_scroll_position: None,
-                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
-            },
-        );
-
-        // Test with total session tokens displayed
-        snapshot_footer(
-            "footer_with_session_tokens",
-            FooterProps {
-                mode: FooterMode::ShortcutSummary,
-                esc_backtrack_hint: false,
-                use_shift_enter_hint: false,
-                is_task_running: false,
-                context_window_percent: Some(65),
-                context_window_used_tokens: None,
-                total_session_tokens: Some(42_500),
                 transcript_scrolled: false,
                 transcript_selection_active: false,
                 transcript_scroll_position: None,

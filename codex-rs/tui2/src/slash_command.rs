@@ -28,6 +28,7 @@ pub enum SlashCommand {
     Diff,
     Mention,
     Status,
+    Ps,
     Mcp,
     ToggleMouseMode,
     Logout,
@@ -57,6 +58,7 @@ impl SlashCommand {
             SlashCommand::Mention => "mention a file",
             SlashCommand::Skills => "use skills to improve how Codex performs specific tasks",
             SlashCommand::Status => "show current session configuration and token usage",
+            SlashCommand::Ps => "list active background terminals",
             SlashCommand::Model => "choose what model and reasoning effort to use",
             SlashCommand::Endpoint => "show or change the Azure OpenAI endpoint",
             SlashCommand::Approvals => "choose what Codex can do without approval",
@@ -93,6 +95,7 @@ impl SlashCommand {
             | SlashCommand::Mention
             | SlashCommand::Skills
             | SlashCommand::Status
+            | SlashCommand::Ps
             | SlashCommand::Mcp
             | SlashCommand::ToggleMouseMode
             | SlashCommand::Feedback
