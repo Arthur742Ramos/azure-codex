@@ -53,21 +53,23 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         codex_tools,
         vec![
-            "local_shell".to_string(),
+            "exec_command".to_string(),
+            "write_stdin".to_string(),
             "list_mcp_resources".to_string(),
             "list_mcp_resource_templates".to_string(),
             "read_mcp_resource".to_string(),
             "update_plan".to_string(),
             "view_image".to_string()
         ],
-        "codex-mini-latest should expose the local shell tool",
+        "codex-mini-latest should expose exec_command and write_stdin tools",
     );
 
     let gpt5_codex_tools = collect_tool_identifiers_for_model("gpt-5-codex").await;
     assert_eq!(
         gpt5_codex_tools,
         vec![
-            "shell_command".to_string(),
+            "exec_command".to_string(),
+            "write_stdin".to_string(),
             "list_mcp_resources".to_string(),
             "list_mcp_resource_templates".to_string(),
             "read_mcp_resource".to_string(),
@@ -82,7 +84,8 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         gpt51_codex_tools,
         vec![
-            "shell_command".to_string(),
+            "exec_command".to_string(),
+            "write_stdin".to_string(),
             "list_mcp_resources".to_string(),
             "list_mcp_resource_templates".to_string(),
             "read_mcp_resource".to_string(),
@@ -97,21 +100,23 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         gpt5_tools,
         vec![
-            "shell".to_string(),
+            "exec_command".to_string(),
+            "write_stdin".to_string(),
             "list_mcp_resources".to_string(),
             "list_mcp_resource_templates".to_string(),
             "read_mcp_resource".to_string(),
             "update_plan".to_string(),
             "view_image".to_string()
         ],
-        "gpt-5 should expose the apply_patch tool",
+        "gpt-5 should expose exec_command and write_stdin tools",
     );
 
     let gpt51_tools = collect_tool_identifiers_for_model("gpt-5.1").await;
     assert_eq!(
         gpt51_tools,
         vec![
-            "shell_command".to_string(),
+            "exec_command".to_string(),
+            "write_stdin".to_string(),
             "list_mcp_resources".to_string(),
             "list_mcp_resource_templates".to_string(),
             "read_mcp_resource".to_string(),

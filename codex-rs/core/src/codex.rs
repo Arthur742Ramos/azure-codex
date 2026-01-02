@@ -253,7 +253,9 @@ impl Codex {
 
         let config = Arc::new(config);
         if config.features.enabled(Feature::RemoteModels)
-            && let Err(err) = models_manager.refresh_available_models(&config).await
+            && let Err(err) = models_manager
+                .refresh_available_models_with_cache(&config)
+                .await
         {
             error!("failed to refresh available models: {err:?}");
         }
@@ -2642,6 +2644,10 @@ async fn try_run_turn(
                 // token usage is available to avoid duplicate TokenCount events.
                 sess.update_rate_limits(&turn_context, snapshot).await;
             }
+            ResponseEvent::ModelsEtag(etag) => {
+                // Update internal state with latest models etag
+                sess.services.models_manager.refresh_if_new_etag(etag).await;
+            }
             ResponseEvent::Completed {
                 response_id: _,
                 token_usage,
@@ -3170,7 +3176,7 @@ mod tests {
             auth_manager: auth_manager.clone(),
             azure_auth: None,
             otel_manager: otel_manager.clone(),
-            models_manager,
+            models_manager: Arc::clone(&models_manager),
             tool_approvals: Mutex::new(ApprovalStore::default()),
             skills_manager,
         };
@@ -3259,7 +3265,7 @@ mod tests {
             auth_manager: Arc::clone(&auth_manager),
             azure_auth: None,
             otel_manager: otel_manager.clone(),
-            models_manager,
+            models_manager: Arc::clone(&models_manager),
             tool_approvals: Mutex::new(ApprovalStore::default()),
             skills_manager,
         };

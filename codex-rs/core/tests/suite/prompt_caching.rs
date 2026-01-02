@@ -116,7 +116,8 @@ async fn prompt_tools_are_consistent_across_requests() -> anyhow::Result<()> {
     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
 
     let expected_tools_names = vec![
-        "shell_command",
+        "exec_command",
+        "write_stdin",
         "list_mcp_resources",
         "list_mcp_resource_templates",
         "read_mcp_resource",
