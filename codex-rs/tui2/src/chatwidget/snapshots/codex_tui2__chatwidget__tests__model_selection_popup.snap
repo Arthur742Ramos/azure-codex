@@ -2,9 +2,6 @@
 source: tui2/src/chatwidget/tests.rs
 expression: popup
 ---
-│ ● gpt-5-codex  ·  ctrl + k commands  ·  ? shortcuts                          │
-╰──────────────────────────────────────────────────────────────────────────────╯
-
   Select Model and Effort
   Access legacy models by running codex -m <model_name> or in your config.toml
 

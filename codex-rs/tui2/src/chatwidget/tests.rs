@@ -1746,12 +1746,21 @@ fn render_bottom_popup(chat: &ChatWidget, width: u16) -> String {
         })
         .collect();
 
+    // The header is now 3 lines: top border (with brand), content row, bottom border
+    // Find the bottom border (starts with ╰) and drain everything up to and including it
     let app_name = codex_branding::APP_NAME;
     if let Some(header_idx) = lines
         .iter()
         .position(|line| !line.trim().is_empty() && line.contains(app_name))
     {
-        lines.drain(0..=header_idx);
+        // Find the header bottom border (starts with ╰)
+        let header_end = lines
+            .iter()
+            .skip(header_idx)
+            .position(|line| line.trim_start().starts_with('╰'))
+            .map(|offset| header_idx + offset)
+            .unwrap_or(header_idx);
+        lines.drain(0..=header_end);
     }
 
     while lines.first().is_some_and(|line| line.trim().is_empty()) {
