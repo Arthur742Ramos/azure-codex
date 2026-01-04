@@ -3,6 +3,7 @@ use crate::clipboard_paste::is_probably_wsl;
 use crate::key_hint;
 use crate::key_hint::KeyBinding;
 use crate::render::line_utils::prefix_lines;
+use crate::theme;
 use crate::ui_consts::FOOTER_INDENT_COLS;
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
@@ -23,6 +24,10 @@ pub(crate) struct FooterProps {
     pub(crate) transcript_selection_active: bool,
     pub(crate) transcript_scroll_position: Option<(usize, usize)>,
     pub(crate) transcript_copy_selection_key: KeyBinding,
+    /// Total tokens used in the session (cumulative blended total)
+    pub(crate) total_session_tokens: Option<i64>,
+    /// Context window usage percentage (0-100 represents percent remaining)
+    pub(crate) context_window_percent: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -76,18 +81,59 @@ pub(crate) fn render_footer(area: Rect, buf: &mut Buffer, props: FooterProps) {
     .render(area, buf);
 }
 
+/// Format token count compactly (e.g., "42.5K", "1.2M")
+fn format_tokens_compact(tokens: i64) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}K", tokens as f64 / 1_000.0)
+    } else {
+        tokens.to_string()
+    }
+}
+
+/// Generate token usage spans for footer display
+fn token_usage_spans(
+    total_tokens: Option<i64>,
+    context_percent: Option<i64>,
+) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+
+    if let Some(tokens) = total_tokens {
+        spans.push(Span::from(format!("{} tokens", format_tokens_compact(tokens))).dim());
+    }
+
+    if let Some(percent) = context_percent {
+        if !spans.is_empty() {
+            spans.push(Span::from(" · ").dim());
+        }
+        spans.extend(theme::progress_bar_remaining(percent, 10));
+        spans.push(Span::from(format!(" {percent}%")).dim());
+    }
+
+    spans
+}
+
 fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
-    // Context window indicator is now shown in the header bar, so the footer
-    // only displays keyboard shortcut hints.
     match props.mode {
         FooterMode::CtrlCReminder => vec![ctrl_c_reminder_line(CtrlCReminderState {
             is_task_running: props.is_task_running,
         })],
         FooterMode::ShortcutSummary => {
-            let mut line = Line::from(vec![
-                key_hint::plain(KeyCode::Char('?')).into(),
-                " for shortcuts".dim(),
-            ]);
+            let mut line = Line::default();
+
+            // Show token usage first if available
+            let token_spans =
+                token_usage_spans(props.total_session_tokens, props.context_window_percent);
+            if !token_spans.is_empty() {
+                line.spans.extend(token_spans);
+                line.push_span(" · ".dim());
+            }
+
+            // Then keyboard shortcut hints
+            line.push_span(key_hint::plain(KeyCode::Char('?')));
+            line.push_span(" for shortcuts".dim());
+
             if props.transcript_scrolled {
                 line.push_span(" · ".dim());
                 line.push_span(key_hint::plain(KeyCode::PageUp));
@@ -126,11 +172,17 @@ fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
         }
         FooterMode::EscHint => vec![esc_hint_line(props.esc_backtrack_hint)],
         FooterMode::ContextOnly => {
-            // Context info is now in the header; show minimal shortcut hint instead
-            vec![Line::from(vec![
-                key_hint::plain(KeyCode::Char('?')).into(),
-                " for shortcuts".dim(),
-            ])]
+            // Show token usage and minimal shortcut hint
+            let mut line = Line::default();
+            let token_spans =
+                token_usage_spans(props.total_session_tokens, props.context_window_percent);
+            if !token_spans.is_empty() {
+                line.spans.extend(token_spans);
+                line.push_span(" · ".dim());
+            }
+            line.push_span(key_hint::plain(KeyCode::Char('?')));
+            line.push_span(" for shortcuts".dim());
+            vec![line]
         }
     }
 }
@@ -446,6 +498,8 @@ mod tests {
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
                 transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+                total_session_tokens: None,
+                context_window_percent: None,
             },
         );
 
@@ -460,6 +514,8 @@ mod tests {
                 transcript_selection_active: true,
                 transcript_scroll_position: Some((3, 42)),
                 transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+                total_session_tokens: None,
+                context_window_percent: None,
             },
         );
 
@@ -474,6 +530,8 @@ mod tests {
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
                 transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+                total_session_tokens: None,
+                context_window_percent: None,
             },
         );
 
@@ -488,6 +546,8 @@ mod tests {
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
                 transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+                total_session_tokens: None,
+                context_window_percent: None,
             },
         );
 
@@ -502,6 +562,8 @@ mod tests {
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
                 transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+                total_session_tokens: None,
+                context_window_percent: None,
             },
         );
 
@@ -516,6 +578,8 @@ mod tests {
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
                 transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+                total_session_tokens: None,
+                context_window_percent: None,
             },
         );
 
@@ -530,6 +594,8 @@ mod tests {
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
                 transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+                total_session_tokens: None,
+                context_window_percent: None,
             },
         );
 
@@ -544,6 +610,25 @@ mod tests {
                 transcript_selection_active: false,
                 transcript_scroll_position: None,
                 transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+                total_session_tokens: None,
+                context_window_percent: None,
+            },
+        );
+
+        // Test with token display
+        snapshot_footer(
+            "footer_with_session_tokens",
+            FooterProps {
+                mode: FooterMode::ShortcutSummary,
+                esc_backtrack_hint: false,
+                use_shift_enter_hint: false,
+                is_task_running: false,
+                transcript_scrolled: false,
+                transcript_selection_active: false,
+                transcript_scroll_position: None,
+                transcript_copy_selection_key: key_hint::ctrl_shift(KeyCode::Char('c')),
+                total_session_tokens: Some(42500),
+                context_window_percent: Some(65),
             },
         );
     }

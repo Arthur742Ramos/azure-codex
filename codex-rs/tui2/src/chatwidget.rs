@@ -4043,16 +4043,7 @@ impl Renderable for ChatWidget {
             content_spans.push(Span::from(format!("r: {label}")).dim());
         }
 
-        // Add context window usage indicator if available (OpenCode-style status bar)
-        if let Some(ref info) = self.token_info {
-            let percent_remaining = self.context_remaining_percent(info).unwrap_or(100);
-            let percent_used = 100 - percent_remaining;
-
-            // Compact progress bar (5 chars wide)
-            content_spans.push("  ·  ".dim());
-            content_spans.extend(theme::progress_bar(percent_used, 5));
-            content_spans.push(Span::from(format!(" {percent_used}%")).dim());
-        }
+        // Token usage is now shown in the footer, not the header
 
         // Add right-side key hints if there's space
         let right_full: Vec<Span<'static>> = vec![

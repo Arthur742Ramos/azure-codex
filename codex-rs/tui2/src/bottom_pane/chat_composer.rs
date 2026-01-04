@@ -1570,6 +1570,8 @@ impl ChatComposer {
             transcript_selection_active: self.transcript_selection_active,
             transcript_scroll_position: self.transcript_scroll_position,
             transcript_copy_selection_key: self.transcript_copy_selection_key,
+            total_session_tokens: self.total_session_tokens,
+            context_window_percent: self.context_window_percent,
         }
     }
 
