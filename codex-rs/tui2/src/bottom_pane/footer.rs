@@ -83,6 +83,8 @@ pub(crate) fn render_footer(area: Rect, buf: &mut Buffer, props: FooterProps) {
 
 /// Format token count compactly (e.g., "42.5K", "1.2M")
 fn format_tokens_compact(tokens: i64) -> String {
+    // Clamp to non-negative to handle any unexpected edge cases
+    let tokens = tokens.max(0);
     if tokens >= 1_000_000 {
         format!("{:.1}M", tokens as f64 / 1_000_000.0)
     } else if tokens >= 1_000 {
@@ -114,25 +116,35 @@ fn token_usage_spans(
     spans
 }
 
+/// Create a line with optional token usage prefix and shortcut hint suffix.
+fn line_with_tokens_and_shortcuts(
+    total_tokens: Option<i64>,
+    context_percent: Option<i64>,
+) -> Line<'static> {
+    let mut line = Line::default();
+
+    let token_spans = token_usage_spans(total_tokens, context_percent);
+    if !token_spans.is_empty() {
+        line.spans.extend(token_spans);
+        line.push_span(" · ".dim());
+    }
+
+    line.push_span(key_hint::plain(KeyCode::Char('?')));
+    line.push_span(" for shortcuts".dim());
+
+    line
+}
+
 fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
     match props.mode {
         FooterMode::CtrlCReminder => vec![ctrl_c_reminder_line(CtrlCReminderState {
             is_task_running: props.is_task_running,
         })],
         FooterMode::ShortcutSummary => {
-            let mut line = Line::default();
-
-            // Show token usage first if available
-            let token_spans =
-                token_usage_spans(props.total_session_tokens, props.context_window_percent);
-            if !token_spans.is_empty() {
-                line.spans.extend(token_spans);
-                line.push_span(" · ".dim());
-            }
-
-            // Then keyboard shortcut hints
-            line.push_span(key_hint::plain(KeyCode::Char('?')));
-            line.push_span(" for shortcuts".dim());
+            let mut line = line_with_tokens_and_shortcuts(
+                props.total_session_tokens,
+                props.context_window_percent,
+            );
 
             if props.transcript_scrolled {
                 line.push_span(" · ".dim());
@@ -172,17 +184,10 @@ fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
         }
         FooterMode::EscHint => vec![esc_hint_line(props.esc_backtrack_hint)],
         FooterMode::ContextOnly => {
-            // Show token usage and minimal shortcut hint
-            let mut line = Line::default();
-            let token_spans =
-                token_usage_spans(props.total_session_tokens, props.context_window_percent);
-            if !token_spans.is_empty() {
-                line.spans.extend(token_spans);
-                line.push_span(" · ".dim());
-            }
-            line.push_span(key_hint::plain(KeyCode::Char('?')));
-            line.push_span(" for shortcuts".dim());
-            vec![line]
+            vec![line_with_tokens_and_shortcuts(
+                props.total_session_tokens,
+                props.context_window_percent,
+            )]
         }
     }
 }
