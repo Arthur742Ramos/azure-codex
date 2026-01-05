@@ -1799,6 +1799,9 @@ impl ChatWidget {
             SlashCommand::Mcp => {
                 self.add_mcp_output();
             }
+            SlashCommand::Theme => {
+                self.open_theme_popup();
+            }
             SlashCommand::ToggleMouseMode => {
                 self.app_event_tx.send(AppEvent::ToggleMouseCapture);
             }
@@ -2748,6 +2751,42 @@ impl ChatWidget {
                 );
             }
         }
+    }
+
+    pub(crate) fn open_theme_popup(&mut self) {
+        use crate::theme::Theme;
+
+        let current_theme = crate::theme::current_theme_name();
+        let available = Theme::available_themes();
+
+        let items: Vec<SelectionItem> = available
+            .iter()
+            .map(|&theme_name| {
+                let is_current = theme_name == current_theme;
+                let description = Theme::description(theme_name).map(ToString::to_string);
+                let theme_for_action = theme_name.to_string();
+                SelectionItem {
+                    name: theme_name.to_string(),
+                    description,
+                    is_current,
+                    dismiss_on_select: true,
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::PersistThemeSelection {
+                            theme: theme_for_action.clone(),
+                        });
+                    })],
+                    ..Default::default()
+                }
+            })
+            .collect();
+
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            title: Some("Select Theme".to_string()),
+            subtitle: Some("Choose a color theme for the TUI".to_string()),
+            footer_hint: Some(standard_popup_hint_line()),
+            items,
+            ..Default::default()
+        });
     }
 
     fn model_selection_actions(

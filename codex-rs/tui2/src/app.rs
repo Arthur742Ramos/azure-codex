@@ -1858,6 +1858,28 @@ impl App {
                     }
                 }
             }
+            AppEvent::PersistThemeSelection { theme } => {
+                // Apply the theme immediately
+                crate::theme::set_theme_by_name(&theme);
+                tracing::info!(theme = %theme, "Theme changed");
+
+                // Persist to config
+                match ConfigEditsBuilder::new(&self.config.codex_home)
+                    .set_theme(&theme)
+                    .apply()
+                    .await
+                {
+                    Ok(()) => {
+                        self.chat_widget
+                            .add_info_message(format!("Theme changed to {theme}"), None);
+                    }
+                    Err(err) => {
+                        tracing::error!(error = %err, "failed to persist theme selection");
+                        self.chat_widget
+                            .add_error_message(format!("Failed to save theme: {err}"));
+                    }
+                }
+            }
             AppEvent::UpdateAskForApprovalPolicy(policy) => {
                 self.chat_widget.set_approval_policy(policy);
             }

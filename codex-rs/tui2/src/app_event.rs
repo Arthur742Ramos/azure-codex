@@ -69,6 +69,11 @@ pub(crate) enum AppEvent {
         effort: Option<ReasoningEffort>,
     },
 
+    /// Persist the selected theme to the appropriate config.
+    PersistThemeSelection {
+        theme: String,
+    },
+
     /// Open the reasoning selection popup after picking a model.
     OpenReasoningPopup {
         model: ModelPreset,

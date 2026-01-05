@@ -664,6 +664,15 @@ impl ConfigEditsBuilder {
         self
     }
 
+    /// Set the TUI color theme under the `[tui]` table.
+    pub fn set_theme(mut self, theme: &str) -> Self {
+        self.edits.push(ConfigEdit::SetPath {
+            segments: vec!["tui".to_string(), "theme".to_string()],
+            value: value(theme),
+        });
+        self
+    }
+
     pub fn with_edits<I>(mut self, edits: I) -> Self
     where
         I: IntoIterator<Item = ConfigEdit>,

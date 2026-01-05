@@ -30,6 +30,7 @@ pub enum SlashCommand {
     Status,
     Ps,
     Mcp,
+    Theme,
     ToggleMouseMode,
     Logout,
     Quit,
@@ -63,6 +64,7 @@ impl SlashCommand {
             SlashCommand::Endpoint => "show or change the Azure OpenAI endpoint",
             SlashCommand::Approvals => "choose what Codex can do without approval",
             SlashCommand::Mcp => "list configured MCP tools",
+            SlashCommand::Theme => "change the color theme",
             SlashCommand::ToggleMouseMode => "toggle mouse capture for native text selection",
             SlashCommand::Logout => "log out of Codex",
             SlashCommand::Rollout => "print the rollout file path",
@@ -97,6 +99,7 @@ impl SlashCommand {
             | SlashCommand::Status
             | SlashCommand::Ps
             | SlashCommand::Mcp
+            | SlashCommand::Theme
             | SlashCommand::ToggleMouseMode
             | SlashCommand::Feedback
             | SlashCommand::CancelLoop

@@ -376,8 +376,7 @@ async fn run_ratatui_app(
 
     // Initialize theme from config before terminal setup
     let theme_name = initial_config.tui_theme.as_deref().unwrap_or("azure");
-    let theme = theme::Theme::from_name(theme_name);
-    theme::set_theme(theme);
+    theme::set_theme_by_name(theme_name);
     tracing::debug!(theme = theme_name, "Initialized TUI theme");
 
     // Forward panic reports through tracing so they appear in the UI status

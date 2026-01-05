@@ -248,21 +248,44 @@ impl Theme {
             "auto",
         ]
     }
+
+    /// Get a human-readable description for a theme name
+    pub fn description(name: &str) -> Option<&'static str> {
+        match name {
+            "azure" => Some("Default cyan-focused Azure branding"),
+            "azure-light" => Some("Light variant for light terminal backgrounds"),
+            "catppuccin-mocha" => Some("Warm, cozy dark theme"),
+            "dracula" => Some("Classic purple/cyan dark theme"),
+            "nord" => Some("Cool, arctic blue theme"),
+            "tokyo-night" => Some("Vibrant Tokyo-inspired theme"),
+            "gruvbox-dark" => Some("Retro warm theme"),
+            "auto" => Some("Auto-detect based on terminal background"),
+            _ => None,
+        }
+    }
 }
 
 // Thread-local storage for the current theme
 thread_local! {
     static CURRENT_THEME: RefCell<Theme> = const { RefCell::new(Theme::azure()) };
+    static CURRENT_THEME_NAME: RefCell<String> = RefCell::new(String::from("azure"));
 }
 
-/// Set the current theme for the TUI
-pub fn set_theme(theme: Theme) {
+/// Set the current theme by name
+pub fn set_theme_by_name(name: &str) {
+    let theme = Theme::from_name(name);
     CURRENT_THEME.with(|t| *t.borrow_mut() = theme);
+    CURRENT_THEME_NAME.with(|n| *n.borrow_mut() = name.to_string());
 }
 
 /// Get the current theme
 pub fn current_theme() -> Theme {
     CURRENT_THEME.with(|t| *t.borrow())
+}
+
+/// Get the name of the current theme
+pub fn current_theme_name() -> String {
+    CURRENT_THEME_NAME.with(|n| n.borrow().clone())
 }
 
 // ============================================================================
