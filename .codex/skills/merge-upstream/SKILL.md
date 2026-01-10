@@ -105,6 +105,70 @@ git add <resolved-files>
 git rebase --continue
 ```
 
+### Option C: Selective Cherry-Picking (Recommended When Divergence is Large)
+
+When there are many upstream commits and significant Azure modifications, cherry-picking "safe" commits avoids conflicts entirely. This approach was successfully used to sync 15 upstream commits without any conflicts.
+
+#### Step 1: Identify Azure-Modified Files
+
+```bash
+# Get list of all files modified in Azure fork vs upstream
+git diff --name-only upstream/main...HEAD > azure-modified-files.txt
+wc -l azure-modified-files.txt  # Check count
+```
+
+#### Step 2: Find Safe Commits
+
+A "safe" commit is one that doesn't touch any Azure-modified files:
+
+```bash
+# For each upstream commit, check if it touches Azure-modified files
+for commit in $(git rev-list HEAD..upstream/main); do
+    files=$(git diff-tree --no-commit-id --name-only -r $commit)
+    safe=true
+    for file in $files; do
+        if grep -q "^$file$" azure-modified-files.txt; then
+            safe=false
+            break
+        fi
+    done
+    if [ "$safe" = true ]; then
+        echo "$commit $(git log --oneline -1 $commit)"
+    fi
+done
+```
+
+#### Step 3: Create Cherry-Pick Branch and Apply
+
+```bash
+# Create branch for cherry-picks
+git checkout -b upstream-cherry-picks
+
+# Cherry-pick safe commits (oldest first)
+git cherry-pick <commit1> <commit2> ...
+
+# Build and test
+cargo build --release -p codex-cli
+```
+
+#### Step 4: Merge to Main
+
+```bash
+git checkout main
+git merge upstream-cherry-picks
+git push origin main
+```
+
+#### Known Dependency Issues
+
+Some commits have hidden dependencies that cause build failures:
+
+1. **otel/metrics commits**: Either include ALL or NONE
+2. **config_requirements**: Type definitions may be in other commits
+3. **sandbox changes**: May import types from related commits
+
+**Rule**: If a cherry-pick fails to build, check if it depends on another upstream commit.
+
 ## Conflict Resolution Priority
 
 When resolving conflicts, prioritize in this order:
